@@ -1,6 +1,6 @@
 [project]
 name = "fima"
-version = "0.1.1"
+version = "0.1.0"
 description = "fima – A Python package for scraping and analyzing Iran’s financial market data. It currently supports bonds and options, with tools for calculating BSM prices, greeks, and implied volatility. Future versions will expand to include other instruments such as commodities and more."
 authors = [{ name = "Hemo Boghosian", email = "HemoBoghosian@gmail.com" }]
 license = { text = "MIT" }
