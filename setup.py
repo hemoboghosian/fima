@@ -11,7 +11,7 @@ setup(
                 "commodities and more.",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/hemoboghosian/fin_scrape",
+    url="https://github.com/hemoboghosian/fima",
     packages=find_packages(),
     python_requires=">=3.10",
     install_requires=["pandas", "requests", "jdatetime", "numpy", "scipy", "bs4", "selenium", "mibian", "lxml"],

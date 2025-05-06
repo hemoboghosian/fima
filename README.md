@@ -11,7 +11,7 @@
 
 ## نصب کتابخانه
 ```
-pip install fin_scrape
+pip install fima
 ```
 
 ## توابع مربوط به اختیارهای معامله
