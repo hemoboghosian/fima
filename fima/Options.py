@@ -7,17 +7,17 @@ from scipy.stats import norm
 import numpy as np
 
 
-def calculate_d1(s, k, t, r_f, sigma) -> float:
+def _calculate_d1(s, k, t, r_f, sigma) -> float:
     return (np.log(s / k) + (r_f + 0.5 * sigma ** 2) * t) / (sigma * np.sqrt(t))
 
 
-def calculate_d2(s, k, t, r_f, sigma) -> float:
-    return calculate_d1(s, k, t, r_f, sigma) - sigma * np.sqrt(t)
+def _calculate_d2(s, k, t, r_f, sigma) -> float:
+    return _calculate_d1(s, k, t, r_f, sigma) - sigma * np.sqrt(t)
 
 
 def calculate_delta(s, k, t, r_f, sigma, option_type) -> float:
     if option_type == 'Call':
-        return norm.cdf(calculate_d1(s, k, t, r_f, sigma))
+        return norm.cdf(_calculate_d1(s, k, t, r_f, sigma))
     elif option_type == 'Put':
         return -norm.cdf(-(np.log(s / k) + (r_f + sigma ** 2 / 2) * t) / (sigma * np.sqrt(t)))
     return None
@@ -25,65 +25,65 @@ def calculate_delta(s, k, t, r_f, sigma, option_type) -> float:
 
 def calculate_theta(s, k, t, r_f, sigma, option_type) -> float:
     if option_type == 'Call':
-        p1 = - s * norm.pdf(calculate_d1(s, k, t, r_f, sigma)) * sigma / (2 * np.sqrt(t))
-        p2 = r_f * k * np.exp(-r_f * t) * norm.cdf(calculate_d2(s, k, t, r_f, sigma))
+        p1 = - s * norm.pdf(_calculate_d1(s, k, t, r_f, sigma)) * sigma / (2 * np.sqrt(t))
+        p2 = r_f * k * np.exp(-r_f * t) * norm.cdf(_calculate_d2(s, k, t, r_f, sigma))
         return p1 - p2
     elif option_type == 'Put':
-        p1 = - s * norm.pdf(calculate_d1(s, k, t, r_f, sigma)) * sigma / (2 * np.sqrt(t))
-        p2 = r_f * k * np.exp(-r_f * t) * norm.cdf(-calculate_d2(s, k, t, r_f, sigma))
+        p1 = - s * norm.pdf(_calculate_d1(s, k, t, r_f, sigma)) * sigma / (2 * np.sqrt(t))
+        p2 = r_f * k * np.exp(-r_f * t) * norm.cdf(-_calculate_d2(s, k, t, r_f, sigma))
         return p1 + p2
     return None
 
 
 def calculate_gamma(s, k, t, r_f, sigma) -> float:
-    return norm.pdf(calculate_d1(s, k, t, r_f, sigma)) / (s * sigma * np.sqrt(t))
+    return norm.pdf(_calculate_d1(s, k, t, r_f, sigma)) / (s * sigma * np.sqrt(t))
 
 
 def calculate_vega(s, k, t, r_f, sigma) -> float:
-    return s * np.sqrt(t) * norm.pdf(calculate_d1(s, k, t, r_f, sigma))
+    return s * np.sqrt(t) * norm.pdf(_calculate_d1(s, k, t, r_f, sigma))
 
 
 def calculate_rho(s, k, t, r_f, sigma, option_type) -> float:
     if option_type == 'Call':
-        return k * t * np.exp(-r_f * t) * norm.cdf(calculate_d2(s, k, t, r_f, sigma))
+        return k * t * np.exp(-r_f * t) * norm.cdf(_calculate_d2(s, k, t, r_f, sigma))
     elif option_type == 'Put':
-        return -k * t * np.exp(-r_f * t) * norm.cdf(-calculate_d2(s, k, t, r_f, sigma))
+        return -k * t * np.exp(-r_f * t) * norm.cdf(-_calculate_d2(s, k, t, r_f, sigma))
     return None
 
 
-def calculate_row_wise_implied_volatility(row) -> float:
+def _calculate_row_wise_implied_volatility(row) -> float:
     # print(f"Calculating {row['Ticker']} implied volatility...")
-    return get_implied_volatility(ticker=row['Ticker'], ticker_info_df=row.to_frame().T, r_f=row['RiskFreeRate'],
-                                  ua_historical_data=row['HistoricalData-UA'])
+    return get_implied_volatility(ticker=row['Ticker'], _ticker_info_df=row.to_frame().T, r_f=row['RiskFreeRate'],
+                                  _ua_historical_data=row['HistoricalData-UA'])
 
 
-def get_implied_volatility(ticker: str, ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None,
-                       r_f: float = None, minimum_required_history: int = 30, ua_historical_data: pd.DataFrame = None) -> float:
+def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None,
+                       r_f: float = None, minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame = None) -> float:
 
-    if ticker_info_df is None:
-        ticker_info_df = ticker_info(ticker=ticker, j_date=True)
+    if _ticker_info_df is None:
+        _ticker_info_df = ticker_info(ticker=ticker, j_date=True)
 
-    if ua_historical_data is None:
+    if _ua_historical_data is None:
         try:
-            _, ua_historical_data = download_historical_data(ticker)
+            _, _ua_historical_data = download_historical_data(ticker)
         except requests.exceptions.HTTPError:
             print(f'Couldn\'t download historical data for: {ticker}')
             return None
 
-        if ua_historical_data is None:
+        if _ua_historical_data is None:
             return None
 
     if r_f is None:
         r_f = get_risk_free_rate()
 
-    stock_days_available = len(ua_historical_data)
+    stock_days_available = len(_ua_historical_data)
     if stock_days_available < minimum_required_history:
         print(
-            f"Not enough stock history for {ticker_info_df['Ticker-UA']} ({stock_days_available} days available, "
+            f"Not enough stock history for {_ticker_info_df['Ticker-UA']} ({stock_days_available} days available, "
             f"{minimum_required_history} days required).")
         return None
 
-    days_to_maturity = ticker_info_df['DaysToMaturity'].values[0]
+    days_to_maturity = _ticker_info_df['DaysToMaturity'].values[0]
     if days_to_maturity < 10:
         print(f"Option {ticker} expires too soon ({days_to_maturity} days left). Calculated implied volatility may not be reliable.")
         return None
@@ -98,12 +98,12 @@ def get_implied_volatility(ticker: str, ticker_info_df: pd.DataFrame = None, vol
         print(f"Volatility window too small ({volatility_window_size} days). Cannot calculate meaningful volatility for {ticker}.")
         return None
 
-    sigma = calculate_volatility(ua_historical_data, volatility_window_size)
-    s = ticker_info_df['LastPrice-UA'].values[0]
-    k = ticker_info_df['StrikePrice'].values[0]
+    sigma = _calculate_volatility(_ua_historical_data, volatility_window_size)
+    s = _ticker_info_df['LastPrice-UA'].values[0]
+    k = _ticker_info_df['StrikePrice'].values[0]
     t = days_to_maturity / 365
-    option_type = ticker_info_df['Type'].values[0]
-    premium = ticker_info_df['LastPrice'].values[0]
+    option_type = _ticker_info_df['Type'].values[0]
+    premium = _ticker_info_df['LastPrice'].values[0]
 
     if sigma == 0 or t == 0:
         print("Zero volatility or expired option.")
@@ -123,35 +123,35 @@ def get_implied_volatility(ticker: str, ticker_info_df: pd.DataFrame = None, vol
     return ticker_implied_volatility.impliedVolatility / 100
 
 
-def get_greeks(ticker: str, ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None, r_f: float = None,
-           minimum_required_history: int = 30, ua_historical_data: pd.DataFrame = None) -> pd.Series:
+def get_greeks(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None, r_f: float = None,
+           minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame = None) -> pd.Series:
 
     delta, gamma, theta, vega, rho = (None, None, None, None, None)
 
-    if ticker_info_df is None:
-        ticker_info_df = ticker_info(ticker=ticker, j_date=True)
+    if _ticker_info_df is None:
+        _ticker_info_df = ticker_info(ticker=ticker, j_date=True)
 
-    if ua_historical_data is None:
+    if _ua_historical_data is None:
         try:
-            _, ua_historical_data = download_historical_data(ticker)
+            _, _ua_historical_data = download_historical_data(ticker)
         except requests.exceptions.HTTPError:
             print(f'Couldn\'t download historical data for: {ticker}')
             return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
 
-        if ua_historical_data is None:
+        if _ua_historical_data is None:
             return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
 
     if r_f is None:
         r_f = get_risk_free_rate()
 
-    stock_days_available = len(ua_historical_data)
+    stock_days_available = len(_ua_historical_data)
     if stock_days_available < minimum_required_history:
         print(
-            f"Not enough stock history for {ticker_info_df['Ticker-UA']} ({stock_days_available} days available, "
+            f"Not enough stock history for {_ticker_info_df['Ticker-UA']} ({stock_days_available} days available, "
             f"{minimum_required_history} days required).")
         return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
 
-    days_to_maturity = ticker_info_df['DaysToMaturity'].values[0]
+    days_to_maturity = _ticker_info_df['DaysToMaturity'].values[0]
     if days_to_maturity < 10:
         print(f"Option {ticker} expires too soon ({days_to_maturity} days left). Calculated greeks may not be reliable.")
         return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
@@ -167,11 +167,11 @@ def get_greeks(ticker: str, ticker_info_df: pd.DataFrame = None, volatility_wind
             f"Volatility window too small ({volatility_window_size} days). Cannot calculate meaningful volatility for {ticker}.")
         return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
 
-    sigma = calculate_volatility(ua_historical_data, volatility_window_size)
-    s = ticker_info_df['LastPrice-UA'].values[0]
-    k = ticker_info_df['StrikePrice'].values[0]
+    sigma = _calculate_volatility(_ua_historical_data, volatility_window_size)
+    s = _ticker_info_df['LastPrice-UA'].values[0]
+    k = _ticker_info_df['StrikePrice'].values[0]
     t = days_to_maturity / 365
-    option_type = ticker_info_df['Type'].values[0]
+    option_type = _ticker_info_df['Type'].values[0]
 
     if sigma == 0 or t == 0:
         print("Zero volatility or expired option.")
@@ -186,15 +186,15 @@ def get_greeks(ticker: str, ticker_info_df: pd.DataFrame = None, volatility_wind
     return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
 
 
-def calculate_row_wise_greeks(row) -> pd.Series:
+def _calculate_row_wise_greeks(row) -> pd.Series:
     # print(f"Calculating {row['Ticker']} greeks...")
-    return get_greeks(ticker=row['Ticker'], ticker_info_df=row.to_frame().T, r_f=row['RiskFreeRate'], ua_historical_data=row['HistoricalData-UA'])
+    return get_greeks(ticker=row['Ticker'], _ticker_info_df=row.to_frame().T, r_f=row['RiskFreeRate'], _ua_historical_data=row['HistoricalData-UA'])
 
 
-def calculate_row_wise_bsm(row) -> pd.Series:
+def _calculate_row_wise_bsm(row) -> pd.Series:
     # print(f"Calculating {row['Ticker']} price with Black, Scholes and Merton model...")
-    volatility, bsm_price = black_scholes_merton(ticker=row['Ticker'], ticker_info_df=row.to_frame().T,
-                                                 r_f=row['RiskFreeRate'], ua_historical_data=row['HistoricalData-UA'])
+    volatility, bsm_price = black_scholes_merton(ticker=row['Ticker'], _ticker_info_df=row.to_frame().T,
+                                                 r_f=row['RiskFreeRate'], _ua_historical_data=row['HistoricalData-UA'])
     return pd.Series({'Volatility': volatility, 'BSMPrice': bsm_price})
 
 
@@ -209,15 +209,15 @@ def ticker_info(ticker: str, j_date: bool = True) -> pd.DataFrame:
     return ticker_info_df
 
 
-def calculate_volatility(ua_historical_data, window_size) -> float:
+def _calculate_volatility(ua_historical_data, window_size) -> float:
     log_returns = np.log(ua_historical_data['ClosePrice'] / ua_historical_data['ClosePrice'].shift(1))
     volatility = np.sqrt(window_size) * log_returns.std()
     return volatility
 
 
 def calculate_black_scholes_merton(s, k, t, sigma, r_f, option_type) -> (float, float):
-    d1 = calculate_d1(s, k, t, r_f, sigma)
-    d2 = calculate_d2(s, k, t, r_f, sigma)
+    d1 = _calculate_d1(s, k, t, r_f, sigma)
+    d2 = _calculate_d2(s, k, t, r_f, sigma)
 
     if option_type == 'Call':
         price = s * norm.cdf(d1) - k * np.exp(-r_f * t) * norm.cdf(d2)
@@ -228,33 +228,33 @@ def calculate_black_scholes_merton(s, k, t, sigma, r_f, option_type) -> (float, 
     return price
 
 
-def black_scholes_merton(ticker: str, ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None,
-                         r_f: float = None, minimum_required_history: int = 30, ua_historical_data: pd.DataFrame = None) -> (float, float):
+def black_scholes_merton(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None,
+                         r_f: float = None, minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame = None) -> (float, float):
 
-    if ticker_info_df is None:
-        ticker_info_df = ticker_info(ticker=ticker, j_date=True)
+    if _ticker_info_df is None:
+        _ticker_info_df = ticker_info(ticker=ticker, j_date=True)
 
-    if ua_historical_data is None:
+    if _ua_historical_data is None:
         try:
-            _, ua_historical_data = download_historical_data(ticker)
+            _, _ua_historical_data = download_historical_data(ticker)
         except requests.exceptions.HTTPError:
             print(f'Couldn\'t download historical data for: {ticker}')
             return None, None
 
-        if ua_historical_data is None:
+        if _ua_historical_data is None:
             return None, None
 
     if r_f is None:
         r_f = get_risk_free_rate()
 
-    stock_days_available = len(ua_historical_data)
+    stock_days_available = len(_ua_historical_data)
     if stock_days_available < minimum_required_history:
         print(
-            f"Not enough stock history for {ticker_info_df['Ticker-UA']} ({stock_days_available} days available, "
+            f"Not enough stock history for {_ticker_info_df['Ticker-UA']} ({stock_days_available} days available, "
             f"{minimum_required_history} days required).")
         return None, None
 
-    days_to_maturity = ticker_info_df['DaysToMaturity'].values[0]
+    days_to_maturity = _ticker_info_df['DaysToMaturity'].values[0]
     if days_to_maturity < 10:
         print(f"Option {ticker} expires too soon ({days_to_maturity} days left). BSM model may not be reliable.")
         return None, None
@@ -270,11 +270,11 @@ def black_scholes_merton(ticker: str, ticker_info_df: pd.DataFrame = None, volat
             f"Volatility window too small ({volatility_window_size} days). Cannot calculate meaningful volatility for {ticker}.")
         return None, None
 
-    sigma = calculate_volatility(ua_historical_data, volatility_window_size)
-    s = ticker_info_df['LastPrice-UA'].values[0]
-    k = ticker_info_df['StrikePrice'].values[0]
+    sigma = _calculate_volatility(_ua_historical_data, volatility_window_size)
+    s = _ticker_info_df['LastPrice-UA'].values[0]
+    k = _ticker_info_df['StrikePrice'].values[0]
     t = days_to_maturity / 365
-    option_type = ticker_info_df['Type'].values[0]
+    option_type = _ticker_info_df['Type'].values[0]
 
     if sigma == 0 or t == 0:
         print("Zero volatility or expired option. Returning price = 0.")
@@ -285,17 +285,17 @@ def black_scholes_merton(ticker: str, ticker_info_df: pd.DataFrame = None, volat
     return sigma, price
 
 
-def download_all_underlying_assets(all_options_market_watch: pd.DataFrame = None, market: str = 'All') -> pd.DataFrame:
-    if all_options_market_watch is None:
-        all_options_market_watch = download_market_watch(market=market, stack='Horizontal', j_date=True)
-    all_underlying_assets = all_options_market_watch.loc[:, [column for column in all_options_market_watch.columns if column.endswith('-UA')]]
+def download_all_underlying_assets(_all_options_market_watch: pd.DataFrame = None, market: str = 'All') -> pd.DataFrame:
+    if _all_options_market_watch is None:
+        _all_options_market_watch = download_market_watch(market=market, stack='Horizontal', j_date=True)
+    all_underlying_assets = _all_options_market_watch.loc[:, [column for column in _all_options_market_watch.columns if column.endswith('-UA')]]
     all_underlying_assets.drop_duplicates(inplace=True)
     all_underlying_assets.reset_index(inplace=True, drop=True)
     all_underlying_assets.columns = [column.replace('-UA', '') for column in all_underlying_assets.columns]
     return all_underlying_assets
 
 
-def download_ua_historical_data(ticker: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+def _download_ua_historical_data(ticker: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
     all_options_market_watch = download_market_watch(market='All', stack='Vertical', j_date=False)
 
     # underlying asset
@@ -462,9 +462,8 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
 
 
         if bsm or greeks or implied_volatility:
-            uas_historical_data = {}
             print(f'Downloading {underlying_ticker} historical data...')
-            ua_historical_data = download_ua_historical_data(ticker=underlying_ticker).loc[:, ['Date', 'ClosePrice']].copy()
+            ua_historical_data = _download_ua_historical_data(ticker=underlying_ticker).loc[:, ['Date', 'ClosePrice']].copy()
             print(f'Historical data downloaded for {underlying_ticker}.')
 
             chain_contracts['HistoricalData-UA'] = None
@@ -487,21 +486,21 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
             ua_chain_contracts_columns.append('RiskFreeRate')
 
             if bsm:
-                call_chain_contracts[['Volatility', 'BSMPrice']] = call_chain_contracts.apply(calculate_row_wise_bsm, axis=1)
+                call_chain_contracts[['Volatility', 'BSMPrice']] = call_chain_contracts.apply(_calculate_row_wise_bsm, axis=1)
                 call_chain_contracts_columns.append(['Volatility', 'BSMPrice'])
-                put_chain_contracts[['Volatility', 'BSMPrice']] = put_chain_contracts.apply(calculate_row_wise_bsm, axis=1)
+                put_chain_contracts[['Volatility', 'BSMPrice']] = put_chain_contracts.apply(_calculate_row_wise_bsm, axis=1)
                 put_chain_contracts_columns.append(['Volatility', 'BSMPrice'])
 
             if greeks:
-                call_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = call_chain_contracts.apply(calculate_row_wise_greeks, axis=1)
+                call_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = call_chain_contracts.apply(_calculate_row_wise_greeks, axis=1)
                 call_chain_contracts_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
-                put_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = put_chain_contracts.apply(calculate_row_wise_greeks, axis=1)
+                put_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = put_chain_contracts.apply(_calculate_row_wise_greeks, axis=1)
                 put_chain_contracts_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
 
             if implied_volatility:
-                call_chain_contracts['ImpliedVolatility'] = call_chain_contracts.apply(calculate_row_wise_implied_volatility, axis=1)
+                call_chain_contracts['ImpliedVolatility'] = call_chain_contracts.apply(_calculate_row_wise_implied_volatility, axis=1)
                 call_chain_contracts_columns.append(['ImpliedVolatility'])
-                put_chain_contracts['ImpliedVolatility'] = put_chain_contracts.apply(calculate_row_wise_implied_volatility, axis=1)
+                put_chain_contracts['ImpliedVolatility'] = put_chain_contracts.apply(_calculate_row_wise_implied_volatility, axis=1)
                 put_chain_contracts_columns.append(['ImpliedVolatility'])
 
             call_chain_contracts.drop('HistoricalData-UA', inplace=True, axis=1)
@@ -597,7 +596,7 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
             print('Starting to download historical data for all tickers...')
             for ua in all_uas['Ticker']:
                 print(f'Downloading {ua} historical data...')
-                uas_historical_data[ua] = download_ua_historical_data(ticker=ua).loc[:, ['Date', 'ClosePrice']].copy()
+                uas_historical_data[ua] = _download_ua_historical_data(ticker=ua).loc[:, ['Date', 'ClosePrice']].copy()
             print('Historical data downloaded for all underlying assets.')
 
             all_options_market_watch['HistoricalData-UA'] = None
@@ -620,21 +619,21 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
             ua_market_watch_columns.append('RiskFreeRate')
 
             if bsm:
-                call_options_market_watch[['Volatility', 'BSMPrice']] = call_options_market_watch.apply(calculate_row_wise_bsm, axis=1)
+                call_options_market_watch[['Volatility', 'BSMPrice']] = call_options_market_watch.apply(_calculate_row_wise_bsm, axis=1)
                 call_options_market_watch_columns.append(['Volatility', 'BSMPrice'])
-                put_options_market_watch[['Volatility', 'BSMPrice']] = put_options_market_watch.apply(calculate_row_wise_bsm, axis=1)
+                put_options_market_watch[['Volatility', 'BSMPrice']] = put_options_market_watch.apply(_calculate_row_wise_bsm, axis=1)
                 put_options_market_watch_columns.append(['Volatility', 'BSMPrice'])
 
             if greeks:
-                call_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = call_options_market_watch.apply(calculate_row_wise_greeks, axis=1)
+                call_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = call_options_market_watch.apply(_calculate_row_wise_greeks, axis=1)
                 call_options_market_watch_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
-                put_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = put_options_market_watch.apply(calculate_row_wise_greeks, axis=1)
+                put_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = put_options_market_watch.apply(_calculate_row_wise_greeks, axis=1)
                 put_options_market_watch_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
 
             if implied_volatility:
-                call_options_market_watch['ImpliedVolatility'] = call_options_market_watch.apply(calculate_row_wise_implied_volatility, axis=1)
+                call_options_market_watch['ImpliedVolatility'] = call_options_market_watch.apply(_calculate_row_wise_implied_volatility, axis=1)
                 call_options_market_watch_columns.append(['ImpliedVolatility'])
-                put_options_market_watch['ImpliedVolatility'] = put_options_market_watch.apply(calculate_row_wise_implied_volatility, axis=1)
+                put_options_market_watch['ImpliedVolatility'] = put_options_market_watch.apply(_calculate_row_wise_implied_volatility, axis=1)
                 put_options_market_watch_columns.append(['ImpliedVolatility'])
 
             call_options_market_watch.drop('HistoricalData-UA', inplace=True, axis=1)
