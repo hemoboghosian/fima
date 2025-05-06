@@ -1,0 +1,16 @@
+[project]
+name = "fima"
+version = "0.1.0"
+description = "fima – A Python package for scraping and analyzing Iran’s financial market data. It currently supports bonds and option chains from TSETMC, with tools for calculating BSM prices, greeks, and implied volatility. Future versions will expand to include other instruments such as commodities and more."
+authors = [{ name = "Hemo Boghosian", email = "HemoBoghosian@gmail.com" }]
+license = { text = "MIT" }
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+dependencies = ["pandas", "requests", "jdatetime", "numpy", "scipy", "bs4", "selenium", "mibian", "lxml", "pytest"]
+
+[project.urls]
+"Homepage" = "https://github.com/hemoboghosian/fin_scrape"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
