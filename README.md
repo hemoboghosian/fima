@@ -179,7 +179,7 @@ all_underlying_assets = download_all_underlying_assets(market='All')
 
 ```python
 from fima.Options import (calculate_black_scholes_merton, calculate_delta, calculate_vega,
-                          calculate_theta, calculate_gamma, calculate_rho, calculate_volatility)
+                          calculate_theta, calculate_gamma, calculate_rho)
 
 bsm_price = calculate_black_scholes_merton(s=550, k=28000, option_type='Call', t=71, sigma=0.9588, r_f=0.3372)
 delta = calculate_delta(s=550, k=28000, option_type='Call', t=71, sigma=0.9588, r_f=0.3372)
