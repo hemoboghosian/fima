@@ -6,7 +6,7 @@ setup(
     author="Hemo Boghosian",
     author_email="HemoBoghosian@gmail.com",
     description="fima – A Python package for scraping and analyzing Iran’s financial market data. "
-                "It currently supports bonds and option chains from TSETMC, with tools for calculating BSM prices, "
+                "It currently supports bonds and options, with tools for calculating BSM prices, "
                 "greeks, and implied volatility. Future versions will expand to include other instruments such as "
                 "commodities and more.",
     long_description=open("README.md", encoding="utf-8").read(),
