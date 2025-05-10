@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="fima",
-    version="0.1.1",
+    version="0.2.0",
     author="Hemo Boghosian",
     author_email="HemoBoghosian@gmail.com",
     description="fima – A Python package for scraping and analyzing Iran’s financial market data. "
