@@ -82,7 +82,13 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
     return all_data
 
 
-def get_all_ime_futures_trades(only_active: str = False, start_date: str = None, end_date: str = None, _chunk_size: int = 20, _offset: int = 0) -> pd.DataFrame:
+def get_all_ime_futures_trades(only_active: str = False, start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 0) -> pd.DataFrame:
+
+    # only_active = False
+    # start_date = '1400-01-01'
+    # end_date = '1400-12-29'
+    # _chunk_size = 100
+    # _offset = 0
 
     if start_date is None:
         start_date = '1385-01-01'
@@ -106,7 +112,6 @@ def get_all_ime_futures_trades(only_active: str = False, start_date: str = None,
                "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/fut-report.html"}
 
     all_rows = []
-
     for f, t in chunked_dates:
         params = {"f": f, "t": t, "c": contract_filter, "lang": 8, "order": "asc"}
 
