@@ -4,10 +4,11 @@ import pandas as pd
 import jdatetime as jd
 
 
-def get_all_ime_physical_trades(start_date: str = None, end_date: str = None) -> pd.DataFrame:
+def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 180) -> pd.DataFrame:
 
-    if start_date is None and end_date is None:
+    if start_date is None:
         start_date = '1380-01-01'
+    if end_date is None:
         end_date = str(jd.date.today())
 
     main_category = 0
@@ -27,10 +28,10 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None) ->
     end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
     chunked_dates = []
     while temp_end_date <= end_date:
-        temp_end_date = temp_start_date + jd.timedelta(days=180)
+        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
         chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
         temp_start_date = temp_end_date + jd.timedelta(days=1)
-        temp_end_date = temp_end_date + jd.timedelta(days=180)
+        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
     chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
 
     all_data = []
@@ -70,8 +71,76 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None) ->
                             'SettlementDate', 'Broker', 'SupplyType', 'BuyType', 'Currency', 'Unit', 'ExchangeHall',
                             'PacketType', 'Settlement']
 
-        all_data['Date'] = all_data['Date'].apply(lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:])))
-        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:])))
+        all_data['Date'] = all_data['Date'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
+        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
     else:
         all_data = pd.DataFrame()
     return all_data
+
+
+def get_all_ime_futures_trades(only_active: str = False, start_date: str = None, end_date: str = None, _chunk_size: int = 20, _offset: int = 0) -> pd.DataFrame:
+
+    if start_date is None:
+        start_date = '1385-01-01'
+    if end_date is None:
+        end_date = str(jd.date.today())
+
+    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
+    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
+    chunked_dates = []
+    while temp_end_date <= end_date:
+        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
+        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
+        temp_start_date = temp_end_date + jd.timedelta(days=1)
+        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
+    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+
+    url = "https://www.ime.co.ir/subsystems/ime/futurereports/FutureAmareMoamelatHnadler.ashx"
+    contract_filter = -1 if only_active else 0
+
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
+               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/fut-report.html"}
+
+    all_rows = []
+
+    for f, t in chunked_dates:
+        params = {"f": f, "t": t, "c": contract_filter, "lang": 8, "order": "asc"}
+
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            rows = data.get("rows", [])
+            if rows:
+                all_rows.extend(rows)
+        except Exception as e:
+            print(f"❌ Failed for chunk {f} to {t}: {e}")
+            continue
+    if all_rows:
+        all_data = pd.DataFrame(all_rows)
+        all_data.columns = ['ContractDay', 'ContractCode', 'ContractDescription', 'TradesVolume', 'TradesValue', 'MaxPrice',
+                            'MinPrice', 'LastPrice', 'FirstPrice', 'ChangeOpenInterest', 'ActiveBrokers', 'C_Buy', 'C_Sell',
+                            'InstitutionalBuyVolume', 'InstitutionalBuyValue', 'InstitutionalSellVolume',
+                            'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue', 'RetailSellVolume',
+                            'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice', 'SettlementPricePercent',
+                            'Date', 'DeliveryDate', 'WeeklyOpenInterests', 'WeeklyOpenInterestsPercent',
+                            'MonthlyOpenInterests', 'MonthlyOpenInterestsPercent', 'WeeklySettlementPrice',
+                            'WeeklySettlementPricePercent', 'MonthlySettlementPrice', 'MonthlySettlementPricePercent',
+                            'OpenInterest', 'ActiveCustomers']
+
+        all_data['Date'] = all_data['Date'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
+        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
+
+        return all_data
+    return pd.DataFrame(all_rows)
+
+
+Test = get_all_ime_futures_trades(only_active=False, start_date='1400-01-01', end_date='1400-12-29')
