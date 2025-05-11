@@ -82,18 +82,17 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
     return all_data
 
 
-def get_all_ime_futures_trades(only_active: str = False, start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 0) -> pd.DataFrame:
+def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None, end_date: str = None,
+                               _chunk_size: int = 100, _offset: int = 0) -> pd.DataFrame:
 
-    # only_active = False
-    # start_date = '1400-01-01'
-    # end_date = '1400-12-29'
-    # _chunk_size = 100
-    # _offset = 0
-
-    if start_date is None:
-        start_date = '1385-01-01'
-    if end_date is None:
+    if only_active:
+        start_date = str(jd.date.today() - jd.timedelta(days=10))
         end_date = str(jd.date.today())
+    else:
+        if start_date is None:
+            start_date = '1385-01-01'
+        if end_date is None:
+            end_date = str(jd.date.today())
 
     temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
     end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
@@ -127,15 +126,12 @@ def get_all_ime_futures_trades(only_active: str = False, start_date: str = None,
             continue
     if all_rows:
         all_data = pd.DataFrame(all_rows)
-        all_data.columns = ['ContractDay', 'ContractCode', 'ContractDescription', 'TradesVolume', 'TradesValue', 'MaxPrice',
-                            'MinPrice', 'LastPrice', 'FirstPrice', 'ChangeOpenInterest', 'ActiveBrokers', 'C_Buy', 'C_Sell',
-                            'InstitutionalBuyVolume', 'InstitutionalBuyValue', 'InstitutionalSellVolume',
-                            'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue', 'RetailSellVolume',
-                            'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice', 'SettlementPricePercent',
-                            'Date', 'DeliveryDate', 'WeeklyOpenInterests', 'WeeklyOpenInterestsPercent',
-                            'MonthlyOpenInterests', 'MonthlyOpenInterestsPercent', 'WeeklySettlementPrice',
-                            'WeeklySettlementPricePercent', 'MonthlySettlementPrice', 'MonthlySettlementPricePercent',
-                            'OpenInterest', 'ActiveCustomers']
+        all_data.rename({'DT': 'Date', 'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Val_Haghighi_Buy': 'RetailBuyValue',
+                         'Vol_Haghighi_Sell': 'RetailSellVolume', 'Val_Haghighi_Sell': 'RetailSellValue',
+                         'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Val_Hoghooghi_Buy': 'InstitutionalBuyValue',
+                         'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
+                         'C_Buy': 'CBuy', 'C_Sell': 'CSell'},
+                        inplace=True, axis=1)
 
         all_data['Date'] = all_data['Date'].apply(
             lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
@@ -148,4 +144,4 @@ def get_all_ime_futures_trades(only_active: str = False, start_date: str = None,
     return pd.DataFrame(all_rows)
 
 
-Test = get_all_ime_futures_trades(only_active=False, start_date='1400-01-01', end_date='1400-12-29')
+
