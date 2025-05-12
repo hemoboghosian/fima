@@ -7,7 +7,7 @@ import jdatetime as jd
 def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 180) -> pd.DataFrame:
 
     if start_date is None:
-        start_date = '1380-01-01'
+        start_date = '1385-01-01'
     if end_date is None:
         end_date = str(jd.date.today())
 
@@ -63,7 +63,7 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
 
         all_data.drop([column for column in all_data.columns if column.endswith('1')], inplace=True, axis=1)
         all_data.drop(['taghazavoroudi', 'xTalarReportPK', 'bArzehRadifTarSarresid', 'arzehPk', 'Category'], axis=1,
-                  inplace=True)
+                      inplace=True)
 
         all_data.columns = ['GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'MinPrice', 'ClosePrice', 'MaxPrice',
                             'SupplyVolume', 'SupplyBasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice',
@@ -85,13 +85,11 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
 def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None, end_date: str = None,
                                _chunk_size: int = 100, _offset: int = 0) -> pd.DataFrame:
 
-    if only_active:
-        start_date = str(jd.date.today() - jd.timedelta(days=10))
-        end_date = str(jd.date.today())
-    else:
-        if start_date is None:
-            start_date = '1385-01-01'
-        if end_date is None:
+    if only_active and start_date == str(jd.date.today()):
+        start_date = str(jd.date.today() - jd.timedelta(days=1))
+    if start_date is None:
+        start_date = '1387-01-01'
+    if end_date is None:
             end_date = str(jd.date.today())
 
     temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
@@ -147,14 +145,13 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
 def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = False, start_date: str = None,
                                end_date: str = None, _chunk_size: int = 100, _offset: int = 0) -> pd.DataFrame:
 
-    if only_active:
-        start_date = str(jd.date.today() - jd.timedelta(days=10))
-        end_date = str(jd.date.today())
-    else:
-        if start_date is None:
-            start_date = '1385-01-01'
-        if end_date is None:
-            end_date = str(jd.date.today())
+    if only_active and start_date == str(jd.date.today()):
+        start_date = str(jd.date.today() - jd.timedelta(days=1))
+
+    if start_date is None:
+        start_date = '1395-01-01'
+    if end_date is None:
+        end_date = str(jd.date.today() - jd.timedelta(days=1))
 
     temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
     end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
@@ -216,5 +213,227 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
         return all_data
     return pd.DataFrame(all_rows)
 
+
+def get_all_physical_producer_products() -> pd.DataFrame:
+    all_ime_physical_trades = get_all_ime_physical_trades()
+    producer_products = (all_ime_physical_trades.groupby('ProducerName')
+                         ['GoodsName'].agg(lambda x: list(sorted(set(x)))).reset_index()
+                         .rename(columns={'GoodsName': 'Products', 'ProducerName': 'Producer'}))
+    return producer_products
+
+
+def get_producer_physical_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    all_ime_physical_trades = get_all_ime_physical_trades()
+    if producer in all_ime_physical_trades['ProducerName'].unique():
+        producer_physical_trades = all_ime_physical_trades[all_ime_physical_trades['ProducerName'] == producer].copy()
+        if start_date is not None:
+            start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
+            producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] >= start_date]
+        if end_date is not None:
+            end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
+            producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] <= end_date]
+        producer_physical_trades.reset_index(inplace=True, drop=True)
+        return producer_physical_trades
+    else:
+        print(f'Producer name you entered ({producer}) is not in the list of producers.')
+        return pd.DataFrame()
+
+
+def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40) -> pd.DataFrame:
+
+    if start_date is None:
+        start_date = '1387-12-01'
+    if end_date is None:
+        end_date = str(jd.date.today())
+
+    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
+    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
+    chunked_dates = []
+    while temp_end_date <= end_date:
+        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
+        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
+        temp_start_date = temp_end_date + jd.timedelta(days=1)
+        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
+    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+
+    url = "https://www.ime.co.ir/subsystems/ime/fiziki/export.ashx"
+
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
+               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/export-stat.html"}
+
+    all_rows = []
+    for f, t in chunked_dates:
+        params = {"f": f, "t": t, "m": 0, "c": 0, "s": 0, "p": 0, "lang": 8, "order": "asc"}
+
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            rows = data.get("rows", [])
+            if rows:
+                all_rows.extend(rows)
+        except Exception as e:
+            print(f"❌ Failed for chunk {f} to {t}: {e}")
+            continue
+    if all_rows:
+        all_data = pd.DataFrame(all_rows)
+        all_data.drop(['TaghazaVoroudi', 'bArzehRadifTarSarresid', 'xKala_xGrouhAsliKalaPK', 'xKala_xGrouhKalaPK',
+                       'xKala_xZirGrouhKalaPK', 'xNamad_xTolidKonandehPK', 'xRingPK', 'arzehPk'], axis=1, inplace=True)
+        all_data.rename({'cBrokerSpcName': 'BrokerName', 'arze': 'Supply', 'arzeMinPrice': 'SupplyMinPrice',
+                         'taghaza': 'Demand', 'taghazaMaxPrice': 'DemandMaxPrice', 'date': 'Date',
+                         'typeName': 'MainGroupName', 'Talar': 'ExchangeHall', 'ArzeBasePrice': 'SupplyBasePrice',
+                         'ArzehKonandeh': 'Supplier', 'xRingName': 'RingName', 'ModeDescription': 'SupplyType',
+                         'MethodDescription': 'BuyType', 'NerkhArz': 'FXRate'}, inplace=True, axis=1)
+
+        all_data['Date'] = all_data['Date'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
+        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
+
+        all_data['GoodsName'] = all_data['GoodsName'].apply(lambda goods_name: goods_name.replace(' - صادراتی', ''))
+
+        return all_data
+    return pd.DataFrame(all_rows)
+
+
+def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30) -> pd.DataFrame:
+
+    if start_date is None:
+        start_date = '1394-03-01'
+    if end_date is None:
+        end_date = str(jd.date.today())
+
+    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
+    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
+    chunked_dates = []
+    while temp_end_date <= end_date:
+        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
+        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
+        temp_start_date = temp_end_date + jd.timedelta(days=1)
+        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
+    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+
+    url = "https://www.ime.co.ir/subsystems/ime/bazaremali/bazaremalidata.ashx"
+
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
+               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/standard-transactions.html"}
+
+    all_rows = []
+    for f, t in chunked_dates:
+        params = {"f": f, "t": t, "c": 1, "ot": 0, "lang": 8, "order": "asc"}
+
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            rows = data.get("rows", [])
+            if rows:
+                all_rows.extend(rows)
+        except Exception as e:
+            print(f"❌ Failed for chunk {f} to {t}: {e}")
+            continue
+    if all_rows:
+        all_data = pd.DataFrame(all_rows)
+        all_data.rename({'id': 'ID', 'Namad': 'Code', 'LVal18AFC': 'Symbol',
+                         'DT': 'Date', 'NamadDescription': 'Description', 'PClosing': 'ClosePrice',
+                         'PDrCotVal': 'LastPrice', 'ZTotTran': 'TotalTransitions', 'QTotTran5J': 'Volume',
+                         'QTotCap': 'Value', 'PriceMin': 'MinPrice', 'PriceMax': 'MaxPrice',
+                         'PriceYesterday': 'YesterdayPrice', 'LastTradeChangePrice': 'LastPriceChange',
+                         'LastTradeChangePricePercent': 'LastPricePercentageChange',
+                         'LastPriceChangePrice': 'ClosePriceChangePrice',
+                         'LastPriceChangePricePercent': 'ClosePricePercentageChange', 'DT_En': 'GDate'}, inplace=True, axis=1)
+
+        all_data['Date'] = all_data['Date'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
+        all_data['GDate'] = pd.to_datetime(all_data['GDate'])
+        all_data['GDate'] = all_data['GDate'].dt.date
+
+        return all_data
+    return pd.DataFrame(all_rows)
+
+
+def get_all_export_producer_products() -> pd.DataFrame:
+    all_ime_export_trades = get_all_ime_export_trades()
+    producer_products = (all_ime_export_trades.groupby('ProducerName')
+                         ['GoodsName'].agg(lambda x: list(sorted(set(x)))).reset_index()
+                         .rename(columns={'GoodsName': 'Products', 'ProducerName': 'Producer'}))
+    return producer_products
+
+
+def get_producer_export_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    all_ime_export_trades = get_all_ime_export_trades()
+    if producer in all_ime_export_trades['ProducerName'].unique():
+        producer_export_trades = all_ime_export_trades[all_ime_export_trades['ProducerName'] == producer].copy()
+        if start_date is not None:
+            start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
+            producer_export_trades = producer_export_trades[producer_export_trades['Date'] >= start_date]
+        if end_date is not None:
+            end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
+            producer_export_trades = producer_export_trades[producer_export_trades['Date'] <= end_date]
+        producer_export_trades.reset_index(inplace=True, drop=True)
+        return producer_export_trades
+    else:
+        print(f'Producer name you entered ({producer}) is not in the list of producers.')
+        return pd.DataFrame()
+
+
+def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30) -> pd.DataFrame:
+
+    if start_date is None:
+        start_date = '1393-05-01'
+    if end_date is None:
+        end_date = str(jd.date.today())
+
+    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
+    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
+    chunked_dates = []
+    while temp_end_date <= end_date:
+        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
+        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
+        temp_start_date = temp_end_date + jd.timedelta(days=1)
+        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
+    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+
+    url = "https://www.ime.co.ir/subsystems/ime/bazaremali/bazaremalidata.ashx"
+
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
+               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/standard-transactions.html"}
+
+    all_rows = []
+    for f, t in chunked_dates:
+        params = {"f": f, "t": t, "c": 0, "ot": 0, "lang": 8, "order": "asc"}
+
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            rows = data.get("rows", [])
+            if rows:
+                all_rows.extend(rows)
+        except Exception as e:
+            print(f"❌ Failed for chunk {f} to {t}: {e}")
+            continue
+    if all_rows:
+        all_data = pd.DataFrame(all_rows)
+        all_data.rename({'id': 'ID', 'Namad': 'Code', 'LVal18AFC': 'Symbol',
+                         'DT': 'Date', 'NamadDescription': 'Description', 'PClosing': 'ClosePrice',
+                         'PDrCotVal': 'LastPrice', 'ZTotTran': 'TotalTransitions', 'QTotTran5J': 'Volume',
+                         'QTotCap': 'Value', 'PriceMin': 'MinPrice', 'PriceMax': 'MaxPrice',
+                         'PriceYesterday': 'YesterdayPrice', 'LastTradeChangePrice': 'LastPriceChange',
+                         'LastTradeChangePricePercent': 'LastPricePercentageChange',
+                         'LastPriceChangePrice': 'ClosePriceChangePrice',
+                         'LastPriceChangePricePercent': 'ClosePricePercentageChange', 'DT_En': 'GDate'}, inplace=True, axis=1)
+
+        all_data['Date'] = all_data['Date'].apply(
+            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
+            if pd.notna(str_j_date) else None)
+        all_data['GDate'] = pd.to_datetime(all_data['GDate'])
+        all_data['GDate'] = all_data['GDate'].dt.date
+
+        return all_data
+    return pd.DataFrame(all_rows)
 
 
