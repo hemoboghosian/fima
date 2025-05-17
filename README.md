@@ -15,14 +15,15 @@
 pip install fima
 ```
 
-## توابع مربوط به اختیارهای معامله
+## ۱. توابع مربوط به اختیارهای معامله
+###### نسخه ۰.۱.۱
 ### فراخوانی تمام توابع
 
 ```python
 from fima.Options import *
 ```
 
-### دریافت سابقه قیمت اختیار معامله و دارایی پایه آن
+### ۱.۱. دریافت سابقه قیمت اختیار معامله و دارایی پایه آن
 
 ```python
 from fima.Options import download_historical_data
@@ -41,7 +42,7 @@ option_historical_data, ua_historical_data = download_historical_data(ticker='ض
 
 ##### توجه: در صورت وارد نکردن تاریخ شروع و پایان، خروجی تابع تمام سابقه قیمت اختیار معامله و دارایی پایه آن خواهد بود.
 
-### دریافت اطلاعات لحظه‌ای یک نماد اختیار معامله
+### ۱.۲. دریافت اطلاعات لحظه‌ای یک نماد اختیار معامله
 
 ```python
 from fima.Options import ticker_info
@@ -56,7 +57,7 @@ ticker_info_data = ticker_info(ticker='ضهرم4018', j_date=True)
 #### خروجی
 * ticker_info_data: اطلاعات لحظه‌ای مربوط به نماد مد نظر
 
-### دریافت زنجیره قراردادهای یک دارایی پایه
+### ۱.۳. دریافت زنجیره قراردادهای یک دارایی پایه
 
 ```python
 from fima.Options import download_chain_contracts
@@ -76,7 +77,7 @@ chain_contracts = download_chain_contracts(underlying_ticker='اهرم', j_date=
 
 ##### توجه: برای محاسبات مربوط به مدل بلک، شولز و مرتون از میانگین نرخ بازده تا سررسید اسناد خزانه در آخرین تاریخ (دریافت‌شده از سایت فرابورس ایران) به عنوان نرخ بازده بدون ریسک استفاده می‌شود.
 
-### دریافت دیده‌بان بازار
+### ۱.۴. دریافت دیده‌بان بازار
 
 ```python
 from fima.Options import download_market_watch
@@ -102,7 +103,7 @@ market_watch = download_market_watch(market='All', stack='Vertical', j_date=True
 
 ##### توجه: برای محاسبات مربوط به مدل بلک، شولز و مرتون از میانگین نرخ بازده تا سررسید اسناد خزانه در آخرین تاریخ (دریافت‌شده از سایت فرابورس ایران) به عنوان نرخ بازده بدون ریسک استفاده می‌شود.
 
-### دریافت ارزش محاسبه‌شده توسط مدل بلک، شولز و مرتون برای یک نماد
+### ۱.۵. دریافت ارزش محاسبه‌شده توسط مدل بلک، شولز و مرتون برای یک نماد
 
 ```python
 from fima.Options import black_scholes_merton
@@ -120,7 +121,7 @@ volatility, bsm_price = black_scholes_merton(ticker='ضهرم4018')
 * توجه: در صورت عدم وارد کردن متغیر مربوط به نرخ بازده بدون ریسک، برای محاسبات مربوط به مدل بلک، شولز و مرتون از میانگین نرخ بازده تا سررسید اسناد خزانه در آخرین تاریخ (دریافت‌شده از سایت فرابورس ایران) به عنوان نرخ بازده بدون ریسک استفاده می‌شود.
 * در صورتی که روزهای باقی‌مانده تا سررسید اختیار معامله کمتر از ۱۰ روز باشند، به دلیل احتمال خطا، مدل بلک، شولز و مرتون اعمال نخواهد شد.
 
-### دریافت گریکز برای یک نماد
+### ۱.۶. دریافت گریکز برای یک نماد
 
 ```python
 from fima.Options import get_greeks
@@ -139,7 +140,7 @@ ticker_greeks = get_greeks(ticker='ضهرم4018')
 * در صورت عدم وارد کردن متغیر مربوط به نرخ بازده بدون ریسک، برای محاسبات مربوط به مدل بلک، شولز و مرتون از میانگین نرخ بازده تا سررسید اسناد خزانه در آخرین تاریخ (دریافت‌شده از سایت فرابورس ایران) به عنوان نرخ بازده بدون ریسک استفاده می‌شود.
 * در صورتی که روزهای باقی‌مانده تا سررسید اختیار معامله کمتر از ۱۰ روز باشند، به دلیل احتمال خطا، مدل بلک، شولز و مرتون اعمال نخواهد شد.
 
-### دریافت نوسانات ضمنی برای یک نماد
+### ۱.۷. دریافت نوسانات ضمنی برای یک نماد
 
 ```python
 from fima.Options import get_implied_volatility
@@ -158,7 +159,7 @@ ticker_implied_volatility = get_implied_volatility(ticker='ضهرم4018')
 * در صورت عدم وارد کردن متغیر مربوط به نرخ بازده بدون ریسک، برای محاسبات مربوط به مدل بلک، شولز و مرتون از میانگین نرخ بازده تا سررسید اسناد خزانه در آخرین تاریخ (دریافت‌شده از سایت فرابورس ایران) به عنوان نرخ بازده بدون ریسک استفاده می‌شود.
 * در صورتی که روزهای باقی‌مانده تا سررسید اختیار معامله کمتر از ۱۰ روز باشند، به دلیل احتمال خطا، مدل بلک، شولز و مرتون اعمال نخواهد شد.
 
-### دریافت تمامی نمادهای دارای اختیار معامله
+### ۱.۸. دریافت تمامی نمادهای دارای اختیار معامله
 
 ```python
 from fima.Options import download_all_underlying_assets
@@ -176,7 +177,7 @@ all_underlying_assets = download_all_underlying_assets(market='All')
 
 #### توجه: در صورت عدم وارد کردن market، تمامی اختیارهای معامله دریافت خواهد شد. 
 
-### توابع مربوط به محاسبات
+### ۱.۹. توابع مربوط به محاسبات
 
 ```python
 from fima.Options import (calculate_black_scholes_merton, calculate_delta, calculate_vega,
@@ -190,14 +191,15 @@ rho = calculate_rho(s=550, k=28000, option_type='Call', t=71, sigma=0.9588, r_f=
 vega = calculate_vega(s=550, k=28000, t=71, sigma=0.9588, r_f=0.3372)
 ```
 
-## توابع مربوط به اوراق درآمد ثابت
+## ۲. توابع مربوط به اوراق درآمد ثابت
+###### نسخه ۰.۱.۱
 ### فراخوانی تمام توابع
 
 ```python
 from fima.Bonds import *
 ```
 
-### دریافت سابقه قیمت اختیار معامله و دارایی پایه آن
+### ۲.۱. دریافت سابقه قیمت اختیار معامله و دارایی پایه آن
 
 ```python
 from fima.Bonds import get_risk_free_rate
@@ -208,7 +210,7 @@ risk_free_rate = get_risk_free_rate()
 #### خروجی
 * risk_free_rate: میانگین نرخ بازده تا سررسید اسناد خزانه در آخرین تاریخ (دریافت‌شده از سایت فرابورس ایران)
 
-### دریافت اوراق درآمد ثابت بدون کوپن
+### ۲.۲. دریافت اوراق درآمد ثابت بدون کوپن
 
 ```python
 from fima.Bonds import get_all_bonds_without_coupons
@@ -223,7 +225,7 @@ all_bonds_without_coupons = get_all_bonds_without_coupons(deprecated=True)
 #### خروجی
 * all_bonds_without_coupons: اطلاعات مربوط به اوراق درآمد ثابت بدون کوپن (دریاقت‌شده از سایت فرابورس ایران)
 
-### دریافت اوراق درآمد ثابت با کوپن
+### ۲.۳. دریافت اوراق درآمد ثابت با کوپن
 
 ```python
 from fima.Bonds import get_all_bonds_with_coupons
@@ -238,8 +240,169 @@ all_bonds_with_coupons = get_all_bonds_with_coupons(deprecated=True)
 #### خروجی
 * all_bonds_without_coupons: اطلاعات مربوط به اوراق درآمد ثابت با کوپن (دریاقت‌شده از سایت فرابورس ایران)
 
+
+##  ۳. توابع مربوط به بورس کالا
+######  نسخه ۰.۲.۰
+### فراخوانی تمام توابع
+
+```python
+from fima.IME import *
+```
+
+### ۳.۱. دریافت آمار تمامی معاملات فیزیکی بورس کالا
+
+```python
+from fima.IME import get_all_ime_physical_trades
+
+all_ime_physical_trades = get_all_ime_physical_trades(start_date='1400-01-01', end_date='1400-12-29')
+```
+#### ورودی
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* all_ime_physical_trades: آمار تمامی معاملات فیزیکی بورس کالا در بازه زمانی وارد شده
+
+#### توجه: در صورت وارد نکردن تاریخ شروع و پایان داده‌ها، خروجی شامل تمامی معاملات خواهد بود.
+
+### ۳.۲. دریافت آمار معاملات فیزیکی یک تولیدکننده در بورس کالا
+
+```python
+from fima.IME import get_producer_physical_trades
+
+producer_physical_trades = get_producer_physical_trades(producer='ذوب آهن اصفهان', start_date='1402-01-01', end_date='1403-01-01')
+```
+#### ورودی
+* producer: نام تولیدکننده مورد نظر
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* producer_physical_trades: آمار معاملات فیزیکی تولیدکننده مورد نظر در بورس کالا در بازه زمانی وارد شده
+
+#### توجه: در صورت وارد نکردن تاریخ شروع و پایان داده‌ها، خروجی شامل تمامی معاملات تولیدکننده مورد نظر خواهد بود.
+
+### ۳.۳. دریافت محصولات تمامی تولیدکنندگان فیزیکی در بورس کالا
+
+```python
+from fima.IME import get_all_physical_producer_products
+
+all_physical_producer_products = get_all_physical_producer_products()
+```
+
+#### خروجی
+* all_physical_producer_products: محصولات تمامی تولیدکنندگان فیزیکی در بورس کالا
+
+### ۳.۴. دریافت آمار تمامی معاملات بازار مشتقه در بورس کالا
+
+```python
+from fima.IME import get_all_ime_futures_trades
+
+all_ime_futures_trades = get_all_ime_futures_trades(only_active=False, start_date='1404-01-01', end_date='1404-02-01')
+```
+#### ورودی
+* only_active:
+  * True: فقط قراردادهای فعال
+  * False: تمامی قراردادها
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* all_ime_futures_trades: تمام معاملات بازار مشتقه در بورس کالا در بازه زمانی وارد شده
+
+
+### ۳.۵. دریافت آمار تمامی معاملات اختیار معامله در بورس کالا
+
+```python
+from fima.IME import get_all_ime_option_trades
+
+all_ime_option_trades = get_all_ime_option_trades(option_type='All', only_active=False, start_date='1404-01-01', end_date='1404-02-01')
+```
+#### ورودی
+* option_type:
+  * 'All': تمامی اختیارهای معامله
+  * 'Call': فقط اختیار خرید
+  * 'Put': فقط اختیار فروش
+* only_active: 
+  * True: فقط قراردادهای فعال
+  * False: تمامی قراردادها
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* all_ime_option_trades: تمام معاملات اختیار معامله در بورس کالا در بازه زمانی وارد شده
+
+### ۳.۶. دریافت آمار تمامی معاملات صادراتی در بورس کالا
+
+```python
+from fima.IME import get_all_ime_export_trades
+
+all_ime_export_trades = get_all_ime_export_trades(start_date='1404-01-01', end_date='1404-02-01')
+```
+#### ورودی
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* all_ime_export_trades: تمام معاملات صادراتی در بورس کالا در بازه زمانی وارد شده
+
+#### توجه: در صورت وارد نکردن تاریخ شروع و پایان داده‌ها، خروجی شامل تمامی معاملات خواهد بود.
+
+### ۳.۷. دریافت آمار تمامی معاملات صادراتی یک تولیدکننده در بورس کالا
+
+```python
+from fima.IME import get_producer_export_trades
+
+producer_export_trades = get_producer_export_trades(producer='ملی صنایع مس ایران', start_date='1402-01-01', end_date='1403-01-01')
+```
+#### ورودی
+* producer: نام تولیدکننده مورد نظر
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* producer_export_trades: تمام معاملات صادراتی تولیدکننده مورد نظر در بورس کالا در بازه زمانی وارد شده
+
+#### توجه: در صورت وارد نکردن تاریخ شروع و پایان داده‌ها، خروجی شامل تمامی معاملات خواهد بود.
+
+### ۳.۸. دریافت محصولات تمامی تولیدکنندگان صادراتی در بورس کالا
+
+```python
+from fima.IME import get_all_export_producer_products
+
+all_export_producer_products = get_all_export_producer_products()
+```
+
+#### خروجی
+* all_export_producer_products: محصولات تمامی تولیدکنندگان صادراتی در بورس کالا
+
+### ۳.۹. دریافت آمار تمامی معاملات گواهی سپرده در بورس کالا
+
+```python
+from fima.IME import get_all_ime_cd_trades
+
+all_ime_cd_trades = get_all_ime_cd_trades(start_date='1401-01-01', end_date='1401-12-29')
+```
+#### ورودی
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* all_ime_cd_trades: تمام معاملات گواهی سپرده در بورس کالا در بازه زمانی وارد شده
+
+#### توجه: در صورت وارد نکردن تاریخ شروع و پایان داده‌ها، خروجی شامل تمامی معاملات خواهد بود.
+
+### ۳.۱۰. دریافت آمار تمامی معاملات سلف استاندارد در بورس کالا
+
+```python
+from fima.IME import get_all_ime_salaf_trades
+
+all_ime_salaf_trades = get_all_ime_salaf_trades(start_date='1401-01-01', end_date='1401-12-29')
+```
+#### ورودی
+* start_date: تاریخ شروع داده‌ها
+* end_date: تاریخ پایان داده‌ها
+#### خروجی
+* all_ime_salaf_trades: تمام معاملات سلف استاندارد در بورس کالا در بازه زمانی وارد شده
+
+#### توجه: در صورت وارد نکردن تاریخ شروع و پایان داده‌ها، خروجی شامل تمامی معاملات خواهد بود.
+
 ## نقشه راه
 1. [ ] عیب‌یابی و بهبود توابع پیاده‌سازی‌شده
 2. [ ] دریافت اطلاعات از سایت tgju
 3. [ ] دریافت اطلاعات از سایت tsetmc
 4. [ ] دریافت و پاکسازی اطلاعات سایت codal
+5. [ ] دریافت اطلاعات از سایت TradingView
