@@ -5,4 +5,4 @@ from .Bonds import get_risk_free_rate, get_all_bonds_without_coupons, get_all_bo
 from .IME import (get_all_ime_physical_trades, get_all_ime_futures_trades, get_all_ime_option_trades,
                   get_all_physical_producer_products, get_producer_physical_trades, get_all_ime_export_trades,
                   get_all_ime_cd_trades, get_all_export_producer_products, get_producer_export_trades,
-                  get_all_ime_salaf_trades)
+                  get_all_ime_salaf_trades, get_gold_and_silver_cd_trades)

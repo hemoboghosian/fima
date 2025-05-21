@@ -5,10 +5,7 @@ setup(
     version="0.2.0",
     author="Hemo Boghosian",
     author_email="HemoBoghosian@gmail.com",
-    description="fima – A Python package for scraping and analyzing Iran’s financial market data. "
-                "It currently supports bonds and options, with tools for calculating BSM prices, "
-                "greeks, and implied volatility. Future versions will expand to include other instruments such as "
-                "commodities and more.",
+    description="fima – A Python package for scraping and analyzing Iran’s financial market data.",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/hemoboghosian/fima",

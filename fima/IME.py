@@ -2,6 +2,13 @@ import requests
 import json
 import pandas as pd
 import jdatetime as jd
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.firefox.options import Options
+from webdriver_manager.firefox import GeckoDriverManager
+from bs4 import BeautifulSoup
+import time
 
 
 def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 180) -> pd.DataFrame:
@@ -436,4 +443,69 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
         return all_data
     return pd.DataFrame(all_rows)
 
+
+def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+
+    if start_date is None:
+        start_date = '1401-12-01'
+    if end_date is None:
+        end_date = str(jd.date.today())
+
+    market_id = 22
+    page_size = 100
+    contract_codes = {'gold_coin_cd': 'CD1GOC0001',  # گواهی سپرده پیوسته تمام سکه بهار آزادی طرح جدید
+                      'gold_bar_cd': 'CD1GOB0001',   # گواهی سپرده پیوسته شمش طلای +995
+                      'silver_bar_cd': 'CD1SIB0001'  # گواهی سپرده پیوسته شمش نقره 999.9
+                      }
+    contract_code = contract_codes[contract_type]
+
+    from_date = str(jd.date.togregorian(jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))))
+    to_date = str(jd.date.togregorian(jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))))
+
+    if 'gold' in contract_type:
+        url = "https://dataapi.ime.co.ir/api/CDC/CDCTrades"
+        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json; charset=utf-8",
+                   "Origin": "https://gold.ime.co.ir", "Referer": "https://gold.ime.co.ir/"}
+    elif 'silver' in contract_type:
+        url = "https://dataapi.ime.co.ir/api/CDC/CDCTrades"
+        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json; charset=utf-8",
+                   "Origin": "https://silver.ime.co.ir", "Referer": "https://silver.ime.co.ir/"}
+    else:
+        return None
+
+    all_data = []
+    page = 1
+    while True:
+        payload = {"fromDate": from_date, "toDate": to_date, "pageNumber": page, "pageSize": page_size,
+                   "marketId": market_id, "customFilter": contract_code}
+
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            raise Exception(f"Request failed on page {page}: {response.status_code}")
+
+        data = response.json()
+        all_data.extend(data['Data'])
+
+        if not data.get("HasNextPage", False):
+            break
+        page += 1
+        time.sleep(0.3)
+
+    all_data = pd.DataFrame(all_data)
+
+    all_data['PersianDate'] = all_data['PersianDate'].apply(
+        lambda j_date_str: jd.date(year=int(j_date_str[:4]), month=int(j_date_str[5:7]), day=int(j_date_str[8:])))
+    all_data.sort_values('PersianDate', inplace=True, ascending=False, ignore_index=True)
+    all_data['DT'] = pd.to_datetime(all_data['DT']).dt.date
+    all_data['DeliveryDate'] = pd.to_datetime(all_data['DeliveryDate']).dt.date
+    all_data.drop('ROW', inplace=True, axis=1)
+    all_data.rename({'ChangeOpenInterest': 'OpenInterestChange', 'C_Buy': 'CBuy', 'C_Sell': 'CSell',
+               'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume',
+               'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Vol_Haghighi_Sell': 'RetailSellVolume',
+               'Val_Hoghooghi_Buy': 'InstitutionalBuyValue', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
+               'Val_Haghighi_Buy': 'RetailBuyValue', 'Val_Haghighi_Sell': 'RetailSellValue', 'DT': 'GDate',
+               'PersianDate': 'JDate', 'DeliveryDate': 'DeliveryGDate'}, inplace=True, axis=1)
+    all_data['DeliveryJDate'] = all_data['DeliveryGDate'].apply(lambda delivery_g_date: jd.date.fromgregorian(date=delivery_g_date))
+
+    return all_data
 
