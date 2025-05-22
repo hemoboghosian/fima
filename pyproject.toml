@@ -3,18 +3,18 @@ name = "fima"
 version = "0.2.0"
 description = "fima – A Python package for scraping and analyzing Iran’s financial market data."
 authors = [{ name = "Hemo Boghosian", email = "HemoBoghosian@gmail.com" }]
-license = "MIT"
+license = "MIT"  # SPDX license expression — required
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 dependencies = ["pandas", "requests", "jdatetime", "numpy", "scipy", "bs4", "selenium", "mibian", "lxml"]
 
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "Topic :: Office/Business :: Financial :: Investment"
+  "Topic :: Office/Business :: Financial :: Investment",
+  "License :: OSI Approved :: MIT License"
 ]
 
 [project.urls]
