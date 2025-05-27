@@ -4,6 +4,7 @@ import jdatetime as jd
 import datetime
 from bs4 import BeautifulSoup
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # from selenium import webdriver
@@ -66,7 +67,7 @@ def _get_fund_types() -> pd.DataFrame:
     return fund_types
 
 
-def get_all_funds() ->pd.DataFrame:
+def get_all_funds(set_website_developers: bool = False) ->pd.DataFrame:
     url = "https://fund.fipiran.ir/api/v1/fund/fundcompare"
     headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers)
@@ -119,10 +120,14 @@ def get_all_funds() ->pd.DataFrame:
     all_funds['WebsiteAddress'] = all_funds['WebsiteAddress'].apply(
         lambda website_address: website_address[0] if len(website_address) == 1 else None)
 
+    if set_website_developers:
+        all_funds = _autoset_website_developers(all_funds.copy())
+
     return all_funds
 
 
-def get_daily_navs_tadbirpardaz(website: str) -> pd.DataFrame:
+def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
+    website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId=1"
     response = requests.get(url)
     response.raise_for_status()
@@ -147,10 +152,12 @@ def get_daily_navs_tadbirpardaz(website: str) -> pd.DataFrame:
     navs['Statistical'] = statistical['y']
     navs['Redemption'] = redemption['y']
     navs['JDate'] = navs['GDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+    navs.drop('GDate', axis=1, inplace=True)
     return navs
 
 
-def get_daily_total_nav_tadbirpardaz(website: str) -> pd.DataFrame:
+def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
+    website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId=1"
     response = requests.get(url)
     response.raise_for_status()
@@ -163,23 +170,32 @@ def get_daily_total_nav_tadbirpardaz(website: str) -> pd.DataFrame:
     total_nav.columns = ['GDate', 'TotalNAV', 'Unknown']
     total_nav.drop('Unknown', axis=1, inplace=True)
     total_nav['JDate'] = total_nav['GDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+    total_nav.drop('GDate', axis=1, inplace=True)
     return total_nav
 
 
-def initialize_website_developers(all_funds: pd.DataFrame) -> pd.DataFrame:
-    all_funds['WebsiteDeveloper'] = None
-    for index, row in all_funds.iterrows():
-        website = row['websiteAddress'] if row['websiteAddress'] is not None else None
-        try:
-            _ = get_daily_total_nav_tadbirpardaz(website)
-            all_funds.loc[index, 'WebsiteDeveloper'] = 'گروه رایانه تدبیرپرداز'
-        except:
-            print('Found new website developer. Please contact me if you get this message.')
+def _autoset_website_developers(all_funds: pd.DataFrame, max_workers: int = 10) -> pd.DataFrame:
+    results = {}
+    def safe_detect(address):
+        if pd.isna(address):
+            return "No Address"
+        return detect_website_developer(address)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_index = {executor.submit(safe_detect, row['WebsiteAddress']): index for index, row in all_funds.iterrows()}
+        for future in as_completed(future_to_index):
+            index = future_to_index[future]
+            try:
+                result = future.result()
+            except Exception as e:
+                result = "Error"
+            results[index] = result
+    all_funds['WebsiteDeveloper'] = all_funds.index.map(results)
     return all_funds
 
 
-def get_daily_asset_allocation_tadbirpardaz(website: str) -> pd.DataFrame:
+def get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     basket_id = 1
+    website = get_fund_website_address(fund_name)
     base_url = f"https://{website}/Reports/FundDailyAssetDistribution"
     params = {"basketId": basket_id, "page": 1}
 
@@ -231,3 +247,78 @@ def get_daily_asset_allocation_tadbirpardaz(website: str) -> pd.DataFrame:
 
     return df
 
+
+def get_fund_website_address(fund_name: str) -> str:
+    all_funds = get_all_funds()
+    return all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
+
+
+def get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
+    website = get_fund_website_address(fund_name)
+    url = f"https://{website}/api/data/NavMulti"
+    response = requests.get(url)
+    response.raise_for_status()
+    data = response.json()
+    navs = pd.json_normalize(data)
+
+    navs.rename({'JalaliDate': 'JDate', 'PurchaseNAVPerShare': 'Subscription', 'SellNAVPerShare': 'Redemption',
+                 'StatisticNav': 'Statistical', 'TotalAssetsValue': 'TotalNAV'}, inplace=True, axis=1)
+
+    navs['JDate'] = navs['JDate'].apply(lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
+    navs = navs[['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']]
+    return navs
+
+
+def get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
+    navs_per_share = _get_daily_navs_per_share_tadbirpardaz(fund_name)
+    total_navs = _get_daily_total_nav_tadbirpardaz(fund_name)
+    navs = pd.merge(total_navs, navs_per_share, on='JDate', how='inner')
+    navs = navs[['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']]
+    return navs
+
+
+def get_daily_navs(fund_name: str) -> pd.DataFrame:
+    all_funds = get_all_funds(set_website_developers=True)
+    website_developer = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress']
+    if website_developer == 'گروه رایانه تدبیرپرداز':
+        daily_navs = get_daily_navs_tadbirpardaz(fund_name)
+    elif website_developer == 'شرکت رایان هم‌افزا':
+        daily_navs = get_daily_navs_rayan_hamafza(fund_name)
+    else:
+        print('The website developer is unknown. Please contact me if you see this message.')
+        daily_navs = None
+    return daily_navs
+
+
+def detect_website_developer(website: str) -> str:
+    urls = [f'https://{website}', f'http://{website}']
+    for url in urls:
+        try:
+            response = requests.get(url, timeout=20)
+            response.raise_for_status()
+            html = response.text
+            soup = BeautifulSoup(html, "html.parser")
+
+            if soup.select_one(".tadbirLogo") or soup.select_one(".TadbirLogo") or "تدبیرپرداز" in html:
+                return "گروه رایانه تدبیرپرداز"
+            elif "rayanhamafza.com" in html:
+                return "شرکت رایان هم‌افزا"
+            elif "mabnadp.com" in html or "پردازش اطلاعات مالی مبنا" in html:
+                return "پردازش اطلاعات مالی مبنا"
+            else:
+                return "Unknown"
+        except requests.RequestException:
+            continue
+    return "Error"
+
+
+AllFunds = get_all_funds(set_website_developers=True)
+# Test = detect_website_developer('tasbitpadashw.sabadyar.com')
+UnknownWebsiteDevelopers = AllFunds[AllFunds['WebsiteDeveloper'].isin(['Unknown', 'Error'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
+KnownWebsiteDevelopers = AllFunds[~AllFunds['WebsiteDeveloper'].isin(['Unknown', 'Error'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
+
+for Index, Row in UnknownWebsiteDevelopers.iterrows():
+    Website = Row['WebsiteAddress']
+    Name = Row['Name']
+    print(Name, f'https://{Website}', f'http://{Website}')
+del Index, Row, Name, Website
