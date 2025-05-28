@@ -127,8 +127,9 @@ def get_all_funds(set_website_developers: bool = False) ->pd.DataFrame:
 
 
 def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
+    fund_id = 1
     website = get_fund_website_address(fund_name)
-    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId=1"
+    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
     response = requests.get(url)
     response.raise_for_status()
     data = response.json()
@@ -179,7 +180,7 @@ def _autoset_website_developers(all_funds: pd.DataFrame, max_workers: int = 10) 
     def safe_detect(address):
         if pd.isna(address):
             return "No Address"
-        return detect_website_developer(address)
+        return _detect_website_developer(address)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {executor.submit(safe_detect, row['WebsiteAddress']): index for index, row in all_funds.iterrows()}
         for future in as_completed(future_to_index):
@@ -193,11 +194,11 @@ def _autoset_website_developers(all_funds: pd.DataFrame, max_workers: int = 10) 
     return all_funds
 
 
-def get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
-    basket_id = 1
+def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
+    fund_id = 1
     website = get_fund_website_address(fund_name)
     base_url = f"https://{website}/Reports/FundDailyAssetDistribution"
-    params = {"basketId": basket_id, "page": 1}
+    params = {"basketId": fund_id, "page": 1}
 
     all_rows = []
     headers = []
@@ -225,35 +226,75 @@ def get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
         else:
             break
 
-    df = pd.DataFrame(all_rows, columns=headers)
+    daily_asset_allocation = pd.DataFrame(all_rows, columns=headers)
 
-    df.drop('ردیف', inplace=True, axis=1)
-    df.rename({'تاریخ': 'Date', 'پنج سهم برتر': 'Upper5%Stocks', 'پنج سهم برتر به کل دارایی': 'Upper5%Stocks Weight',
-               'سایر سهام': 'OtherStocks', 'سایر سهام به کل دارایی': 'OtherStocks Weight', 'اوراق مشارکت': 'Bonds',
+    daily_asset_allocation.drop('ردیف', inplace=True, axis=1)
+    daily_asset_allocation.rename({'تاریخ': 'Date', 'پنج سهم برتر': 'Upper5%Stocks', 'پنج سهم برتر به کل دارایی': 'Upper5%Stocks Weight',
+               'سایر سهام': 'Stocks', 'سایر سهام به کل دارایی': 'Stocks Weight', 'اوراق مشارکت': 'Bonds',
                'اوراق مشارکت به کل دارایی': 'Bonds Weight', 'اوراق سپرده': 'Deposits',
                'اوراق سپرده به کل دارایی': 'Deposits Weight', 'نقد و بانک (جاری و سپرده)': 'Cash',
-               'وجه نقد به کل دارایی': 'Cash Weight', 'سایر دارایی‌ها': 'OtherAssets',
-               'سایر دارایی‌ها به کل دارایی': 'OtherAssets Weight', 'صندوق سرمایه گذاری': 'Funds',
-               'صندوق سرمایه گذاری به کل دارایی': 'Funds Weight'}, inplace=True, axis=1)
+               'وجه نقد به کل دارایی': 'Cash Weight', 'سایر دارایی‌ها': 'OtherAssets (CCDs)',
+               'سایر دارایی‌ها به کل دارایی': 'OtherAssets (CCDs) Weight', 'صندوق سرمایه گذاری': 'FundUnits',
+               'صندوق سرمایه گذاری به کل دارایی': 'FundUnits Weight'}, inplace=True, axis=1)
 
-    df['Date'] = df['Date'].apply(lambda date_str: str(int(date_str.replace('/', ''))))
-    df['Date'] = df['Date'].apply(
+    daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(lambda date_str: str(int(date_str.replace('/', ''))))
+    daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(
         lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[4:6]), day=int(date_str[6:])))
-    for ValueColumn in ['Upper5%Stocks', 'OtherStocks', 'Bonds', 'Deposits', 'Cash', 'OtherAssets', 'Funds']:
-        df.loc[:, ValueColumn] = df[ValueColumn].str.replace(',', '').astype(int)
-    for PercentageColumn in ['Upper5%Stocks Weight', 'OtherStocks Weight', 'Bonds Weight', 'Deposits Weight',
-                             'Cash Weight', 'OtherAssets Weight', 'Funds Weight']:
-        df.loc[:, PercentageColumn] = df[PercentageColumn].str.replace(' %', '').astype(float)
+    for ValueColumn in ['Upper5%Stocks', 'Stocks', 'Bonds', 'Deposits', 'Cash', 'OtherAssets (CCDs)', 'FundUnits']:
+        daily_asset_allocation.loc[:, ValueColumn] = daily_asset_allocation[ValueColumn].str.replace(',', '').astype(int)
+    for PercentageColumn in ['Upper5%Stocks Weight', 'Stocks Weight', 'Bonds Weight', 'Deposits Weight',
+                             'Cash Weight', 'OtherAssets (CCDs) Weight', 'FundUnits Weight']:
+        daily_asset_allocation.loc[:, PercentageColumn] = daily_asset_allocation[PercentageColumn].str.replace(' %', '').astype(float)
 
-    return df
+    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Bonds', 'FundUnits', 'OtherAssets (CCDs)',
+                                                     'Deposits', 'Cash', 'Cash Weight', 'OtherAssets (CCDs)', 'Upper5%Stocks',
+                                                     'Stocks Weight', 'Bonds Weight', 'FundUnits Weight',
+                                                     'OtherAssets (CCDs) Weight', 'Deposits Weight', 'OtherAssets (CCDs) Weight',
+                                                     'Upper5%Stocks Weight']]
+
+    return daily_asset_allocation
+
+
+def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
+    fund_id = 1
+    fund_website = get_fund_website_address(fund_name)
+    url = f"https://{fund_website}/api/data/DailyAssetStructure/{fund_id}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        json_data = response.json()
+
+        if "data" in json_data:
+            daily_asset_allocation = pd.DataFrame(json_data["data"])
+        else:
+            print("No data found in response.")
+            return pd.DataFrame()
+    except requests.RequestException as e:
+        print(f"Failed to retrieve data: {e}")
+        return pd.DataFrame()
+
+    daily_asset_allocation.drop('FundId', inplace=True, axis=1)
+    daily_asset_allocation.columns = \
+        daily_asset_allocation.columns.map(lambda column: column.replace("Today", "").replace("Percent", "s Weight").replace("Amount", "s"))
+    daily_asset_allocation.columns = \
+        daily_asset_allocation.columns.map(lambda column: column.replace("Cashs", "Cash").replace("TopFiveStocks", "Upper5%Stocks").replace("Ccds", "OtherAssets (CCDs)"))
+
+    daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
+
+    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Bonds', 'FundUnits', 'OtherAssets (CCDs)', 'Deposits',
+                                                     'Cash', 'Cash Weight', 'OtherAssets', 'Upper5%Stocks',
+                                                     'Stocks Weight', 'Bonds Weight', 'FundUnits Weight', 'OtherAssets (CCDs) Weight',
+                                                     'Deposits Weight', 'OtherAssets Weight', 'Upper5%Stocks Weight']]
+
+    return daily_asset_allocation
 
 
 def get_fund_website_address(fund_name: str) -> str:
-    all_funds = get_all_funds()
+    all_funds = get_all_funds(set_website_developers=False)
     return all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
 
 
-def get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
+def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/api/data/NavMulti"
     response = requests.get(url)
@@ -269,7 +310,7 @@ def get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     return navs
 
 
-def get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
+def _get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     navs_per_share = _get_daily_navs_per_share_tadbirpardaz(fund_name)
     total_navs = _get_daily_total_nav_tadbirpardaz(fund_name)
     navs = pd.merge(total_navs, navs_per_share, on='JDate', how='inner')
@@ -278,23 +319,38 @@ def get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 
 
 def get_daily_navs(fund_name: str) -> pd.DataFrame:
-    all_funds = get_all_funds(set_website_developers=True)
-    website_developer = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress']
+    all_funds = get_all_funds(set_website_developers=False)
+    website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
+    website_developer = _detect_website_developer(website=website_address)
     if website_developer == 'گروه رایانه تدبیرپرداز':
-        daily_navs = get_daily_navs_tadbirpardaz(fund_name)
+        daily_navs = _get_daily_navs_tadbirpardaz(fund_name)
     elif website_developer == 'شرکت رایان هم‌افزا':
-        daily_navs = get_daily_navs_rayan_hamafza(fund_name)
+        daily_navs = _get_daily_navs_rayan_hamafza(fund_name)
     else:
         print('The website developer is unknown. Please contact me if you see this message.')
         daily_navs = None
     return daily_navs
 
 
-def detect_website_developer(website: str) -> str:
+def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
+    all_funds = get_all_funds(set_website_developers=False)
+    website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
+    website_developer = _detect_website_developer(website=website_address)
+    if website_developer == 'گروه رایانه تدبیرپرداز':
+        daily_asset_allocation = _get_daily_asset_allocation_tadbirpardaz(fund_name)
+    elif website_developer == 'شرکت رایان هم‌افزا':
+        daily_asset_allocation = _get_daily_asset_allocation_rayan_hamafza(fund_name)
+    else:
+        print('The website developer is unknown. Please contact me if you see this message.')
+        daily_asset_allocation = None
+    return daily_asset_allocation
+
+
+def _detect_website_developer(website: str) -> str:
     urls = [f'https://{website}', f'http://{website}']
     for url in urls:
         try:
-            response = requests.get(url, timeout=20)
+            response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
             response.raise_for_status()
             html = response.text
             soup = BeautifulSoup(html, "html.parser")
@@ -305,20 +361,31 @@ def detect_website_developer(website: str) -> str:
                 return "شرکت رایان هم‌افزا"
             elif "mabnadp.com" in html or "پردازش اطلاعات مالی مبنا" in html:
                 return "پردازش اطلاعات مالی مبنا"
+            elif "Pikad" in html or "pikad.net" in html:
+                return "پیکاد"
             else:
                 return "Unknown"
-        except requests.RequestException:
+        except requests.exceptions.ConnectionError as ce:
+            print(f"[DNS/Connection Error] {url}: {ce}")
+            continue
+        except requests.exceptions.RequestException as e:
+            print(f"[Request Error] {url}: {e}")
             continue
     return "Error"
 
 
 AllFunds = get_all_funds(set_website_developers=True)
-# Test = detect_website_developer('tasbitpadashw.sabadyar.com')
-UnknownWebsiteDevelopers = AllFunds[AllFunds['WebsiteDeveloper'].isin(['Unknown', 'Error'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
-KnownWebsiteDevelopers = AllFunds[~AllFunds['WebsiteDeveloper'].isin(['Unknown', 'Error'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
+UnknownWebsiteDevelopers = AllFunds[AllFunds['WebsiteDeveloper'].isin(
+    ['Unknown', 'Error', 'No Address'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
+KnownWebsiteDevelopers = AllFunds[~AllFunds['WebsiteDeveloper'].isin(
+    ['Unknown', 'Error', 'No Address'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
 
 for Index, Row in UnknownWebsiteDevelopers.iterrows():
     Website = Row['WebsiteAddress']
     Name = Row['Name']
     print(Name, f'https://{Website}', f'http://{Website}')
 del Index, Row, Name, Website
+
+# TestWebsiteDeveloper = _detect_website_developer('fund.baranamc.com')
+# TadbirDailyAssetAllocation = get_daily_asset_allocation(fund_name='بازنشستگی تکمیلی اندوخته آگاه')
+# RayanDailyAssetAllocation = get_daily_asset_allocation(fund_name='جسورانه پویا الگوریتم')
