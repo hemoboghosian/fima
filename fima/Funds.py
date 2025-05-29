@@ -1,3 +1,4 @@
+import warnings
 import requests
 import pandas as pd
 import jdatetime as jd
@@ -5,56 +6,13 @@ import datetime
 from bs4 import BeautifulSoup
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-
-# from selenium import webdriver
-# from selenium.webdriver.firefox.service import Service
-# from selenium.webdriver.firefox.options import Options
-# from webdriver_manager.firefox import GeckoDriverManager
-# from selenium.webdriver.common.by import By
-# from selenium.webdriver.support.ui import WebDriverWait
-# from selenium.webdriver.support import expected_conditions as ec
-# from bs4 import BeautifulSoup
-
-
-# def get_all_funds_by_date(j_date: str) -> pd.DataFrame:
-#     options = Options()
-#     options.add_argument("--headless")
-#     options.add_argument("--disable-gpu")
-#     options.add_argument("--no-sandbox")
-#     options.add_argument("--disable-dev-shm-usage")
-#
-#     driver = webdriver.Chrome(service=Service(GeckoDriverManager().install()), options=options)
-#
-#     g_date = str(jd.date(int(j_date[:4]), int(j_date[5:7]), int(j_date[8:])).togregorian())
-#     url = f"https://fund.fipiran.ir/mf/list?date={g_date}"
-#     driver.get(url)
-#     wait = WebDriverWait(driver, 15)
-#
-#     # --- Step 1: Open pagination dropdown ---
-#     dropdown_btn = wait.until(ec.element_to_be_clickable(
-#         (By.CSS_SELECTOR, "div.MuiSelect-root[role='button']")))
-#     dropdown_btn.click()
-#
-#     # --- Step 2: Click 'همه' (value = 523) ---
-#     all_option = wait.until(ec.element_to_be_clickable((By.XPATH, "//li[@data-value='523']")))
-#     all_option.click()
-#
-#     wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "tbody tr")) > 100)
-#
-#     soup = BeautifulSoup(driver.page_source, "html.parser")
-#     driver.quit()
-#
-#     headers = [th.get_text(strip=True) for th in soup.select("thead th div span") if th.get_text(strip=True)]
-#
-#     rows = []
-#     for tr in soup.select("tbody tr"):
-#         tds = tr.find_all("td")
-#         row = [td.get_text(strip=True).replace('\u200c', '') for td in tds][3:]
-#         rows.append(row)
-#
-#     df = pd.DataFrame(rows, columns=headers)
-#     return df
+from selenium import webdriver
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 def _get_fund_types() -> pd.DataFrame:
@@ -119,6 +77,7 @@ def get_all_funds(set_website_developers: bool = False) ->pd.DataFrame:
 
     all_funds['WebsiteAddress'] = all_funds['WebsiteAddress'].apply(
         lambda website_address: website_address[0] if len(website_address) == 1 else None)
+    all_funds.loc[all_funds['Name'] == 'صندوق تثبیت بازار سرمایه', 'WebsiteAddress'] = 'cmsfund.ir/'
 
     if set_website_developers:
         all_funds = _autoset_website_developers(all_funds.copy())
@@ -187,7 +146,7 @@ def _autoset_website_developers(all_funds: pd.DataFrame, max_workers: int = 10) 
             index = future_to_index[future]
             try:
                 result = future.result()
-            except Exception as e:
+            except:
                 result = "Error"
             results[index] = result
     all_funds['WebsiteDeveloper'] = all_funds.index.map(results)
@@ -320,72 +279,133 @@ def _get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 
 def get_daily_navs(fund_name: str) -> pd.DataFrame:
     all_funds = get_all_funds(set_website_developers=False)
-    website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
-    website_developer = _detect_website_developer(website=website_address)
-    if website_developer == 'گروه رایانه تدبیرپرداز':
-        daily_navs = _get_daily_navs_tadbirpardaz(fund_name)
-    elif website_developer == 'شرکت رایان هم‌افزا':
-        daily_navs = _get_daily_navs_rayan_hamafza(fund_name)
+    fund_type = all_funds[all_funds['Name'] == fund_name]['FundType'].values[0]
+    if fund_type in ['پروژه‌ای', 'خصوصی']:
+        print(f"Fund type is {fund_type} and it doesn't have daily NAVs.")
+        return pd.DataFrame()
+    elif fund_name == 'صندوق تثبیت بازار سرمایه':
+        print(f"The {fund_name} doesn't have daily asset allocations.")
+        return pd.DataFrame()
     else:
-        print('The website developer is unknown. Please contact me if you see this message.')
-        daily_navs = None
-    return daily_navs
+        website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
+        website_developer = _detect_website_developer(website=website_address)
+        if website_developer == 'گروه رایانه تدبیرپرداز':
+            daily_navs = _get_daily_navs_tadbirpardaz(fund_name)
+        elif website_developer == 'شرکت رایان هم‌افزا':
+            daily_navs = _get_daily_navs_rayan_hamafza(fund_name)
+        else:
+            print('The website developer is unknown. Please contact me if you got this message.')
+            daily_navs = None
+        return daily_navs
 
 
 def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     all_funds = get_all_funds(set_website_developers=False)
-    website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
-    website_developer = _detect_website_developer(website=website_address)
-    if website_developer == 'گروه رایانه تدبیرپرداز':
-        daily_asset_allocation = _get_daily_asset_allocation_tadbirpardaz(fund_name)
-    elif website_developer == 'شرکت رایان هم‌افزا':
-        daily_asset_allocation = _get_daily_asset_allocation_rayan_hamafza(fund_name)
+    fund_type = all_funds[all_funds['Name'] == fund_name]['FundType'].values[0]
+    if fund_type in ['پروژه‌ای', 'خصوصی']:
+        print(f"Fund type is {fund_type} and it doesn't have daily asset allocations.")
+        return pd.DataFrame()
+    elif fund_name == 'صندوق تثبیت بازار سرمایه':
+        print(f"The {fund_name} doesn't have daily asset allocations.")
+        return pd.DataFrame()
     else:
-        print('The website developer is unknown. Please contact me if you see this message.')
-        daily_asset_allocation = None
-    return daily_asset_allocation
+        website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
+        website_developer = _detect_website_developer(website=website_address)
+        if website_developer == 'گروه رایانه تدبیرپرداز':
+            daily_asset_allocation = _get_daily_asset_allocation_tadbirpardaz(fund_name)
+        elif website_developer == 'شرکت رایان هم‌افزا':
+            daily_asset_allocation = _get_daily_asset_allocation_rayan_hamafza(fund_name)
+        else:
+            print('The website developer is unknown. Please contact me if you see this message.')
+            daily_asset_allocation = None
+        return daily_asset_allocation
+
+
+def _get_html_with_selenium(url: str, webdriver_type: str='Chrome', sleep_time: int=1):
+    if webdriver_type == 'Firefox':
+        options = FirefoxOptions()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        driver = webdriver.Firefox(service=FirefoxService(GeckoDriverManager().install()), options=options)
+        driver.get(url)
+        time.sleep(sleep_time)
+        html = driver.page_source
+        driver.quit()
+    elif webdriver_type == 'Chrome':
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        driver.get(url)
+        time.sleep(sleep_time)
+        html = driver.page_source
+        driver.quit()
+    else:
+        html = ""
+    return html
 
 
 def _detect_website_developer(website: str) -> str:
+    warnings.filterwarnings('ignore')
     urls = [f'https://{website}', f'http://{website}']
     for url in urls:
         try:
-            response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            response = requests.get(url, timeout=10, verify=False)
             response.raise_for_status()
             html = response.text
             soup = BeautifulSoup(html, "html.parser")
 
             if soup.select_one(".tadbirLogo") or soup.select_one(".TadbirLogo") or "تدبیرپرداز" in html:
-                return "گروه رایانه تدبیرپرداز"
+                return "گروه رایانه تدبیر پرداز"
             elif "rayanhamafza.com" in html:
-                return "شرکت رایان هم‌افزا"
+                return "شرکت رایان هم افزا"
             elif "mabnadp.com" in html or "پردازش اطلاعات مالی مبنا" in html:
                 return "پردازش اطلاعات مالی مبنا"
-            elif "Pikad" in html or "pikad.net" in html:
-                return "پیکاد"
+            elif "ره پویان پردازش گستر صحرا" in html:
+                return "ره پویان پردازش گستر صحرا"
+            elif "Webzi.ir" in html:
+                return 'وبزی'
+            elif "گروه طراحی کوثروب" in html or "kowsarweb.ir" in html:
+                return 'گروه طراحی کوثر وب'
+            elif "صندوق سرمایه‌گذاری جسورانه ارغوان" in html:
+                return "صندوق سرمایه‌گذاری جسورانه ارغوان"
+            elif "صندوق سرمایه‌گذاری جسورانه پارتیان" in html:
+                return "صندوق سرمایه‌گذاری جسورانه پارتیان"
             else:
-                return "Unknown"
-        except requests.exceptions.ConnectionError as ce:
-            print(f"[DNS/Connection Error] {url}: {ce}")
+                html = _get_html_with_selenium(url)
+                soup = BeautifulSoup(html, "html.parser")
+                if "rahkarhamipardaz.com" in html or "Rahkar Hami Pardaz" in html:
+                    return "راهکار حامی پرداز"
+                elif "Pikad" in html or 'pikad.net' in html:
+                    return "پیکاد"
+                elif soup.select_one(".tadbirLogo") or soup.select_one(".TadbirLogo") or "تدبیرپرداز" in html:
+                    return "گروه رایانه تدبیر پرداز"
+                elif "rayanhamafza.com" in html:
+                    return "شرکت رایان هم افزا"
+                elif "mabnadp.com" in html or "پردازش اطلاعات مالی مبنا" in html:
+                    return "پردازش اطلاعات مالی مبنا"
+                elif "ره پویان پردازش گستر صحرا" in html:
+                    return "ره پویان پردازش گستر صحرا"
+                elif "Webzi.ir" in html:
+                    return 'وبزی'
+                elif "گروه طراحی کوثروب" in html or "kowsarweb.ir" in html:
+                    return 'گروه طراحی کوثر وب'
+                elif "صندوق سرمایه‌گذاری جسورانه ارغوان" in html:
+                    return "صندوق سرمایه‌گذاری جسورانه ارغوان"
+                elif "صندوق سرمایه‌گذاری جسورانه پارتیان" in html:
+                    return "صندوق سرمایه‌گذاری جسورانه پارتیان"
+                else:
+                    print(f'The website developer for {url} is unknown. Please contact me if you got this message.')
+                    return "Unknown"
+        except requests.exceptions.ConnectionError:
+            # print(f"[DNS/Connection Error] {url}")
             continue
-        except requests.exceptions.RequestException as e:
-            print(f"[Request Error] {url}: {e}")
+        except requests.exceptions.RequestException:
+            # print(f"[Request Error] {url}")
             continue
-    return "Error"
+    return "-"
 
 
-AllFunds = get_all_funds(set_website_developers=True)
-UnknownWebsiteDevelopers = AllFunds[AllFunds['WebsiteDeveloper'].isin(
-    ['Unknown', 'Error', 'No Address'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
-KnownWebsiteDevelopers = AllFunds[~AllFunds['WebsiteDeveloper'].isin(
-    ['Unknown', 'Error', 'No Address'])][['Name', 'FundType', 'WebsiteAddress', 'WebsiteDeveloper']]
-
-for Index, Row in UnknownWebsiteDevelopers.iterrows():
-    Website = Row['WebsiteAddress']
-    Name = Row['Name']
-    print(Name, f'https://{Website}', f'http://{Website}')
-del Index, Row, Name, Website
-
-# TestWebsiteDeveloper = _detect_website_developer('fund.baranamc.com')
-# TadbirDailyAssetAllocation = get_daily_asset_allocation(fund_name='بازنشستگی تکمیلی اندوخته آگاه')
-# RayanDailyAssetAllocation = get_daily_asset_allocation(fund_name='جسورانه پویا الگوریتم')
+AllFunds = get_all_funds(set_website_developers=False)
