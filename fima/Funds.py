@@ -279,6 +279,49 @@ def _get_daily_asset_allocation_mapna(fund_name: str) -> pd.DataFrame:
     return daily_asset_allocation
 
 
+def _get_daily_asset_allocation_pikad(fund_name: str) -> pd.DataFrame:
+    website = get_fund_website_address(fund_name)
+    url_prefixes = {'servatfund.ir': 'servatsiteapi', 'goharnafis.ir': 'goharsiteapi',
+                    'padashetemadfund.ir': 'farazsiteapi',
+                    'edbifund.ir': 'andookhtehsiteapi', 'ganjinehzarinshahr.ir': 'ganjinehsiteapi',
+                    'mellimesmfund.ir': 'multicoppersiteapi', 'tbtfund.ir': 'multitamadonsiteapi'}
+    url_prefix = url_prefixes[website]
+    url = f"https://{url_prefix}.exphoenixfund.com/api/assetallocation/GetFlatDailyAssetAllocationByFilter"
+    start_date = datetime.datetime(2000, 1, 1).isoformat()
+    end_date = datetime.datetime.today().isoformat()
+    take = 1000000
+    page = 1
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*", "Content-Type": "application/json",
+               "Referer": f"https://{website}", "Origin": f"https://{website}",}
+
+    payload = {"ReportFilter": {"StartDate": start_date, "EndDate": end_date},
+               "OptionalFilter": {"take": take, "page": page, "sort": [{"field": "Date", "dir": "desc"}]}}
+
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    daily_asset_allocation = pd.DataFrame(response.json()['Result'])
+    daily_asset_allocation.drop(['Id', 'Date', 'Created', 'Total'], inplace=True, axis=1)
+    daily_asset_allocation.rename(
+        {'JalaliDate': 'Date', 'BankAndCashValue': 'Cash', 'BankAndCashPercent': 'Cash Weight', 'BondValue': 'Bonds',
+         'BondPercent': 'Bonds Weight', 'EquityValue': 'Stocks', 'FundValue': 'FundUnits', 'FundPercent': 'FundUnits Weight',
+         'EquityPercent': 'Stocks Weight', 'OtherValue': 'OtherAssets', 'BrokerValue': 'Broker', 'BrokerPercent': 'Broker Weight',
+         'OtherPercent': 'OtherAssets Weight', 'TopEquityValue': 'Upper5%Stocks', 'TopEquityPercent': 'Upper5%Stocks Weight',
+         'AccountReciveablesValue': 'ReceivableAccounts', 'AccountReciveablesPercent': 'ReceivableAccounts Weight',
+         'FuturePeriodsValue': 'FuturePeriods', 'FuturePeriodsPercent': 'FuturePeriods Weight'}, inplace=True, axis=1)
+
+    daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(
+        lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
+
+    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Bonds', 'OtherAssets', 'Cash',
+                                                     'FundUnits', 'Broker', 'FuturePeriods', 'ReceivableAccounts',
+                                                     'Upper5%Stocks', 'Stocks Weight', 'Bonds Weight', 'OtherAssets Weight',
+                                                     'Cash Weight',  'FundUnits Weight', 'Broker Weight',
+                                                     'FuturePeriods Weight', 'ReceivableAccounts Weight',
+                                                     'Upper5%Stocks Weight']]
+
+    return daily_asset_allocation
+
+
 def get_fund_website_address(fund_name: str) -> str:
     all_funds = get_all_funds(set_website_developers=False)
     return all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
@@ -296,6 +339,37 @@ def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
                  'StatisticNav': 'Statistical', 'TotalAssetsValue': 'TotalNAV'}, inplace=True, axis=1)
 
     navs['JDate'] = navs['JDate'].apply(lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
+    navs = navs[['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']]
+    return navs
+
+
+def _get_daily_navs_pikad(fund_name: str) -> pd.DataFrame:
+    website = get_fund_website_address(fund_name)
+    url_prefixes = {'servatfund.ir': 'servatsiteapi', 'goharnafis.ir': 'goharsiteapi',
+                    'padashetemadfund.ir': 'farazsiteapi',
+                    'edbifund.ir': 'andookhtehsiteapi', 'ganjinehzarinshahr.ir': 'ganjinehsiteapi',
+                    'mellimesmfund.ir': 'multicoppersiteapi', 'tbtfund.ir': 'multitamadonsiteapi'}
+    url_prefix = url_prefixes[website]
+    url = f"https://{url_prefix}.exphoenixfund.com/api/nav/GetNavList"
+    start_date = "2000-01-01"
+    end_date = datetime.date.today().isoformat()
+    page_size = 1000000
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*",
+               "Content-Type": "application/json", "Referer": f"https://{website}", "Origin": f"https://{website}"}
+
+    payload = {"ReportFilter": {"DateFilter": {"StartDate": start_date, "EndDate": end_date}, "PageIndex": 1,
+                                "PageSize": page_size},
+               "OptionalFilter": {"take": page_size, "skip": 1, "page": 1, "sort": [{"field": "Date", "dir": "asc"}]},
+               "BranchId": 0, "PartyId": 0}
+
+    response = requests.post(url, headers=headers, json=payload)
+    navs = pd.DataFrame(response.json()['Result'])
+    navs = navs.iloc[:, 1:6]
+    navs['Date'] = pd.to_datetime(navs['Date']).dt.date
+    navs['Date'] = navs['Date'].apply(
+        lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+    navs.rename({'Date': 'JDate', 'SubscriptionNAV': 'Subscription', 'RedemptionNAV': 'Redemption',
+                 'StaticalNAV': 'Statistical', 'NetAssetValue': 'TotalNAV'}, inplace=True, axis=1)
     navs = navs[['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']]
     return navs
 
@@ -338,6 +412,8 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
             daily_navs = _get_daily_navs_rayan_hamafza(fund_name)
         elif website_developer == 'پردازش اطلاعات مالی مبنا':
             daily_navs = _get_daily_navs_mapna(fund_name)
+        elif website_developer == 'پیکاد':
+            daily_navs = _get_daily_navs_pikad(fund_name)
         else:
             print('The website developer is unknown. Please contact me if you got this message.')
             daily_navs = None
@@ -362,13 +438,15 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
             daily_asset_allocation = _get_daily_asset_allocation_rayan_hamafza(fund_name)
         elif website_developer == 'پردازش اطلاعات مالی مبنا':
             daily_asset_allocation = _get_daily_asset_allocation_mapna(fund_name)
+        elif website_developer == 'پیکاد':
+            daily_asset_allocation = _get_daily_asset_allocation_pikad(fund_name)
         else:
             print('The website developer is unknown. Please contact me if you see this message.')
             daily_asset_allocation = None
         return daily_asset_allocation
 
 
-def _get_html_with_selenium(url: str, webdriver_type: str='Chrome', sleep_time: int=1):
+def _get_html_with_selenium(url: str, webdriver_type: str='Chrome', sleep_time: int=2):
     if webdriver_type == 'Firefox':
         options = FirefoxOptions()
         options.add_argument("--headless")
@@ -456,7 +534,3 @@ def _detect_website_developer(website: str) -> str:
 
 
 AllFunds = get_all_funds(set_website_developers=True)
-
-TestRayan = get_daily_asset_allocation(AllFunds.iloc[2, :]['Name'])
-TestTadbir = get_daily_asset_allocation(AllFunds.iloc[37, :]['Name'])
-TestMapna = get_daily_asset_allocation(AllFunds.iloc[9, :]['Name'])
