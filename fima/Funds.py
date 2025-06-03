@@ -46,7 +46,7 @@ def get_all_funds(set_website_developers: bool = False) ->pd.DataFrame:
                       'EstimatedEarningRate': 'EstimatedReturn', 'InvestedUnits': 'Units',
                       'Guarantor': 'LiquidityGuarantor', 'GuarantorSeoRegisterNo': 'LiquidityGuarantorSeoRegisterNumber',
                       'FiveBest': 'Upper5%Stocks Weight', 'Stock': 'Stocks Weight', 'Bond': 'Bonds Weight',
-                      'Other': 'Others Weight', 'Cash': 'Cash Weight', 'Deposit': 'Bank Deposits Weight',
+                      'Other': 'Others Weight', 'Cash': 'Cash Weight', 'Deposit': 'Bank CDs Weight',
                       'FundUnit': 'FundUnits Weight', 'Commodity': 'Commodities Weight', 'SmallSymbolName': 'Ticker',
                       'InsCode': 'InstrumentCode'}, axis=1, inplace=True)
 
@@ -66,7 +66,7 @@ def get_all_funds(set_website_developers: bool = False) ->pd.DataFrame:
         lambda g: jd.date.fromgregorian(date=g) if isinstance(g, datetime.date) and not pd.isna(g) else None)
 
     weight_columns = ['Upper5%Stocks Weight', 'Stocks Weight', 'Bonds Weight', 'Others Weight', 'Cash Weight',
-                     'Bank Deposits Weight', 'FundUnits Weight', 'Commodities Weight']
+                     'Bank CDs Weight', 'FundUnits Weight', 'Commodities Weight']
     all_funds.loc[:, weight_columns] = all_funds.loc[:, weight_columns].fillna(0)
 
     all_funds['LiquidityGuarantor'] = all_funds['LiquidityGuarantor'].replace('----', '-')
@@ -89,7 +89,7 @@ def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     fund_id = 1
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
-    response = requests.get(url)
+    response = requests.get(url, timeout=10, verify=False)
     response.raise_for_status()
     data = response.json()
     df = pd.json_normalize(data, sep='_')
@@ -119,7 +119,7 @@ def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId=1"
-    response = requests.get(url)
+    response = requests.get(url, timeout=10, verify=False)
     response.raise_for_status()
     data = response.json()
     df = pd.json_normalize(data, sep='_')
@@ -164,7 +164,7 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 
     while True:
         # Request the page
-        response = requests.get(base_url, params=params)
+        response = requests.get(base_url, params=params, timeout=10, verify=False)
         soup = BeautifulSoup(response.text, "html.parser")
 
         # Extract headers (only once)
@@ -189,26 +189,26 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 
     daily_asset_allocation.drop('ردیف', inplace=True, axis=1)
     daily_asset_allocation.rename({'تاریخ': 'Date', 'پنج سهم برتر': 'Upper5%Stocks', 'پنج سهم برتر به کل دارایی': 'Upper5%Stocks Weight',
-               'سایر سهام': 'Stocks', 'سایر سهام به کل دارایی': 'Stocks Weight', 'اوراق مشارکت': 'Bonds',
-               'اوراق مشارکت به کل دارایی': 'Bonds Weight', 'اوراق سپرده': 'Deposits',
-               'اوراق سپرده به کل دارایی': 'Deposits Weight', 'نقد و بانک (جاری و سپرده)': 'Cash',
-               'وجه نقد به کل دارایی': 'Cash Weight', 'سایر دارایی‌ها': 'OtherAssets',
+               'سایر سهام': 'OtherStocks', 'سایر سهام به کل دارایی': 'OtherStocks Weight', 'اوراق مشارکت': 'Bonds',
+               'اوراق مشارکت به کل دارایی': 'Bonds Weight', 'اوراق سپرده': 'CDs',
+               'اوراق سپرده به کل دارایی': 'CDs Weight', 'نقد و بانک (جاری و سپرده)': 'CashAndBank',
+               'وجه نقد به کل دارایی': 'CashAndBank Weight', 'سایر دارایی‌ها': 'OtherAssets',
                'سایر دارایی‌ها به کل دارایی': 'OtherAssets Weight', 'صندوق سرمایه گذاری': 'FundUnits',
                'صندوق سرمایه گذاری به کل دارایی': 'FundUnits Weight'}, inplace=True, axis=1)
 
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(lambda date_str: str(int(date_str.replace('/', ''))))
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(
         lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[4:6]), day=int(date_str[6:])))
-    for ValueColumn in ['Upper5%Stocks', 'Stocks', 'Bonds', 'Deposits', 'Cash', 'OtherAssets', 'FundUnits']:
+    for ValueColumn in ['Upper5%Stocks', 'OtherStocks', 'Bonds', 'CDs', 'CashAndBank', 'OtherAssets', 'FundUnits']:
         daily_asset_allocation.loc[:, ValueColumn] = daily_asset_allocation[ValueColumn].str.replace(',', '').astype(int)
-    for PercentageColumn in ['Upper5%Stocks Weight', 'Stocks Weight', 'Bonds Weight', 'Deposits Weight',
-                             'Cash Weight', 'OtherAssets Weight', 'FundUnits Weight']:
+    for PercentageColumn in ['Upper5%Stocks Weight', 'OtherStocks Weight', 'Bonds Weight', 'CDs Weight',
+                             'CashAndBank Weight', 'OtherAssets Weight', 'FundUnits Weight']:
         daily_asset_allocation.loc[:, PercentageColumn] = daily_asset_allocation[PercentageColumn].str.replace(' %', '').astype(float)
 
-    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Bonds', 'FundUnits', 'Deposits', 'Cash',
-                                                     'Cash Weight', 'OtherAssets', 'Upper5%Stocks', 'Stocks Weight',
-                                                     'Bonds Weight', 'FundUnits Weight', 'Deposits Weight',
-                                                     'OtherAssets Weight', 'Upper5%Stocks Weight']]
+    daily_asset_allocation = daily_asset_allocation[['Date', 'OtherStocks', 'Upper5%Stocks', 'Bonds', 'CDs', 'CashAndBank',
+                                                     'FundUnits', 'OtherAssets', 'OtherStocks Weight', 'Upper5%Stocks Weight',
+                                                     'Bonds Weight', 'CDs Weight', 'CashAndBank Weight', 'FundUnits Weight',
+                                                     'OtherAssets Weight']]
 
     return daily_asset_allocation
 
@@ -217,40 +217,32 @@ def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     fund_id = 1
     fund_website = get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/data/DailyAssetStructure/{fund_id}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        json_data = response.json()
 
-        if "data" in json_data:
-            daily_asset_allocation = pd.DataFrame(json_data["data"])
-        else:
-            print("No data found in response.")
-            return pd.DataFrame()
-    except requests.RequestException as e:
-        print(f"Failed to retrieve data: {e}")
-        return pd.DataFrame()
+    response = requests.get(url, timeout=10, verify=False)
+    response.raise_for_status()
+    json_data = response.json()
+    daily_asset_allocation = pd.DataFrame(json_data["data"])
 
     daily_asset_allocation.drop('FundId', inplace=True, axis=1)
     daily_asset_allocation.columns = \
         daily_asset_allocation.columns.map(lambda column: column.replace("Today", "").replace("Percent", "s Weight").replace("Amount", "s"))
     daily_asset_allocation.columns = \
-        daily_asset_allocation.columns.map(lambda column: column.replace("Cashs", "Cash").replace("TopFiveStocks", "Upper5%Stocks").replace("Ccds", "CCDs"))
+        daily_asset_allocation.columns.map(lambda column: column.replace("Cashs", "Cash").
+                                           replace("TopFiveStocks", "Upper5%Stocks").replace("Ccds", "CCDs").replace('Deposits', 'Bank'))
 
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
 
-    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Bonds', 'FundUnits', 'CCDs', 'Deposits',
-                                                     'Cash', 'Cash Weight', 'OtherAssets', 'Upper5%Stocks',
-                                                     'Stocks Weight', 'Bonds Weight', 'FundUnits Weight', 'CCDs Weight',
-                                                     'Deposits Weight', 'OtherAssets Weight', 'Upper5%Stocks Weight']]
+    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Upper5%Stocks', 'Bonds', 'Cash', 'Bank', 'FundUnits', 'CCDs',
+                                                     'OtherAssets', 'Stocks Weight', 'Upper5%Stocks Weight', 'Bonds Weight',
+                                                     'Cash Weight', 'Bank Weight', 'FundUnits Weight', 'CCDs Weight', 'OtherAssets Weight']]
 
     return daily_asset_allocation
 
 
-def _get_daily_asset_allocation_mapna(fund_name: str) -> pd.DataFrame:
-    website = get_fund_website_address(fund_name)
-    url = f"https://{website}/api/v1/overall/allassetsdaily.json"
-    response = requests.get(url)
+def _get_daily_asset_allocation_mabna(fund_name: str) -> pd.DataFrame:
+    fund_website = get_fund_website_address(fund_name)
+    url = f"https://{fund_website}/api/v1/overall/allassetsdaily.json"
+    response = requests.get(url, timeout=10, verify=False)
     data = response.json()[0]
     records = []
     for item in data['values']:
@@ -262,7 +254,7 @@ def _get_daily_asset_allocation_mapna(fund_name: str) -> pd.DataFrame:
         records.append(row)
     daily_asset_allocation = pd.DataFrame(records)
     daily_asset_allocation.rename(
-        {'تاریخ': 'Date', 'سپرده بانکی': 'Bank Deposits', 'سپرده بانکی - نسبت': 'Bank Deposits Weight',
+        {'تاریخ': 'Date', 'سپرده بانکی': 'Bank', 'سپرده بانکی - نسبت': 'Bank Weight',
          'وجه نقد': 'Cash', 'وجه نقد - نسبت': 'Cash Weight', 'سرمایه‌گذاری در اوراق بهادار با درآمد ثابت': 'Bonds',
          'سرمایه‌گذاری در اوراق بهادار با درآمد ثابت - نسبت': 'Bonds Weight', ' سرمایه گذاری در سهام ': 'Stocks',
          ' سرمایه گذاری در سهام  - نسبت': 'Stocks Weight', 'سایر دارایی‌ها': 'OtherAssets',
@@ -272,37 +264,36 @@ def _get_daily_asset_allocation_mapna(fund_name: str) -> pd.DataFrame:
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(
         lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
 
-    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Bonds', 'OtherAssets', 'Bank Deposits', 'Cash',
-                                                     'Upper5%Stocks', 'Cash Weight', 'Stocks Weight', 'Bonds Weight',
-                                                     'OtherAssets Weight', 'Bank Deposits Weight',
-                                                     'Upper5%Stocks Weight']]
+    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Upper5%Stocks', 'Bonds', 'Cash', 'Bank',
+                                                     'OtherAssets', 'Stocks Weight', 'Upper5%Stocks Weight',
+                                                     'Bonds Weight', 'Cash Weight', 'Bank Weight', 'OtherAssets Weight']]
     return daily_asset_allocation
 
 
 def _get_daily_asset_allocation_pikad(fund_name: str) -> pd.DataFrame:
-    website = get_fund_website_address(fund_name)
+    fund_website = get_fund_website_address(fund_name)
     url_prefixes = {'servatfund.ir': 'servatsiteapi', 'goharnafis.ir': 'goharsiteapi',
                     'padashetemadfund.ir': 'farazsiteapi',
                     'edbifund.ir': 'andookhtehsiteapi', 'ganjinehzarinshahr.ir': 'ganjinehsiteapi',
                     'mellimesmfund.ir': 'multicoppersiteapi', 'tbtfund.ir': 'multitamadonsiteapi'}
-    url_prefix = url_prefixes[website]
+    url_prefix = url_prefixes[fund_website]
     url = f"https://{url_prefix}.exphoenixfund.com/api/assetallocation/GetFlatDailyAssetAllocationByFilter"
     start_date = datetime.datetime(2000, 1, 1).isoformat()
     end_date = datetime.datetime.today().isoformat()
     take = 1000000
     page = 1
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*", "Content-Type": "application/json",
-               "Referer": f"https://{website}", "Origin": f"https://{website}",}
+               "Referer": f"https://{fund_website}", "Origin": f"https://{fund_website}",}
 
     payload = {"ReportFilter": {"StartDate": start_date, "EndDate": end_date},
                "OptionalFilter": {"take": take, "page": page, "sort": [{"field": "Date", "dir": "desc"}]}}
 
-    response = requests.post(url, headers=headers, json=payload)
+    response = requests.post(url, headers=headers, json=payload, timeout=10, verify=False)
     response.raise_for_status()
     daily_asset_allocation = pd.DataFrame(response.json()['Result'])
     daily_asset_allocation.drop(['Id', 'Date', 'Created', 'Total'], inplace=True, axis=1)
     daily_asset_allocation.rename(
-        {'JalaliDate': 'Date', 'BankAndCashValue': 'Cash', 'BankAndCashPercent': 'Cash Weight', 'BondValue': 'Bonds',
+        {'JalaliDate': 'Date', 'BankAndCashValue': 'CashAndBank', 'BankAndCashPercent': 'CashAndBank Weight', 'BondValue': 'Bonds',
          'BondPercent': 'Bonds Weight', 'EquityValue': 'Stocks', 'FundValue': 'FundUnits', 'FundPercent': 'FundUnits Weight',
          'EquityPercent': 'Stocks Weight', 'OtherValue': 'OtherAssets', 'BrokerValue': 'Broker', 'BrokerPercent': 'Broker Weight',
          'OtherPercent': 'OtherAssets Weight', 'TopEquityValue': 'Upper5%Stocks', 'TopEquityPercent': 'Upper5%Stocks Weight',
@@ -312,12 +303,37 @@ def _get_daily_asset_allocation_pikad(fund_name: str) -> pd.DataFrame:
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(
         lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
 
-    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Bonds', 'OtherAssets', 'Cash',
-                                                     'FundUnits', 'Broker', 'FuturePeriods', 'ReceivableAccounts',
-                                                     'Upper5%Stocks', 'Stocks Weight', 'Bonds Weight', 'OtherAssets Weight',
-                                                     'Cash Weight',  'FundUnits Weight', 'Broker Weight',
-                                                     'FuturePeriods Weight', 'ReceivableAccounts Weight',
-                                                     'Upper5%Stocks Weight']]
+    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Upper5%Stocks', 'Bonds', 'CashAndBank', 'FundUnits',
+                                                     'Broker', 'FuturePeriods', 'ReceivableAccounts',  'OtherAssets',
+                                                     'Stocks Weight', 'Upper5%Stocks Weight', 'Bonds Weight', 'CashAndBank Weight',
+                                                     'FundUnits Weight', 'Broker Weight', 'FuturePeriods Weight',
+                                                     'ReceivableAccounts Weight',  'OtherAssets Weight']]
+
+    return daily_asset_allocation
+
+
+def _get_daily_asset_allocation_rahkar(fund_name: str) -> pd.DataFrame:
+    mutual_fund_id = 1
+    fund_website = get_fund_website_address(fund_name)
+    url = f"https://{fund_website}/api/app/asset/daily-asset-list?MutualFundCompanyID={mutual_fund_id}"
+    response = requests.get(url, timeout=10, verify=False)
+    daily_asset_allocation = pd.DataFrame(response.json())
+    daily_asset_allocation.drop(['rowNum', 'totalRows'], inplace=True, axis=1)
+    daily_asset_allocation.rename(
+        {'date': 'Date', 'bankDepositKalaAsset': 'CCDs', 'bankDepositKalaAssetPersent': 'CCDs Weight',
+         'jointShareAsset': 'Bonds', 'jointShareAssetPersent': 'Bonds Weight', 'shareAsset': 'Stocks',
+         'unitMutualFundAsset': 'FundUnits', 'unitMutualFundAssetPersent': 'FundUnits Weight',
+         'shareAssetPersent': 'Stocks Weight', 'otherAsset': 'OtherAssets', 'otherAssetPersent': 'OtherAssets Weight',
+         'topFiveShareAsset': 'Upper5%Stocks', 'topFiveShareAssetPersent': 'Upper5%Stocks Weight',
+         'bankDepositAsset': 'Bank', 'bankDepositAssetPersent': 'Bank Weight', 'bankAsset': 'Cash', 'bankAssetPersent': 'Cash Weight'}, inplace=True, axis=1)
+
+    daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(
+        lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
+
+    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Upper5%Stocks', 'Bonds', 'Bank', 'Cash',
+                                                     'FundUnits', 'CCDs', 'OtherAssets', 'Stocks Weight',
+                                                     'Upper5%Stocks Weight', 'Bonds Weight', 'Bank Weight', 'Cash Weight',
+                                                     'FundUnits Weight', 'CCDs Weight', 'OtherAssets Weight']]
 
     return daily_asset_allocation
 
@@ -330,7 +346,7 @@ def get_fund_website_address(fund_name: str) -> str:
 def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/api/data/NavMulti"
-    response = requests.get(url)
+    response = requests.get(url, timeout=10, verify=False)
     response.raise_for_status()
     data = response.json()
     navs = pd.json_normalize(data)
@@ -362,7 +378,7 @@ def _get_daily_navs_pikad(fund_name: str) -> pd.DataFrame:
                "OptionalFilter": {"take": page_size, "skip": 1, "page": 1, "sort": [{"field": "Date", "dir": "asc"}]},
                "BranchId": 0, "PartyId": 0}
 
-    response = requests.post(url, headers=headers, json=payload)
+    response = requests.post(url, headers=headers, json=payload, timeout=10, verify=False)
     navs = pd.DataFrame(response.json()['Result'])
     navs = navs.iloc[:, 1:6]
     navs['Date'] = pd.to_datetime(navs['Date']).dt.date
@@ -382,16 +398,27 @@ def _get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     return navs
 
 
-def _get_daily_navs_mapna(fund_name: str) -> pd.DataFrame:
+def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/api/v1/overall/navps.json"
-    response = requests.get(url)
+    response = requests.get(url, timeout=10, verify=False)
     navs = pd.DataFrame(response.json()[0]['values'])
     navs['date'] = navs['date'].apply(
         lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[4:6]), day=int(date_str[6:8])))
     navs = navs.iloc[:, :5].copy()
     navs.columns = ['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']
     return navs
+
+
+def _get_daily_navs_rahkar(fund_name: str) -> pd.DataFrame:
+    mutual_fund_id = 1
+    fund_website = get_fund_website_address(fund_name)
+    url = f"https://{fund_website}/api/app/nav/nav-list?MutualFundCompanyID={mutual_fund_id}"
+    response = requests.get(url, timeout=10, verify=False)
+    navs = pd.DataFrame(response.json())
+    navs['date'] = navs['date'].apply(lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
+    navs = navs.iloc[:, :5].copy()
+    navs.columns = ['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']
 
 
 def get_daily_navs(fund_name: str) -> pd.DataFrame:
@@ -411,9 +438,11 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
         elif website_developer == 'شرکت رایان هم افزا':
             daily_navs = _get_daily_navs_rayan_hamafza(fund_name)
         elif website_developer == 'پردازش اطلاعات مالی مبنا':
-            daily_navs = _get_daily_navs_mapna(fund_name)
+            daily_navs = _get_daily_navs_mabna(fund_name)
         elif website_developer == 'پیکاد':
             daily_navs = _get_daily_navs_pikad(fund_name)
+        elif website_developer == 'راهکار حامی پرداز':
+            daily_navs = _get_daily_navs_rahkar(fund_name)
         else:
             print('The website developer is unknown. Please contact me if you got this message.')
             daily_navs = None
@@ -437,7 +466,7 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
         elif website_developer == 'شرکت رایان هم افزا':
             daily_asset_allocation = _get_daily_asset_allocation_rayan_hamafza(fund_name)
         elif website_developer == 'پردازش اطلاعات مالی مبنا':
-            daily_asset_allocation = _get_daily_asset_allocation_mapna(fund_name)
+            daily_asset_allocation = _get_daily_asset_allocation_mabna(fund_name)
         elif website_developer == 'پیکاد':
             daily_asset_allocation = _get_daily_asset_allocation_pikad(fund_name)
         else:
@@ -446,7 +475,7 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
         return daily_asset_allocation
 
 
-def _get_html_with_selenium(url: str, webdriver_type: str='Chrome', sleep_time: int=2):
+def _get_html_with_selenium(url: str, webdriver_type: str='Chrome', sleep_time: int=5):
     if webdriver_type == 'Firefox':
         options = FirefoxOptions()
         options.add_argument("--headless")
@@ -477,8 +506,7 @@ def _detect_website_developer(website: str) -> str:
     urls = [f'https://{website}', f'http://{website}']
     for url in urls:
         try:
-            response = requests.get(url, timeout=10, verify=False)
-            response.raise_for_status()
+            response = requests.get(url, timeout=15, verify=False)
             html = response.text
             soup = BeautifulSoup(html, "html.parser")
 
@@ -534,3 +562,6 @@ def _detect_website_developer(website: str) -> str:
 
 
 AllFunds = get_all_funds(set_website_developers=True)
+
+UknownFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'Unknown']
+BarFunds = AllFunds[AllFunds['WebsiteDeveloper'] == '-']
