@@ -1,5 +1,5 @@
 import pytest
-from fima.Bonds import get_risk_free_rate, get_all_bonds_without_coupons, get_all_bonds_with_coupons
+from fima.IFB import get_risk_free_rate, get_all_bonds_without_coupons, get_all_bonds_with_coupons
 
 
 def test_get_risk_free_rate_range():

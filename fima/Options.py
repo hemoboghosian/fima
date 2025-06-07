@@ -1,7 +1,7 @@
 import pandas as pd
 import requests
 import jdatetime as jd
-from fima.Bonds import get_risk_free_rate
+from fima.IFB import get_risk_free_rate
 from mibian import BS
 from scipy.stats import norm
 import numpy as np

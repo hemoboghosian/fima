@@ -201,13 +201,13 @@ vega = calculate_vega(s=550, k=28000, t=71, sigma=0.9588, r_f=0.3372)
 ### فراخوانی تمام توابع
 
 ```python
-from fima.Bonds import *
+from fima.IFB import *
 ```
 
 ### ۱.۲. دریافت سابقه قیمت اختیار معامله و دارایی پایه آن
 
 ```python
-from fima.Bonds import get_risk_free_rate
+from fima.IFB import get_risk_free_rate
 
 risk_free_rate = get_risk_free_rate()
 ```
@@ -218,7 +218,7 @@ risk_free_rate = get_risk_free_rate()
 ### ۲.۲. دریافت اوراق درآمد ثابت بدون کوپن
 
 ```python
-from fima.Bonds import get_all_bonds_without_coupons
+from fima.IFB import get_all_bonds_without_coupons
 
 all_bonds_without_coupons = get_all_bonds_without_coupons(deprecated=True)
 ```
@@ -233,7 +233,7 @@ all_bonds_without_coupons = get_all_bonds_without_coupons(deprecated=True)
 ### ۳.۲. دریافت اوراق درآمد ثابت با کوپن
 
 ```python
-from fima.Bonds import get_all_bonds_with_coupons
+from fima.IFB import get_all_bonds_with_coupons
 
 all_bonds_with_coupons = get_all_bonds_with_coupons(deprecated=True)
 ```
