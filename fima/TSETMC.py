@@ -6,6 +6,28 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 
+def get_supervision_lists() -> pd.DataFrame:
+    supervision_lists = []
+    for index in range(1, 4):
+        url = f"https://cdn.tsetmc.com/api/Supervision/GetSupervisionListBySourceID/1/{index}"
+        supervision_lists.append(pd.DataFrame(requests.get(url).json()['supervision']))
+    supervision_lists = pd.concat(supervision_lists, ignore_index=True)
+
+    supervision_lists['Ticker'] = None
+    supervision_lists['Name'] = None
+    for index, supervision_list_record in supervision_lists.iterrows():
+        supervision_lists.at[index, 'Ticker'] = supervision_list_record['instrument']['lVal18AFC']
+        supervision_lists.at[index, 'Name'] = supervision_list_record['instrument']['lVal30']
+
+    supervision_lists = supervision_lists[['insCode', 'reasons', 'Ticker', 'Name']]
+    supervision_lists.rename(columns={'insCode': 'InstrumentCode', 'reasons': 'Reasons'}, inplace=True)
+
+    supervision_lists['Reasons'] = supervision_lists['Reasons'].str.split('<br>')
+    supervision_lists = supervision_lists.explode('Reasons').reset_index(drop=True)
+    supervision_lists = supervision_lists[supervision_lists['Reasons'] != '']
+    return supervision_lists
+
+
 def _fetch_shareholders_for_date(args):
     jdate, instrument_code = args
     try:
@@ -339,5 +361,3 @@ def get_index_companies(index: str, thirty_days_history: bool=False) -> (pd.Data
     else:
         index_companies_past_30_days = pd.DataFrame()
     return index_companies, index_companies_past_30_days
-
-
