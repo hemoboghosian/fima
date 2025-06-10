@@ -6,6 +6,42 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 
+def get_flow_price_adjustments() -> pd.DataFrame:
+    tse_url = "https://cdn.tsetmc.com/api/ClosingPrice/GetPriceAdjustByFlow/1/100000"
+    tse_price_adjustments = pd.DataFrame(requests.get(tse_url).json()['priceAdjust'])
+    tse_price_adjustments['Ticker'] = None
+    tse_price_adjustments['Name'] = None
+    tse_price_adjustments['InstrumentCode'] = None
+    for index, tse_price_adjustments_record in tse_price_adjustments.iterrows():
+        tse_price_adjustments.at[index, 'Ticker'] = tse_price_adjustments_record['instrument']['lVal18AFC']
+        tse_price_adjustments.at[index, 'Name'] = tse_price_adjustments_record['instrument']['lVal30']
+        tse_price_adjustments.at[index, 'InstrumentCode'] = tse_price_adjustments_record['instrument']['insCode']
+    tse_price_adjustments.drop(['instrument', 'insCode', 'corporateTypeCode'], axis=1, inplace=True)
+    tse_price_adjustments.rename(columns={'dEven': 'GDate', 'pClosing': 'ClosePrice',
+                                          'pClosingNotAdjusted': 'NotAdjustedClosePrice'}, inplace=True)
+
+    ifb_url = "https://cdn.tsetmc.com/api/ClosingPrice/GetPriceAdjustByFlow/2/100000"
+    ifb_price_adjustments = pd.DataFrame(requests.get(ifb_url).json()['priceAdjust'])
+    ifb_price_adjustments['Ticker'] = None
+    ifb_price_adjustments['Name'] = None
+    ifb_price_adjustments['InstrumentCode'] = None
+    for index, ifb_price_adjustments_record in ifb_price_adjustments.iterrows():
+        ifb_price_adjustments.at[index, 'Ticker'] = ifb_price_adjustments_record['instrument']['lVal18AFC']
+        ifb_price_adjustments.at[index, 'Name'] = ifb_price_adjustments_record['instrument']['lVal30']
+        ifb_price_adjustments.at[index, 'InstrumentCode'] = ifb_price_adjustments_record['instrument']['insCode']
+    ifb_price_adjustments.drop(['instrument', 'insCode', 'corporateTypeCode'], axis=1, inplace=True)
+    ifb_price_adjustments.rename(columns={'dEven': 'GDate', 'pClosing': 'ClosePrice',
+                                          'pClosingNotAdjusted': 'NotAdjustedClosePrice'}, inplace=True)
+
+    price_adjustments = pd.concat([tse_price_adjustments, ifb_price_adjustments], axis=0, ignore_index=True)
+    price_adjustments['GDate'] = pd.to_datetime(price_adjustments['GDate'].astype(str)).dt.date
+    price_adjustments['JDate'] = price_adjustments['GDate'].apply(lambda g: jd.date.fromgregorian(year=g.year, month=g.month, day=g.day))
+    price_adjustments.drop('GDate', axis=1, inplace=True)
+    price_adjustments['Name'] = price_adjustments['Name'].apply(lambda name: convert_ar_characters(name))
+    price_adjustments['Ticker'] = price_adjustments['Ticker'].apply(lambda name: convert_ar_characters(name))
+    return price_adjustments
+
+
 def get_supervision_lists() -> pd.DataFrame:
     supervision_lists = []
     for index in range(1, 4):
