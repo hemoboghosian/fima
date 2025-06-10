@@ -116,6 +116,52 @@ def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     return navs
 
 
+def _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
+    fund_id = 1
+    website = get_fund_website_address(fund_name)
+    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
+    response = requests.get(url, timeout=10, verify=False)
+    response.raise_for_status()
+    data = response.json()
+    df = pd.json_normalize(data, sep='_')
+
+    subscription = pd.DataFrame(df[df['name'] == 'صدور'].loc[0, 'List'])
+    subscription['x'] = pd.to_datetime(subscription['x'], format='%m/%d/%Y').dt.date
+    subscription.sort_values('x', ascending=False, inplace=True, ignore_index=True)
+
+    statistical = pd.DataFrame(df[df['name'] == 'آماری'].loc[1, 'List'])
+    statistical['x'] = pd.to_datetime(statistical['x'], format='%m/%d/%Y').dt.date
+    statistical.sort_values('x', ascending=False, inplace=True, ignore_index=True)
+
+    redemption = pd.DataFrame(df[df['name'] == 'ابطال'].loc[2, 'List'])
+    redemption['x'] = pd.to_datetime(redemption['x'], format='%m/%d/%Y').dt.date
+    redemption.sort_values('x', ascending=False, inplace=True, ignore_index=True)
+
+    preffered_subscription = pd.DataFrame(df[df['name'] == 'صدور ممتاز'].loc[3, 'List'])
+    preffered_subscription['x'] = pd.to_datetime(preffered_subscription['x'], format='%m/%d/%Y').dt.date
+    preffered_subscription.sort_values('x', ascending=False, inplace=True, ignore_index=True)
+
+    preffered_redemption = pd.DataFrame(df[df['name'] == 'ابطال ممتاز'].loc[4, 'List'])
+    preffered_redemption['x'] = pd.to_datetime(preffered_redemption['x'], format='%m/%d/%Y').dt.date
+    preffered_redemption.sort_values('x', ascending=False, inplace=True, ignore_index=True)
+
+    common = pd.DataFrame(df[df['name'] == 'عادی'].loc[5, 'List'])
+    common['x'] = pd.to_datetime(common['x'], format='%m/%d/%Y').dt.date
+    common.sort_values('x', ascending=False, inplace=True, ignore_index=True)
+
+    navs = pd.DataFrame()
+    navs['GDate'] = subscription['x']
+    navs['Subscription'] = subscription['y']
+    navs['Statistical'] = statistical['y']
+    navs['Redemption'] = redemption['y']
+    navs['Common'] = common['y']
+    navs['SpecialSubscription'] = preffered_subscription['y']
+    navs['SpecialRedemption'] = preffered_redemption['y']
+    navs['JDate'] = navs['GDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+    navs.drop('GDate', axis=1, inplace=True)
+    return navs
+
+
 def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId=1"
@@ -410,6 +456,22 @@ def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     return navs
 
 
+def _get_leveraged_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
+    portfolio_id = 1
+    website = get_fund_website_address(fund_name)
+    url = f"https://{website}/api/v2/public/fund/chart?portfolio_id={portfolio_id}"
+    response = requests.get(url, timeout=10, verify=False)
+    navs = pd.DataFrame(response.json()['data'])
+    navs['date_time'] = pd.to_datetime(navs['date_time']).dt.date
+    navs['date_time'] = navs['date_time'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+    navs.rename(columns={'date_time': 'JDate', 'total_unit_count': 'TotalUnits', 'purchase_price': 'SubscriptionPerUnit', 'redemption_price': 'RedemptionPerUnit',
+       'common_unit_purchase_price': 'CommonSubscriptionPerUnit', 'today_purchase_count': 'TodaySubscriptionsCount',
+       'today_redeemed_count': 'TodayRedeemsCount', 'total_purchase_count': 'TotalSubscriptionsCount', 'total_redeemed_count': 'TotalRedeemedCount',
+       'total_preferred_unit_count': 'TotalPrefferedUnits', 'total_common_unit_count': 'TotalCommonUnits',
+       'statistical_value': 'StatisticalPerUnit'}, inplace=True)
+    return navs
+
+
 def _get_daily_navs_rahkar(fund_name: str) -> pd.DataFrame:
     mutual_fund_id = 1
     fund_website = get_fund_website_address(fund_name)
@@ -434,11 +496,17 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
         website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
         website_developer = _detect_website_developer(website=website_address)
         if website_developer == 'گروه رایانه تدبیر پرداز':
-            daily_navs = _get_daily_navs_tadbirpardaz(fund_name)
+            if fund_type == 'در سهام-سهامی اهرمی':
+                daily_navs = _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name)
+            else:
+                daily_navs = _get_daily_navs_tadbirpardaz(fund_name)
         elif website_developer == 'شرکت رایان هم افزا':
             daily_navs = _get_daily_navs_rayan_hamafza(fund_name)
         elif website_developer == 'پردازش اطلاعات مالی مبنا':
-            daily_navs = _get_daily_navs_mabna(fund_name)
+            if fund_type == 'در سهام-سهامی اهرمی':
+                daily_navs = _get_daily_navs_tadbirpardaz(fund_type)
+            else:
+                daily_navs = _get_daily_navs_mabna(fund_name)
         elif website_developer == 'پیکاد':
             daily_navs = _get_daily_navs_pikad(fund_name)
         elif website_developer == 'راهکار حامی پرداز':
@@ -565,3 +633,9 @@ AllFunds = get_all_funds(set_website_developers=True)
 
 UknownFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'Unknown']
 BarFunds = AllFunds[AllFunds['WebsiteDeveloper'] == '-']
+
+TestFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'گروه رایانه تدبیر پرداز']
+TestFund = TestFunds.iloc[1, :].to_frame().T
+TestFundName = TestFund['Name'].values[0]
+TestFundWebsiteAddress = TestFund['WebsiteAddress'].values[0]
+print(TestFundWebsiteAddress)
