@@ -76,6 +76,7 @@ def scrape_monthly_activity_report(driver, table_id):
 
 
 warnings.filterwarnings(action='ignore')
+
 EdgeWebDriverOptions = webdriver.EdgeOptions()
 EdgeWebDriver = webdriver.Edge(options=EdgeWebDriverOptions)
 
