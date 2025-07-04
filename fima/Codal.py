@@ -1,14 +1,15 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.firefox.options import Options
 import pandas as pd
 import time
-from persian import convert_ar_characters
-import re
-import jdatetime as jd
 import warnings
+import re
 from bs4 import BeautifulSoup
-import requests
-import os
+import jdatetime as jd
+from persian import convert_ar_characters
 
 
 def extract_jalali_date(title):
@@ -47,6 +48,7 @@ def scrape_monthly_activity_report(driver, table_id):
     rows = table.find_all('tr')
     num_header_rows = 2
     max_cols = 0
+
     for i in range(num_header_rows):
         headers = []
         cells = rows[i].find_all(['th', 'td'])
@@ -60,49 +62,59 @@ def scrape_monthly_activity_report(driver, table_id):
                 while len(header_levels) <= i + j:
                     header_levels.append([])
                 header_levels[i + j].extend([header_text] * colspan)
-
         header_levels.append(headers)
         max_cols = max(max_cols, len(headers))
+
     for level in header_levels:
         level.extend([''] * (max_cols - len(level)))
+
     multi_index = pd.MultiIndex.from_arrays(header_levels)
+
     for row in rows[num_header_rows:]:
         row_data = [cell.text.strip() for cell in row.find_all('td')]
         if row_data:
             data.append(row_data[:max_cols])
+
     df = pd.DataFrame(data, columns=multi_index)
     df.columns = df.columns.droplevel([0, 1])
     return df
 
 
-warnings.filterwarnings(action='ignore')
+def scrape_codal(pages=10, delay=1):
+    warnings.filterwarnings(action='ignore')
 
-EdgeWebDriverOptions = webdriver.EdgeOptions()
-EdgeWebDriver = webdriver.Edge(options=EdgeWebDriverOptions)
+    options = Options()
+    options.headless = True
 
-BaseURL = "https://codal.ir/ReportList.aspx?PageNumber="
-CodalAllPagesData = pd.DataFrame(columns=['Ticker', 'Name', 'Status', 'Title', 'Code', 'SentTime', 'PublishedTime', 'Link'])
-for PageNumber in range(1, 10):
-    print(f"Scraping page {PageNumber} from codal...")
-    EdgeWebDriver.get(BaseURL + str(PageNumber))
-    time.sleep(1)
-    PageData = scrape_a_page(EdgeWebDriver)
-    if not PageData:
-        print("No more pages to scrape.")
-        break
-    else:
-        PageDataDF = pd.DataFrame(PageData, columns=['Ticker', 'Name', 'Status', 'Title', 'Code', 'SentTime', 'PublishedTime', 'Link'])
-        PageDataDF.drop(['Status', 'Code', 'SentTime', 'PublishedTime'], axis=1, inplace=True)
-        PageDataDF['Ticker'] = PageDataDF['Ticker'].apply(lambda ticker: convert_ar_characters(ticker))
-        PageDataDF['Name'] = PageDataDF['Name'].apply(lambda name: convert_ar_characters(name))
-        PageDataDF['Title'] = PageDataDF['Title'].apply(lambda title: convert_ar_characters(title))
-        NewCodalAllPagesData = pd.concat([CodalAllPagesData, PageDataDF], axis=0)
-EdgeWebDriver.quit()
-del EdgeWebDriver, BaseURL, PageNumber, EdgeWebDriverOptions, PageData
+    service = FirefoxService(executable_path=GeckoDriverManager().install())
+    driver = webdriver.Firefox(service=service, options=options)
 
-CodalAllPagesData = pd.DataFrame(CodalAllPagesData, columns=['Ticker', 'Name', 'Status', 'Title',
-                                                             'Code', 'SentTime', 'PublishedTime', 'Link'])
-CodalAllPagesData.drop(['Status', 'Code', 'SentTime', 'PublishedTime'], axis=1, inplace=True)
-CodalAllPagesData['Ticker'] = CodalAllPagesData['Ticker'].apply(lambda ticker: convert_ar_characters(ticker))
-CodalAllPagesData['Name'] = CodalAllPagesData['Name'].apply(lambda name: convert_ar_characters(name))
-CodalAllPagesData['Title'] = CodalAllPagesData['Title'].apply(lambda title: convert_ar_characters(title))
+    base_url = "https://codal.ir/ReportList.aspx?PageNumber="
+    all_data = pd.DataFrame(columns=['Ticker', 'Name', 'Title', 'Link'])
+
+    try:
+        for page_number in range(1, pages + 1):
+            print(f"Scraping page {page_number} from codal...")
+            driver.get(base_url + str(page_number))
+            time.sleep(delay)
+
+            page_data = scrape_a_page(driver)
+            if not page_data:
+                print("No more pages to scrape.")
+                break
+
+            df = pd.DataFrame(page_data, columns=['Ticker', 'Name', 'Status', 'Title', 'Code', 'SentTime', 'PublishedTime', 'Link'])
+            df = df[['Ticker', 'Name', 'Title', 'Link']]
+            df['Ticker'] = df['Ticker'].apply(convert_ar_characters)
+            df['Name'] = df['Name'].apply(convert_ar_characters)
+            df['Title'] = df['Title'].apply(convert_ar_characters)
+
+            all_data = pd.concat([all_data, df], ignore_index=True)
+
+    finally:
+        driver.quit()
+
+    return all_data
+
+
+df_codal = scrape_codal(pages=5)
