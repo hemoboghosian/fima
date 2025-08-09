@@ -116,9 +116,10 @@ def get_ifb_equally_weighted_total_index_historical_data() -> pd.DataFrame:
         result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
+        result.rename(columns={'WeightedIndex': 'EquallyWeightedTotalIndex'}, inplace=True)
         return result
 
-    except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+    except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
 
 
@@ -135,9 +136,10 @@ def get_ifb_equally_weighted_price_index_historical_data() -> pd.DataFrame:
         result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
+        result.rename(columns={'WeightedIndex': 'EquallyWeightedPriceIndex'}, inplace=True)
         return result
 
-    except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+    except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
 
 
@@ -154,9 +156,10 @@ def get_ifb_price_index_historical_data() -> pd.DataFrame:
         result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
+        result.rename(columns={'WeightedIndex': 'PriceIndex'}, inplace=True)
         return result
 
-    except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+    except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
 
 
@@ -173,9 +176,10 @@ def get_ifb_total_index_historical_data() -> pd.DataFrame:
         result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
+        result.rename(columns={'WeightedIndex': 'TotalIndex'}, inplace=True)
         return result
 
-    except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+    except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
 
 
@@ -188,13 +192,14 @@ def get_ifb_total_sukuk_index_historical_data() -> pd.DataFrame:
 
     try:
         response = requests.post(url, headers=headers)
-        result = pd.DataFrame(response.json()["d"], columns=["timestamp", "WeightedIndex"])
+        result = pd.DataFrame(np.array(response.json()["d"])[0], columns=["timestamp", "WeightedIndex"])
         result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
+        result.rename(columns={'WeightedIndex': 'TotalSukukIndex'}, inplace=True)
         return result
 
-    except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+    except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
 
 
@@ -208,21 +213,21 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
     
     def parse_table(soup):
         table = soup.select_one("table[id$='grdDSTs']")
-        rows = table.select("tr")[2:-1]
-        data = []
-        for row in rows:
+        table_rows = table.select("tr")[2:-1]
+        table_data = []
+        for row in table_rows:
             cols = row.find_all("td")
             if len(cols) == 12:
                 values = [td.get_text(strip=True).replace("\u200c", "") for td in cols]
-                data.append(values)
-        return data
+                table_data.append(values)
+        return table_data
     
-    def set_rows_per_page(session, hidden_fields, per_page="50"):
+    def set_rows_per_page(page_session, hidden_fields, per_page="50"):
         dropdown_field = "ctl00$ContentPlaceHolder1$grdDSTs$ctl14$ctl13"
-        data = {"__EVENTTARGET": dropdown_field, "__EVENTARGUMENT": "", "__VIEWSTATE": hidden_fields["__VIEWSTATE"],
-                "__VIEWSTATEGENERATOR": hidden_fields["__VIEWSTATEGENERATOR"], dropdown_field: per_page}
-        res = session.post(url, headers=headers, data=data)
-        return BeautifulSoup(res.text, "html.parser")
+        page_data = {"__EVENTTARGET": dropdown_field, "__EVENTARGUMENT": "", "__VIEWSTATE": hidden_fields["__VIEWSTATE"],
+                     "__VIEWSTATEGENERATOR": hidden_fields["__VIEWSTATEGENERATOR"], dropdown_field: per_page}
+        page_result = page_session.post(url, headers=headers, data=page_data)
+        return BeautifulSoup(page_result.text, "html.parser")
 
     url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
 
@@ -230,12 +235,12 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
                "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"}
 
     session = requests.Session()
-    res = session.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
-    hidden = extract_hidden_fields(soup)
+    result = session.get(url, headers=headers)
+    beautiful_soup = BeautifulSoup(result.text, "html.parser")
+    hidden = extract_hidden_fields(beautiful_soup)
 
-    soup = set_rows_per_page(session, hidden)
-    hidden = extract_hidden_fields(soup)
+    beautiful_soup = set_rows_per_page(session, hidden)
+    hidden = extract_hidden_fields(beautiful_soup)
 
     all_rows = []
     seen_rows = set()
@@ -246,11 +251,11 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
             data = {"__EVENTTARGET": "ctl00$ContentPlaceHolder1$grdDSTs", "__EVENTARGUMENT": f"Page${page}",
                     "__VIEWSTATE": hidden["__VIEWSTATE"], "__VIEWSTATEGENERATOR": hidden["__VIEWSTATEGENERATOR"]}
             res = session.post(url, headers=headers, data=data)
-            soup = BeautifulSoup(res.text, "html.parser")
-            hidden = extract_hidden_fields(soup)
+            beautiful_soup = BeautifulSoup(res.text, "html.parser")
+            hidden = extract_hidden_fields(beautiful_soup)
             time.sleep(0.5)
 
-        rows = parse_table(soup)
+        rows = parse_table(beautiful_soup)
         if not rows:
             break
 
@@ -305,30 +310,30 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
 
 
 def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
-    def extract_hidden_fields(soup):
+    def extract_hidden_fields(hidden_soup):
         def get(name):
-            tag = soup.select_one(f"input[name='{name}']")
+            tag = hidden_soup.select_one(f"input[name='{name}']")
             return tag["value"] if tag else None
 
         return {"__VIEWSTATE": get("__VIEWSTATE"), "__VIEWSTATEGENERATOR": get("__VIEWSTATEGENERATOR")}
 
-    def parse_table(soup):
-        table = soup.select_one("table[id$='grdDSTTypes']")
-        rows = table.select("tr")[1:-1]
-        data = []
-        for row in rows:
+    def parse_table(table_soup):
+        table = table_soup.select_one("table[id$='grdDSTTypes']")
+        table_rows = table.select("tr")[1:-1]
+        table_data = []
+        for row in table_rows:
             cols = row.find_all("td")
             if len(cols) == 5:
                 values = [td.get_text(strip=True).replace("\u200c", "") for td in cols]
-                data.append(values)
-        return data
+                table_data.append(values)
+        return table_data
 
-    def set_rows_per_page(session, hidden_fields, per_page="50"):
+    def set_rows_per_page(page_session, hidden_fields, per_page="50"):
         dropdown_field = "ctl00$ContentPlaceHolder1$grdDSTs$ctl14$ctl13"
-        data = {"__EVENTTARGET": dropdown_field, "__EVENTARGUMENT": "", "__VIEWSTATE": hidden_fields["__VIEWSTATE"],
+        page_data = {"__EVENTTARGET": dropdown_field, "__EVENTARGUMENT": "", "__VIEWSTATE": hidden_fields["__VIEWSTATE"],
                 "__VIEWSTATEGENERATOR": hidden_fields["__VIEWSTATEGENERATOR"], dropdown_field: per_page}
-        res = session.post(url, headers=headers, data=data)
-        return BeautifulSoup(res.text, "html.parser")
+        page_result = page_session.post(url, headers=headers, data=page_data)
+        return BeautifulSoup(page_result.text, "html.parser")
 
     url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
 

@@ -629,13 +629,13 @@ def _detect_website_developer(website: str) -> str:
     return "-"
 
 
-AllFunds = get_all_funds(set_website_developers=True)
-
-UknownFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'Unknown']
-BarFunds = AllFunds[AllFunds['WebsiteDeveloper'] == '-']
-
-TestFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'گروه رایانه تدبیر پرداز']
-TestFund = TestFunds.iloc[1, :].to_frame().T
-TestFundName = TestFund['Name'].values[0]
-TestFundWebsiteAddress = TestFund['WebsiteAddress'].values[0]
-print(TestFundWebsiteAddress)
+# AllFunds = get_all_funds(set_website_developers=True)
+#
+# UknownFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'Unknown']
+# BarFunds = AllFunds[AllFunds['WebsiteDeveloper'] == '-']
+#
+# TestFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'گروه رایانه تدبیر پرداز']
+# TestFund = TestFunds.iloc[1, :].to_frame().T
+# TestFundName = TestFund['Name'].values[0]
+# TestFundWebsiteAddress = TestFund['WebsiteAddress'].values[0]
+# print(TestFundWebsiteAddress)

@@ -117,4 +117,4 @@ def scrape_codal(pages=10, delay=1):
     return all_data
 
 
-df_codal = scrape_codal(pages=5)
+# df_codal = scrape_codal(pages=5)
