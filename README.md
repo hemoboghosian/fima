@@ -196,8 +196,8 @@ rho = calculate_rho(s=550, k=28000, option_type='Call', t=71, sigma=0.9588, r_f=
 vega = calculate_vega(s=550, k=28000, t=71, sigma=0.9588, r_f=0.3372)
 ```
 
-## ۲. توابع مربوط به اوراق درآمد ثابت
-###### نسخه ۰.۱.۱
+## ۲. توابع مربوط به فرابورس ایران
+###### نسخه ۰.۳.۰
 ### فراخوانی تمام توابع
 
 ```python
@@ -228,7 +228,7 @@ all_bonds_without_coupons = get_all_bonds_without_coupons(deprecated=True)
   * True: اوراق سررسید شده نیز در خروجی بیاید
   * False: اوراق سررسید شده در خروجی نیاید
 #### خروجی
-* all_bonds_without_coupons: اطلاعات مربوط به اوراق درآمد ثابت بدون کوپن (دریاقت‌شده از سایت فرابورس ایران)
+* all_bonds_without_coupons: اطلاعات مربوط به اوراق درآمد ثابت بدون کوپن
 
 ### ۳.۲. دریافت اوراق درآمد ثابت با کوپن
 
@@ -243,7 +243,78 @@ all_bonds_with_coupons = get_all_bonds_with_coupons(deprecated=True)
   * True: اوراق سررسید شده نیز در خروجی بیاید
   * False: اوراق سررسید شده در خروجی نیاید
 #### خروجی
-* all_bonds_without_coupons: اطلاعات مربوط به اوراق درآمد ثابت با کوپن (دریاقت‌شده از سایت فرابورس ایران)
+* all_bonds_without_coupons: اطلاعات مربوط به اوراق درآمد ثابت با کوپن
+
+### ۳.۳. دریافت شاخص کل هم وزن فرابورس ایران 
+
+```python
+from fima.IFB import get_ifb_equally_weighted_total_index_historical_data
+
+ifb_equally_weighted_total_index_historical_data = get_ifb_equally_weighted_total_index_historical_data()
+```
+
+#### خروجی
+* ifb_equally_weighted_total_index_historical_data: سری زمانی شاخص کل هم وزن فرابورس ایران
+
+
+### ۳.۴. دریافت شاخص قیمت هم وزن فرابورس ایران 
+
+```python
+from fima.IFB import get_ifb_equally_weighted_price_index_historical_data
+
+ifb_equally_weighted_price_index_historical_data = get_ifb_equally_weighted_price_index_historical_data()
+```
+
+#### خروجی
+* ifb_equally_weighted_total_index_historical_data: سری زمانی شاخص قیمت هم وزن فرابورس ایران
+
+
+### ۳.۵. دریافت شاخص کل فرابورس ایران 
+
+```python
+from fima.IFB import get_ifb_total_index_historical_data
+
+ifb_total_index_historical_data = get_ifb_total_index_historical_data()
+```
+
+#### خروجی
+* ifb_total_index_historical_data: سری زمانی شاخص کل فرابورس ایران
+
+### ۳.۶. دریافت شاخص کل صکوک فرابورس ایران 
+
+```python
+from fima.IFB import get_ifb_total_sukuk_index_historical_data
+
+ifb_total_sukuk_index_historical_data = get_ifb_total_sukuk_index_historical_data()
+```
+
+#### خروجی
+* ifb_total_sukuk_index_historical_data: سری زمانی شاخص کل صکوک فرابورس ایران
+
+
+### ۳.۷. دریافت آمار معاملات روزانه اوراق مالی اسلامی به تفکیک خریدار و فروشنده 
+
+```python
+from fima.IFB import get_sukuk_daily_trades_based_on_bs
+
+sukuk_daily_trades_based_on_bs = get_sukuk_daily_trades_based_on_bs()
+```
+
+#### خروجی
+* sukuk_daily_trades_based_on_bs: اطلاعات مربوط به آمار معاملات روزانه اوراق مالی اسلامی به تفکیک خریدار و فروشنده
+
+
+### ۳.۸. دریافت آمار معاملات روزانه اوراق مالی اسلامی به تفکیک نوع معامله 
+
+```python
+from fima.IFB import get_sukuk_daily_trades_based_on_ct
+
+sukuk_daily_trades_based_on_ct = get_sukuk_daily_trades_based_on_ct()
+```
+
+#### خروجی
+* sukuk_daily_trades_based_on_bs: اطلاعات مربوط به آمار معاملات روزانه اوراق مالی اسلامی به تفکیک نوع معامله
+
 
 
 ##  ۳. توابع مربوط به بورس کالا
