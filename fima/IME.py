@@ -1,8 +1,22 @@
 import requests
 import json
 import pandas as pd
-import jdatetime as jd
 import time
+
+
+def _chunk_jalali_dates(start_s: str, end_s: str, chunk_size_days: int):
+    start = jd.date(int(start_s[:4]), int(start_s[5:7]), int(start_s[8:]))
+    end   = jd.date(int(end_s[:4]),   int(end_s[5:7]),   int(end_s[8:]))
+
+    chunks = []
+    cur = start
+    delta = jd.timedelta(days=chunk_size_days)
+    while cur <= end:
+        nxt = cur + delta
+        chunk_end = end if nxt > end else nxt
+        chunks.append((cur.strftime('%Y/%m/%d'), chunk_end.strftime('%Y/%m/%d')))
+        cur = chunk_end + jd.timedelta(days=1)
+    return chunks
 
 
 def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 180) -> pd.DataFrame:
@@ -25,15 +39,7 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
                "Origin": "https://www.ime.co.ir", "Referer": "https://www.ime.co.ir/offer-stat.html",
                "Connection": "keep-alive"}
 
-    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-    chunked_dates = []
-    while temp_end_date <= end_date:
-        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
-        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
-        temp_start_date = temp_end_date + jd.timedelta(days=1)
-        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
-    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
     all_data = []
     for from_date, to_date in chunked_dates:
@@ -91,17 +97,10 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
     if start_date is None:
         start_date = '1387-01-01'
     if end_date is None:
-            end_date = str(jd.date.today())
+        end_date = str(jd.date.today())
 
-    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-    chunked_dates = []
-    while temp_end_date <= end_date:
-        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
-        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
-        temp_start_date = temp_end_date + jd.timedelta(days=1)
-        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
-    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+
+    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
     url = "https://www.ime.co.ir/subsystems/ime/futurereports/FutureAmareMoamelatHnadler.ashx"
     contract_filter = -1 if only_active else 0
@@ -138,7 +137,7 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
         all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
             lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
             if pd.notna(str_j_date) else None)
-
+        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
         return all_data
     return pd.DataFrame(all_rows)
 
@@ -154,15 +153,7 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
     if end_date is None:
         end_date = str(jd.date.today() - jd.timedelta(days=1))
 
-    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-    chunked_dates = []
-    while temp_end_date <= end_date:
-        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
-        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
-        temp_start_date = temp_end_date + jd.timedelta(days=1)
-        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
-    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
     url = "https://www.ime.co.ir/subsystems/ime/option/optionboarddata.ashx"
     contract_filter = -1 if only_active else 0
@@ -210,7 +201,7 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
         all_data['GDate'] = all_data['GDate'].dt.date
         all_data['CreateDateTime'] = pd.to_datetime(all_data['CreateDateTime'], format='mixed')
         all_data['CreateDateTime'] = all_data['CreateDateTime'].dt.date
-
+        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
         return all_data
     return pd.DataFrame(all_rows)
 
@@ -247,15 +238,7 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
     if end_date is None:
         end_date = str(jd.date.today())
 
-    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-    chunked_dates = []
-    while temp_end_date <= end_date:
-        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
-        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
-        temp_start_date = temp_end_date + jd.timedelta(days=1)
-        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
-    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
     url = "https://www.ime.co.ir/subsystems/ime/fiziki/export.ashx"
 
@@ -295,6 +278,8 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
 
         all_data['GoodsName'] = all_data['GoodsName'].apply(lambda goods_name: goods_name.replace(' - صادراتی', ''))
 
+        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
+
         return all_data
     return pd.DataFrame(all_rows)
 
@@ -306,15 +291,7 @@ def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_s
     if end_date is None:
         end_date = str(jd.date.today())
 
-    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-    chunked_dates = []
-    while temp_end_date <= end_date:
-        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
-        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
-        temp_start_date = temp_end_date + jd.timedelta(days=1)
-        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
-    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
     url = "https://www.ime.co.ir/subsystems/ime/bazaremali/bazaremalidata.ashx"
 
@@ -351,7 +328,7 @@ def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_s
             if pd.notna(str_j_date) else None)
         all_data['GDate'] = pd.to_datetime(all_data['GDate'])
         all_data['GDate'] = all_data['GDate'].dt.date
-
+        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
         return all_data
     return pd.DataFrame(all_rows)
 
@@ -388,15 +365,7 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
     if end_date is None:
         end_date = str(jd.date.today())
 
-    temp_start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-    end_date = temp_end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-    chunked_dates = []
-    while temp_end_date <= end_date:
-        temp_end_date = temp_start_date + jd.timedelta(days=_chunk_size)
-        chunked_dates.append([str(temp_start_date).replace('-', '/'), str(temp_end_date).replace('-', '/')])
-        temp_start_date = temp_end_date + jd.timedelta(days=1)
-        temp_end_date = temp_end_date + jd.timedelta(days=_chunk_size)
-    chunked_dates.append([str(temp_start_date + jd.timedelta(days=1)).replace('-', '/'), str(end_date).replace('-', '/')])
+    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
     url = "https://www.ime.co.ir/subsystems/ime/bazaremali/bazaremalidata.ashx"
 
@@ -433,7 +402,7 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
             if pd.notna(str_j_date) else None)
         all_data['GDate'] = pd.to_datetime(all_data['GDate'])
         all_data['GDate'] = all_data['GDate'].dt.date
-
+        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
         return all_data
     return pd.DataFrame(all_rows)
 
@@ -500,6 +469,6 @@ def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, en
                'Val_Haghighi_Buy': 'RetailBuyValue', 'Val_Haghighi_Sell': 'RetailSellValue', 'DT': 'GDate',
                'PersianDate': 'JDate', 'DeliveryDate': 'DeliveryGDate'}, inplace=True, axis=1)
     all_data['DeliveryJDate'] = all_data['DeliveryGDate'].apply(lambda delivery_g_date: jd.date.fromgregorian(date=delivery_g_date))
-
+    all_data.sort_values(by='Date', inplace=True, ignore_index=True)
     return all_data
 

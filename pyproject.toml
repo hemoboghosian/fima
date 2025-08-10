@@ -1,6 +1,6 @@
 [project]
 name = "fima"
-version = "0.3.0"
+version = "0.3.1"
 description = "fima – A Python package for scraping and analyzing Iran’s financial market data."
 authors = [{ name = "Hemo Boghosian", email = "HemoBoghosian@gmail.com" }]
 license = "MIT"
