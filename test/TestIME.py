@@ -21,6 +21,18 @@ def test_get_all_ime_physical_trades(start_date, end_date):
                 'TransactionValue', 'Date', 'DeliveryDate', 'Warehouse', 'Supplier', 'SettlementDate', 'Broker',
                 'SupplyType', 'BuyType', 'Currency', 'Unit', 'ExchangeHall', 'PacketType', 'Settlement'])
 
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1385, 1, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_physical_trades['Date'] if pd.notna(date_column))
+
+
 
 @pytest.mark.parametrize(["only_active", "start_date", "end_date"],
                          [(True, str(jd.date.today() - jd.timedelta(days=10)), str(jd.date.today())),
@@ -50,6 +62,18 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
                 'InstitutionalBuyVolume', 'InstitutionalBuyValue',
                 'MonthlyOpenInterestsPercent', 'MonthlySettlementPricePercent',
                 'InstitutionalSellVolume', 'InstitutionalSellValue'])
+
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1387, 1, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_futures_trades['Date'] if pd.notna(date_column))
+
 
 
 @pytest.mark.parametrize(["option_type", "only_active", "start_date", "end_date"],
@@ -104,6 +128,19 @@ def test_get_all_ime_option_trades(option_type, only_active, start_date, end_dat
                 'RetailSellVolume', 'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice',
                 'SettlementPricePercent', 'Date', 'GDate', 'DeliveryDate', 'CreateDateTime'])
 
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1395, 1, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+
+    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_option_trades['Date'] if pd.notna(date_column))
+
+
 
 def test_get_all_physical_producer_products():
     all_producer_products = get_all_physical_producer_products()
@@ -111,6 +148,7 @@ def test_get_all_physical_producer_products():
     assert all_producer_products is not None
     assert not all_producer_products.empty
     assert all(column in all_producer_products.columns for column in ['Producer', 'Products'])
+
 
 
 @pytest.mark.parametrize(["producer", "start_date", "end_date"],
@@ -129,6 +167,17 @@ def test_get_producer_physical_trades(producer, start_date, end_date):
                 'TransactionValue', 'Date', 'DeliveryDate', 'Warehouse', 'Supplier', 'SettlementDate', 'Broker',
                 'SupplyType', 'BuyType', 'Currency', 'Unit', 'ExchangeHall', 'PacketType', 'Settlement'])
 
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1300, 1, 1)
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in producer_physical_trades['Date'] if pd.notna(date_column))
+
+
 
 @pytest.mark.parametrize(["start_date", "end_date"], [('1400-01-01', '1400-12-29'),
                                                       ('1404-01-01', str(jd.date.today() + jd.timedelta(days=10))),
@@ -145,6 +194,18 @@ def test_get_all_ime_export_trades(start_date, end_date):
                 'SupplyBasePrice', 'Supplier', 'RingName', 'SupplyType', 'BuyType', 'FXRate', 'Currency', 'Unit',
                 'ExchangeHall'])
 
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1387, 12, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_export_trades['Date'] if pd.notna(date_column))
+
+
 
 @pytest.mark.parametrize(["start_date", "end_date"], [('1400-01-01', '1400-12-29'),
                                                       ('1404-01-01', str(jd.date.today() + jd.timedelta(days=10))),
@@ -159,6 +220,18 @@ def test_get_all_ime_cd_trades(start_date, end_date):
                 'Value', 'MinPrice', 'MaxPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',
                 'ClosePriceChangePrice', 'ClosePricePercentageChange', 'GDate'])
 
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1394, 3, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_cd_trades['Date'] if pd.notna(date_column))
+
+
 
 def test_get_all_export_producer_products():
     all_producer_products = get_all_export_producer_products()
@@ -166,6 +239,7 @@ def test_get_all_export_producer_products():
     assert all_producer_products is not None
     assert not all_producer_products.empty
     assert all(column in all_producer_products.columns for column in ['Producer', 'Products'])
+
 
 
 @pytest.mark.parametrize(["producer", "start_date", "end_date"],
@@ -185,6 +259,18 @@ def test_get_producer_export_trades(producer, start_date, end_date):
                 'SupplyBasePrice', 'Supplier', 'RingName', 'SupplyType', 'BuyType', 'FXRate', 'Currency', 'Unit',
                 'ExchangeHall'])
 
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1300, 1, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in producer_export_trades['Date'] if pd.notna(date_column))
+
+
 
 @pytest.mark.parametrize(["start_date", "end_date"], [('1400-01-01', '1400-12-29'),
                                                       ('1404-01-01', str(jd.date.today() + jd.timedelta(days=10))),
@@ -198,6 +284,18 @@ def test_get_all_ime_salaf_trades(start_date, end_date):
                ['ID', 'Code', 'Symbol', 'Date', 'Description', 'ClosePrice', 'LastPrice', 'TotalTransitions', 'Volume',
                 'Value', 'MinPrice', 'MaxPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',
                 'ClosePriceChangePrice', 'ClosePricePercentageChange', 'GDate'])
+
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1393, 5, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_salaf_trades['Date'] if pd.notna(date_column))
+
 
 
 @pytest.mark.parametrize(["contract_type", "start_date", "end_date"],
@@ -225,6 +323,17 @@ def test_get_gold_and_silver_cd_trades(contract_type, start_date, end_date):
                 'InstitutionalSellVolume', 'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue',
                 'RetailSellVolume', 'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice',
                 'SettlementPricePercent', 'GDate', 'JDate', 'DeliveryGDate', 'DeliveryJDate'])
+
+    if start_date is not None:
+        start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
+    else:
+        start_jd = jd.date(1401, 12, 1)
+
+    if end_date is not None:
+        end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
+    else:
+        end_jd = jd.date.today()
+    assert all(start_jd <= date_column <= end_jd for date_column in gold_and_silver_cd_trades['Date'] if pd.notna(date_column))
 
 
 
