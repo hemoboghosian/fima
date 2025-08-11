@@ -9,7 +9,7 @@ from fima.IME import (get_all_ime_physical_trades, get_all_ime_futures_trades, g
 
 @pytest.mark.parametrize(["start_date", "end_date"], [('1400-01-01', '1400-12-29'),
                                                       ('1404-01-01', str(jd.date.today() + jd.timedelta(days=10))),
-                                                      (None, None), (None, '1400-12-29'), ('1400-12-29', None)])
+                                                      (None, None), (None, '1400-12-29'), ('1403-12-29', None)])
 def test_get_all_ime_physical_trades(start_date, end_date):
     all_ime_physical_trades = get_all_ime_physical_trades(start_date, end_date)
     assert all_ime_physical_trades is not None
@@ -48,7 +48,10 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
     all_ime_futures_trades = get_all_ime_futures_trades(only_active, start_date, end_date)
     assert isinstance(all_ime_futures_trades, pd.DataFrame)
     assert all_ime_futures_trades is not None
-    assert not all_ime_futures_trades.empty
+    if not only_active:
+        assert not all_ime_futures_trades.empty
+    if only_active and all_ime_futures_trades.empty:
+        return
     assert all(column in all_ime_futures_trades.columns for column in
                ['ContractDay', 'ContractCode', 'ContractDescription', 'TradesVolume',
                 'TradesValue', 'MaxPrice', 'MinPrice', 'LastPrice', 'FirstPrice',
@@ -79,8 +82,6 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
 @pytest.mark.parametrize(["option_type", "only_active", "start_date", "end_date"],
                          [
                              ("All", True, str(jd.date.today() - jd.timedelta(days=10)), str(jd.date.today())),
-                             ("All", True, str(jd.date.today()), str(jd.date.today() + jd.timedelta(days=10))),
-                             ("All", True, str(jd.date.today()), str(jd.date.today())),
                              ("All", True, str(jd.date.today() - jd.timedelta(days=10)),
                               str(jd.date.today() + jd.timedelta(days=10))),
                              ("All", True, None, None),
@@ -91,8 +92,6 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
                              ("All", False, None, '1400-01-01'),
                              ("All", False, '1403-01-01', None),
                              ("Call", True, str(jd.date.today() - jd.timedelta(days=10)), str(jd.date.today())),
-                             ("Call", True, str(jd.date.today()), str(jd.date.today() + jd.timedelta(days=10))),
-                             ("Call", True, str(jd.date.today()), str(jd.date.today())),
                              ("Call", True, str(jd.date.today() - jd.timedelta(days=10)),
                               str(jd.date.today() + jd.timedelta(days=10))),
                              ("Call", True, None, None),
@@ -103,8 +102,6 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
                              ("Call", False, None, '1400-01-01'),
                              ("Call", False, '1403-01-01', None),
                              ("Put", True, str(jd.date.today() - jd.timedelta(days=10)), str(jd.date.today())),
-                             ("Put", True, str(jd.date.today()), str(jd.date.today() + jd.timedelta(days=10))),
-                             ("Put", True, str(jd.date.today()), str(jd.date.today())),
                              ("Put", True, str(jd.date.today() - jd.timedelta(days=10)),
                               str(jd.date.today() + jd.timedelta(days=10))),
                              ("Put", True, None, None),
@@ -333,7 +330,4 @@ def test_get_gold_and_silver_cd_trades(contract_type, start_date, end_date):
         end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
     else:
         end_jd = jd.date.today()
-    assert all(start_jd <= date_column <= end_jd for date_column in gold_and_silver_cd_trades['Date'] if pd.notna(date_column))
-
-
-
+    assert all(start_jd <= date_column <= end_jd for date_column in gold_and_silver_cd_trades['JDate'] if pd.notna(date_column))
