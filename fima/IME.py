@@ -22,10 +22,13 @@ def _chunk_jalali_dates(start_s: str, end_s: str, chunk_size_days: int):
 
 def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 180) -> pd.DataFrame:
 
-    if start_date is None:
+    if start_date is None or (int(start_date.replace('-', '')) < 13850101):
         start_date = '1385-01-01'
     if end_date is None:
         end_date = str(jd.date.today())
+
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
 
     main_category = 0
     category = 0
@@ -95,11 +98,14 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
 
     if only_active and start_date == str(jd.date.today()):
         start_date = str(jd.date.today() - jd.timedelta(days=1))
-    if start_date is None:
+
+    if start_date is None or (int(start_date.replace('-', '')) < 13870101):
         start_date = '1387-01-01'
     if end_date is None:
         end_date = str(jd.date.today())
 
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
 
     chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
@@ -149,10 +155,13 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
     if only_active and start_date == str(jd.date.today()):
         start_date = str(jd.date.today() - jd.timedelta(days=1))
 
-    if start_date is None:
+    if start_date is None or (int(start_date.replace('-', '')) < 13950101):
         start_date = '1395-01-01'
     if end_date is None:
         end_date = str(jd.date.today() - jd.timedelta(days=1))
+
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
 
     chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
@@ -216,6 +225,8 @@ def get_all_physical_producer_products() -> pd.DataFrame:
 
 
 def get_producer_physical_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
     all_ime_physical_trades = get_all_ime_physical_trades()
     if producer in all_ime_physical_trades['ProducerName'].unique():
         producer_physical_trades = all_ime_physical_trades[all_ime_physical_trades['ProducerName'] == producer].copy()
@@ -234,10 +245,13 @@ def get_producer_physical_trades(producer: str, start_date: str = None, end_date
 
 def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40) -> pd.DataFrame:
 
-    if start_date is None:
+    if start_date is None or (int(start_date.replace('-', '')) < 13871201):
         start_date = '1387-12-01'
     if end_date is None:
         end_date = str(jd.date.today())
+
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
 
     chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
@@ -287,10 +301,13 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
 
 def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30) -> pd.DataFrame:
 
-    if start_date is None:
+    if start_date is None or (int(start_date.replace('-', '')) < 13940301):
         start_date = '1394-03-01'
     if end_date is None:
         end_date = str(jd.date.today())
+
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
 
     chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
@@ -343,6 +360,8 @@ def get_all_export_producer_products() -> pd.DataFrame:
 
 
 def get_producer_export_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
     all_ime_export_trades = get_all_ime_export_trades()
     if producer in all_ime_export_trades['ProducerName'].unique():
         producer_export_trades = all_ime_export_trades[all_ime_export_trades['ProducerName'] == producer].copy()
@@ -361,10 +380,13 @@ def get_producer_export_trades(producer: str, start_date: str = None, end_date: 
 
 def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30) -> pd.DataFrame:
 
-    if start_date is None:
+    if start_date is None or (int(start_date.replace('-', '')) < 13930501):
         start_date = '1393-05-01'
     if end_date is None:
         end_date = str(jd.date.today())
+
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
 
     chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
 
@@ -410,10 +432,13 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
 
 def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
 
-    if start_date is None:
+    if start_date is None or (int(start_date.replace('-', '')) < 14011201):
         start_date = '1401-12-01'
     if end_date is None:
         end_date = str(jd.date.today())
+
+    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+        return None
 
     market_id = 22
     page_size = 100
@@ -470,6 +495,5 @@ def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, en
                'Val_Haghighi_Buy': 'RetailBuyValue', 'Val_Haghighi_Sell': 'RetailSellValue', 'DT': 'GDate',
                'PersianDate': 'JDate', 'DeliveryDate': 'DeliveryGDate'}, inplace=True, axis=1)
     all_data['DeliveryJDate'] = all_data['DeliveryGDate'].apply(lambda delivery_g_date: jd.date.fromgregorian(date=delivery_g_date))
-    all_data.sort_values(by='Date', inplace=True, ignore_index=True)
+    all_data.sort_values(by='JDate', inplace=True, ignore_index=True)
     return all_data
-
