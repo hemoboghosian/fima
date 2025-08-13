@@ -225,8 +225,6 @@ def get_all_physical_producer_products() -> pd.DataFrame:
 
 
 def get_producer_physical_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
-        return None
     all_ime_physical_trades = get_all_ime_physical_trades()
     if producer in all_ime_physical_trades['ProducerName'].unique():
         producer_physical_trades = all_ime_physical_trades[all_ime_physical_trades['ProducerName'] == producer].copy()
@@ -360,8 +358,6 @@ def get_all_export_producer_products() -> pd.DataFrame:
 
 
 def get_producer_export_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
-        return None
     all_ime_export_trades = get_all_ime_export_trades()
     if producer in all_ime_export_trades['ProducerName'].unique():
         producer_export_trades = all_ime_export_trades[all_ime_export_trades['ProducerName'] == producer].copy()
