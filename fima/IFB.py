@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from io import StringIO
 import jdatetime as jd
 import time
+import re, json, html
 
 
 def get_risk_free_rate() -> float:
@@ -210,7 +211,7 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
             tag = soup.select_one(f"input[name='{name}']")
             return tag["value"] if tag else None
         return {"__VIEWSTATE": get("__VIEWSTATE"),"__VIEWSTATEGENERATOR": get("__VIEWSTATEGENERATOR")}
-    
+
     def parse_table(soup):
         table = soup.select_one("table[id$='grdDSTs']")
         table_rows = table.select("tr")[2:-1]
@@ -221,7 +222,7 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
                 values = [td.get_text(strip=True).replace("\u200c", "") for td in cols]
                 table_data.append(values)
         return table_data
-    
+
     def set_rows_per_page(page_session, hidden_fields, per_page="50"):
         dropdown_field = "ctl00$ContentPlaceHolder1$grdDSTs$ctl14$ctl13"
         page_data = {"__EVENTTARGET": dropdown_field, "__EVENTARGUMENT": "", "__VIEWSTATE": hidden_fields["__VIEWSTATE"],
@@ -395,3 +396,163 @@ def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
 
     return sukuk_daily_trades
 
+
+def get_crowdfundings() -> pd.DataFrame:
+
+    url = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx"
+    show_desc = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx/showDesc"
+    grid_unique_id = "ctl00$ContentPlaceHolder1$grdCrowdFundingData"
+    table_css = "table[id$='grdCrowdFundingData']"
+
+    page_size_value = "50"
+    base_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0",
+                    "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7", "Referer": url}
+    post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
+    ajax_headers = {**base_headers, "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "Content-Type": "application/json; charset=UTF-8", "X-Requested-With": "XMLHttpRequest",
+                    "Origin": "https://ifb.ir"}
+
+    request_session = requests.Session()
+
+    def extract_hidden_fields(hf_soup):
+        def validation(name):
+            element = hf_soup.select_one(f"input[name='{name}']")
+            return element["value"] if element else None
+        hidden_fields_data = {"__VIEWSTATE": validation("__VIEWSTATE"), "__VIEWSTATEGENERATOR": validation("__VIEWSTATEGENERATOR")}
+        ev = validation("__EVENTVALIDATION")
+        if ev: hidden_fields_data["__EVENTVALIDATION"] = ev
+        return hidden_fields_data
+
+    def find_pagesize_control_name(fpscn_soup):
+        select = fpscn_soup.select_one("div.sizeselector select[name*='grdCrowdFundingData']")
+        return select.get("name") if select else None
+
+    def set_page_size(sps_soup, size_value):
+        name = find_pagesize_control_name(sps_soup)
+        if not name:
+            return sps_soup
+        sps_payload = {"__EVENTTARGET": name, "__EVENTARGUMENT": "", **extract_hidden_fields(sps_soup), name: str(size_value)}
+        r = request_session.post(url, headers=post_headers, data=sps_payload, timeout=30)
+        r.raise_for_status()
+        return BeautifulSoup(r.text, "html.parser")
+
+    def parse_rows(pr_soup):
+        table = pr_soup.select_one(table_css)
+        if not table: return []
+        output = []
+        for tr in table.select("tr"):
+            if tr.find("th") or "pgr" in tr.get("class", []):
+                continue
+            tds = tr.find_all("td")
+            if len(tds) != 10:
+                continue
+            a_dom = tds[4].find("a")
+            a_desc = tds[8].find("a")
+            m = re.search(r"showDesc\('(\d+)'\)", a_desc.get("onclick","")) if a_desc else None
+            output.append({"Row": tds[0].get_text(strip=True), "PlanName": tds[1].get_text(strip=True),
+                          "Company": tds[2].get_text(strip=True), "NationalID": tds[3].get_text(strip=True),
+                          "DomainURL": (a_dom["href"].strip() if a_dom and a_dom.has_attr("href") else None),
+                          "Status": tds[5].get_text(strip=True), "StartDate": tds[6].get_text(strip=True),
+                          "EndDate": tds[7].get_text(strip=True), "DescriptionID": m.group(1) if m else None})
+        return output
+
+    def html_to_text(s):
+        if not s: return None
+        return BeautifulSoup(s, "html.parser").get_text(" ").strip()
+
+    def fetch_desc(desc_id):
+        if not desc_id: return None
+        for fd_payload in ({"id": str(desc_id)}, {"ID": str(desc_id)}, {"ID": int(desc_id)}):
+            r = request_session.post(show_desc, headers=ajax_headers, data=json.dumps(fd_payload), timeout=30)
+            if r.status_code != 200:
+                continue
+            try:
+                fetched_data = r.json()
+                raw = fetched_data.get("d", "") if isinstance(fetched_data, dict) else fetched_data
+            except Exception:
+                raw = r.text
+            raw = (raw or "").strip()
+            if raw:
+                return html_to_text(html.unescape(raw))
+        return None
+
+    request_session.get(url, headers=base_headers, timeout=30)
+
+    r0 = request_session.get(url, headers=base_headers, timeout=30)
+    r0.raise_for_status()
+    soup = BeautifulSoup(r0.text, "html.parser")
+    soup = set_page_size(soup, page_size_value)
+
+    rows, seen = [], set(); page = 1
+    while True:
+        if page > 1:
+            payload = {"__EVENTTARGET": grid_unique_id, "__EVENTARGUMENT": f"Page${page}", **extract_hidden_fields(soup)}
+            rp = request_session.post(url, headers=post_headers, data=payload, timeout=30)
+            rp.raise_for_status()
+            soup = BeautifulSoup(rp.text, "html.parser")
+            time.sleep(0.15)
+
+        batch = parse_rows(soup)
+
+        if not batch: break
+        sig = tuple(tuple(x.values()) for x in batch)
+        if sig in seen: break
+        seen.add(sig)
+
+        for item in batch:
+            item["Description"] = fetch_desc(item["DescriptionID"])
+        rows.extend(batch); page += 1
+
+    crowdfundings = pd.DataFrame(rows)
+    crowdfundings["Row"] = pd.to_numeric(crowdfundings["Row"], errors="coerce")
+    crowdfundings.sort_values("Row").reset_index(drop=True)
+    crowdfundings['StartDate'] = crowdfundings['StartDate'].apply(lambda date_str:
+                                                                  jd.date(year=int(date_str.split('-')[0]),
+                                                                          month=int(date_str.split('-')[1]),
+                                                                          day=int(date_str.split('-')[2])))
+    crowdfundings['EndDate'] = crowdfundings['EndDate'].apply(lambda date_str:
+                                                              jd.date(year=int(date_str.split('-')[0]),
+                                                                      month=int(date_str.split('-')[1]),
+                                                                      day=int(date_str.split('-')[2])))
+    crowdfundings.drop(columns=['Row', 'DescriptionID'], inplace=True)
+    crowd_funding_platforms = {'https://crowd.charisma.ir/': 'کاریزما', 'http://www.hamafarin.ir': 'هم آفرین',
+                               'https://www.karencrowd.com/home.html': 'کارن کراد', 'https://halalfund.ir/': 'حلال فاند',
+                               'http://www.mobincrowd.ir': 'مبین کراد', 'https://isatiscrowd.ir': 'ایساتیس',
+                               'http://www.yektacrowd.ir': 'یکتا کراد', 'https://www.ideafund.ir': 'ایده فاند',
+                               'http://www.zeema.fund': 'زیما', 'http://www.ibcrowd.ir': 'آی بی کراد',
+                               'http://www.karmaye.com': 'کرامایه', 'https://novincrowd.ir/': 'نوین کراد',
+                               'https://ifund.ir/': 'آیفاند', 'http://smartfunding.ir': 'اسمارت فاندینگ',
+                               'https://sepehrino.com': 'سپهرینو', 'https://hamashena.ir/fa/': 'هم آشنا',
+                               'https://crowd.danayan.broker': 'دانایان', 'https://pulsar.ir/': 'پولسار',
+                               'https://jam-separ.ir': 'جمع سپار', 'http://www.Ryan-funding.ir': 'راسان توسعه پایا',
+                               'https://maskanplus.ir/': 'مسکن پلاس', 'https://atiyehiraniancf.com': 'آتیه ایرانیان',
+                               'https://crowd.karamad.ir/': 'کارآمد', 'http://www.rayfund.ir': 'رای فاند',
+                               'https://www.zarincrowd.ir/': 'زرین کراد', 'http://www.opalcrowd.ir': 'اوپال کراد',
+                               'https://gholackcrowd.ir': 'قلک کراد', 'https://CfRazavi.IR': 'رضوی',
+                               'https://crowd.shariffund.ir': 'شریف', 'http://www.dongi.ir': 'دونگی',
+                               'http://www.Fankamfund.ir': 'فنکام فاند', 'http://www.pareshcrowd.ir': 'پرش',
+                               'https://startamin.ir': 'استارتامین', 'http://www.investorun.com': 'اینوستوران',
+                               'http://www.BABAHA.IR': 'بابها', 'https://www.zotch.ir': 'زچ',
+                               'http://www.fundocrowd.ir': 'فاندو کراد', 'https://crowd.daricpars.com': 'داریک کراد',
+                               'https://vestacrowd.ir': 'وستا کراد', 'http://www.golrangcrowd.com': 'گلرنگ کراد',
+                               'http://www.aticrowd.com': 'آتی کراد', 'https://crowdfunding.kuknos.ir/': 'ققنوس'}
+
+    crowdfundings['Platform'] = crowdfundings['DomainURL'].apply(lambda url: crowd_funding_platforms[url])
+    return crowdfundings
+
+
+def get_crowdfunding_companies():
+    url = "https://cfi.rbcapi.ir/institutes"
+    params = {"offset": 5, "limit": 1000, "lng": "fa", "name": "", "city": "", "province": "", "instituteType": "",
+              "instituteKind": "", "activityType": "", "licenseType": "24", "status": "true",}
+
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+               "Accept": "application/json, text/plain, */*"}
+    response = requests.get(url, params=params, headers=headers, timeout=30)
+    response.raise_for_status()
+    payload = response.json()
+    rows = payload.get("data", [])
+    crowdfunding_companies = pd.DataFrame(rows)
+    crowdfunding_companies.drop(columns=['InstituteTypeId', 'InstituteKindId', 'StateId', 'Id', 'InquiryStatus'], inplace=True)
+    return crowdfunding_companies
