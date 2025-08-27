@@ -519,29 +519,6 @@ def get_all_crowdfunding_plans() -> pd.DataFrame:
                                                                       day=int(date_str.split('-')[2])))
     all_crowdfunding_plans.drop(columns=['Row', 'DescriptionID'], inplace=True)
 
-    # crowdfunding_platforms = {'https://crowd.charisma.ir/': 'کاریزما', 'http://www.hamafarin.ir': 'هم آفرین',
-    #                            'https://www.karencrowd.com/home.html': 'کارن کراد', 'https://halalfund.ir/': 'حلال فاند',
-    #                            'http://www.mobincrowd.ir': 'مبین کراد', 'https://isatiscrowd.ir': 'ایساتیس',
-    #                            'http://www.yektacrowd.ir': 'یکتا کراد', 'https://www.ideafund.ir': 'ایده فاند',
-    #                            'http://www.zeema.fund': 'زیما', 'http://www.ibcrowd.ir': 'آی بی کراد',
-    #                            'http://www.karmaye.com': 'کرامایه', 'https://novincrowd.ir/': 'نوین کراد',
-    #                            'https://ifund.ir/': 'آیفاند', 'http://smartfunding.ir': 'اسمارت فاندینگ',
-    #                            'https://sepehrino.com': 'سپهرینو', 'https://hamashena.ir/fa/': 'هم آشنا',
-    #                            'https://crowd.danayan.broker': 'دانایان', 'https://pulsar.ir/': 'پولسار',
-    #                            'https://jam-separ.ir': 'جمع سپار', 'http://www.Ryan-funding.ir': 'رایان توسعه پایا',
-    #                            'https://maskanplus.ir/': 'مسکن پلاس', 'https://atiyehiraniancf.com': 'آتیه ایرانیان',
-    #                            'https://crowd.karamad.ir/': 'کارآمد', 'http://www.rayfund.ir': 'رای فاند',
-    #                            'https://www.zarincrowd.ir/': 'زرین کراد', 'http://www.opalcrowd.ir': 'اوپال کراد',
-    #                            'https://gholackcrowd.ir': 'قلک کراد', 'https://CfRazavi.IR': 'رضوی',
-    #                            'https://crowd.shariffund.ir': 'شریف', 'http://www.dongi.ir': 'دونگی',
-    #                            'http://www.Fankamfund.ir': 'فنکام فاند', 'http://www.pareshcrowd.ir': 'پرش',
-    #                            'https://startamin.ir': 'استارتامین', 'http://www.investorun.com': 'اینوستوران',
-    #                            'http://www.BABAHA.IR': 'بابها', 'https://www.zotch.ir': 'زچ',
-    #                            'http://www.fundocrowd.ir': 'فاندو کراد', 'https://crowd.daricpars.com': 'داریک کراد',
-    #                            'https://vestacrowd.ir': 'وستا کراد', 'http://www.golrangcrowd.com': 'گلرنگ کراد',
-    #                            'http://www.aticrowd.com': 'آتی کراد', 'https://crowdfunding.kuknos.ir/': 'ققنوس'}
-    # all_crowdfunding_plans['Platform'] = all_crowdfunding_plans['DomainURL'].apply(lambda domain_url: all_crowdfunding_platforms[domain_url])
-
     all_crowdfunding_platforms = get_all_crowdfunding_platforms()
     all_crowdfunding_plans = pd.merge(all_crowdfunding_plans, all_crowdfunding_platforms, on="Domain", how="left")
     all_crowdfunding_plans = all_crowdfunding_plans.iloc[:, :-4]
