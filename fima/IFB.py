@@ -1,11 +1,15 @@
-import requests
 import pandas as pd
 import numpy as np
 from bs4 import BeautifulSoup
 from io import StringIO
 import jdatetime as jd
-import time
-import re, json, html
+import re, json, html, time, requests
+from urllib.parse import urljoin, urlparse
+
+
+def clean_domain(url: str) -> str:
+    parsed = urlparse(url.strip().lower())
+    return parsed.netloc.replace("www.", "")
 
 
 def get_risk_free_rate() -> float:
@@ -397,7 +401,7 @@ def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
     return sukuk_daily_trades
 
 
-def get_crowdfundings() -> pd.DataFrame:
+def get_all_crowdfunding_plans() -> pd.DataFrame:
 
     url = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx"
     show_desc = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx/showDesc"
@@ -405,8 +409,7 @@ def get_crowdfundings() -> pd.DataFrame:
     table_css = "table[id$='grdCrowdFundingData']"
 
     page_size_value = "50"
-    base_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0",
-                    "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7", "Referer": url}
+    base_headers = {"User-Agent": "Mozilla/5.0", "Referer": url}
     post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
     ajax_headers = {**base_headers, "Accept": "application/json, text/javascript, */*; q=0.01",
                     "Content-Type": "application/json; charset=UTF-8", "X-Requested-With": "XMLHttpRequest",
@@ -451,7 +454,7 @@ def get_crowdfundings() -> pd.DataFrame:
             m = re.search(r"showDesc\('(\d+)'\)", a_desc.get("onclick","")) if a_desc else None
             output.append({"Row": tds[0].get_text(strip=True), "PlanName": tds[1].get_text(strip=True),
                           "Company": tds[2].get_text(strip=True), "NationalID": tds[3].get_text(strip=True),
-                          "DomainURL": (a_dom["href"].strip() if a_dom and a_dom.has_attr("href") else None),
+                          "Domain": (clean_domain(a_dom["href"]) if a_dom and a_dom.has_attr("href") else None),
                           "Status": tds[5].get_text(strip=True), "StartDate": tds[6].get_text(strip=True),
                           "EndDate": tds[7].get_text(strip=True), "DescriptionID": m.group(1) if m else None})
         return output
@@ -503,56 +506,116 @@ def get_crowdfundings() -> pd.DataFrame:
             item["Description"] = fetch_desc(item["DescriptionID"])
         rows.extend(batch); page += 1
 
-    crowdfundings = pd.DataFrame(rows)
-    crowdfundings["Row"] = pd.to_numeric(crowdfundings["Row"], errors="coerce")
-    crowdfundings.sort_values("Row").reset_index(drop=True)
-    crowdfundings['StartDate'] = crowdfundings['StartDate'].apply(lambda date_str:
+    all_crowdfunding_plans = pd.DataFrame(rows)
+    all_crowdfunding_plans["Row"] = pd.to_numeric(all_crowdfunding_plans["Row"], errors="coerce")
+    all_crowdfunding_plans.sort_values("Row").reset_index(drop=True)
+    all_crowdfunding_plans['StartDate'] = all_crowdfunding_plans['StartDate'].apply(lambda date_str:
                                                                   jd.date(year=int(date_str.split('-')[0]),
                                                                           month=int(date_str.split('-')[1]),
                                                                           day=int(date_str.split('-')[2])))
-    crowdfundings['EndDate'] = crowdfundings['EndDate'].apply(lambda date_str:
+    all_crowdfunding_plans['EndDate'] = all_crowdfunding_plans['EndDate'].apply(lambda date_str:
                                                               jd.date(year=int(date_str.split('-')[0]),
                                                                       month=int(date_str.split('-')[1]),
                                                                       day=int(date_str.split('-')[2])))
-    crowdfundings.drop(columns=['Row', 'DescriptionID'], inplace=True)
-    crowd_funding_platforms = {'https://crowd.charisma.ir/': 'کاریزما', 'http://www.hamafarin.ir': 'هم آفرین',
-                               'https://www.karencrowd.com/home.html': 'کارن کراد', 'https://halalfund.ir/': 'حلال فاند',
-                               'http://www.mobincrowd.ir': 'مبین کراد', 'https://isatiscrowd.ir': 'ایساتیس',
-                               'http://www.yektacrowd.ir': 'یکتا کراد', 'https://www.ideafund.ir': 'ایده فاند',
-                               'http://www.zeema.fund': 'زیما', 'http://www.ibcrowd.ir': 'آی بی کراد',
-                               'http://www.karmaye.com': 'کرامایه', 'https://novincrowd.ir/': 'نوین کراد',
-                               'https://ifund.ir/': 'آیفاند', 'http://smartfunding.ir': 'اسمارت فاندینگ',
-                               'https://sepehrino.com': 'سپهرینو', 'https://hamashena.ir/fa/': 'هم آشنا',
-                               'https://crowd.danayan.broker': 'دانایان', 'https://pulsar.ir/': 'پولسار',
-                               'https://jam-separ.ir': 'جمع سپار', 'http://www.Ryan-funding.ir': 'راسان توسعه پایا',
-                               'https://maskanplus.ir/': 'مسکن پلاس', 'https://atiyehiraniancf.com': 'آتیه ایرانیان',
-                               'https://crowd.karamad.ir/': 'کارآمد', 'http://www.rayfund.ir': 'رای فاند',
-                               'https://www.zarincrowd.ir/': 'زرین کراد', 'http://www.opalcrowd.ir': 'اوپال کراد',
-                               'https://gholackcrowd.ir': 'قلک کراد', 'https://CfRazavi.IR': 'رضوی',
-                               'https://crowd.shariffund.ir': 'شریف', 'http://www.dongi.ir': 'دونگی',
-                               'http://www.Fankamfund.ir': 'فنکام فاند', 'http://www.pareshcrowd.ir': 'پرش',
-                               'https://startamin.ir': 'استارتامین', 'http://www.investorun.com': 'اینوستوران',
-                               'http://www.BABAHA.IR': 'بابها', 'https://www.zotch.ir': 'زچ',
-                               'http://www.fundocrowd.ir': 'فاندو کراد', 'https://crowd.daricpars.com': 'داریک کراد',
-                               'https://vestacrowd.ir': 'وستا کراد', 'http://www.golrangcrowd.com': 'گلرنگ کراد',
-                               'http://www.aticrowd.com': 'آتی کراد', 'https://crowdfunding.kuknos.ir/': 'ققنوس'}
+    all_crowdfunding_plans.drop(columns=['Row', 'DescriptionID'], inplace=True)
 
-    crowdfundings['Platform'] = crowdfundings['DomainURL'].apply(lambda url: crowd_funding_platforms[url])
-    return crowdfundings
+    # crowdfunding_platforms = {'https://crowd.charisma.ir/': 'کاریزما', 'http://www.hamafarin.ir': 'هم آفرین',
+    #                            'https://www.karencrowd.com/home.html': 'کارن کراد', 'https://halalfund.ir/': 'حلال فاند',
+    #                            'http://www.mobincrowd.ir': 'مبین کراد', 'https://isatiscrowd.ir': 'ایساتیس',
+    #                            'http://www.yektacrowd.ir': 'یکتا کراد', 'https://www.ideafund.ir': 'ایده فاند',
+    #                            'http://www.zeema.fund': 'زیما', 'http://www.ibcrowd.ir': 'آی بی کراد',
+    #                            'http://www.karmaye.com': 'کرامایه', 'https://novincrowd.ir/': 'نوین کراد',
+    #                            'https://ifund.ir/': 'آیفاند', 'http://smartfunding.ir': 'اسمارت فاندینگ',
+    #                            'https://sepehrino.com': 'سپهرینو', 'https://hamashena.ir/fa/': 'هم آشنا',
+    #                            'https://crowd.danayan.broker': 'دانایان', 'https://pulsar.ir/': 'پولسار',
+    #                            'https://jam-separ.ir': 'جمع سپار', 'http://www.Ryan-funding.ir': 'رایان توسعه پایا',
+    #                            'https://maskanplus.ir/': 'مسکن پلاس', 'https://atiyehiraniancf.com': 'آتیه ایرانیان',
+    #                            'https://crowd.karamad.ir/': 'کارآمد', 'http://www.rayfund.ir': 'رای فاند',
+    #                            'https://www.zarincrowd.ir/': 'زرین کراد', 'http://www.opalcrowd.ir': 'اوپال کراد',
+    #                            'https://gholackcrowd.ir': 'قلک کراد', 'https://CfRazavi.IR': 'رضوی',
+    #                            'https://crowd.shariffund.ir': 'شریف', 'http://www.dongi.ir': 'دونگی',
+    #                            'http://www.Fankamfund.ir': 'فنکام فاند', 'http://www.pareshcrowd.ir': 'پرش',
+    #                            'https://startamin.ir': 'استارتامین', 'http://www.investorun.com': 'اینوستوران',
+    #                            'http://www.BABAHA.IR': 'بابها', 'https://www.zotch.ir': 'زچ',
+    #                            'http://www.fundocrowd.ir': 'فاندو کراد', 'https://crowd.daricpars.com': 'داریک کراد',
+    #                            'https://vestacrowd.ir': 'وستا کراد', 'http://www.golrangcrowd.com': 'گلرنگ کراد',
+    #                            'http://www.aticrowd.com': 'آتی کراد', 'https://crowdfunding.kuknos.ir/': 'ققنوس'}
+    # all_crowdfunding_plans['Platform'] = all_crowdfunding_plans['DomainURL'].apply(lambda domain_url: all_crowdfunding_platforms[domain_url])
+
+    all_crowdfunding_platforms = get_all_crowdfunding_platforms()
+    all_crowdfunding_plans = pd.merge(all_crowdfunding_plans, all_crowdfunding_platforms, on="Domain", how="left")
+    all_crowdfunding_plans = all_crowdfunding_plans.iloc[:, :-4]
+    return all_crowdfunding_plans
 
 
-def get_crowdfunding_companies():
-    url = "https://cfi.rbcapi.ir/institutes"
-    params = {"offset": 5, "limit": 1000, "lng": "fa", "name": "", "city": "", "province": "", "instituteType": "",
-              "instituteKind": "", "activityType": "", "licenseType": "24", "status": "true",}
+def get_all_crowdfunding_platforms():
+    base = "https://ifb.ir"
+    url = "https://ifb.ir/Finstars/AllCrowdFundingAgents.aspx"
+    page_size = 100
+    session = requests.Session()
+    headers = {"User-Agent": "Mozilla/5.0"}
 
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-               "Accept": "application/json, text/plain, */*"}
-    response = requests.get(url, params=params, headers=headers, timeout=30)
-    response.raise_for_status()
-    payload = response.json()
-    rows = payload.get("data", [])
-    crowdfunding_companies = pd.DataFrame(rows)
-    crowdfunding_companies.drop(columns=['InstituteTypeId', 'InstituteKindId', 'StateId', 'Id', 'InquiryStatus'], inplace=True)
-    return crowdfunding_companies
+    r1 = session.get(url, headers=headers, timeout=30)
+    r1.encoding = "utf-8"
+    soup = BeautifulSoup(r1.text, "html.parser")
+
+    def hidden_values(name):
+        el = soup.find("input", attrs={"name": name})
+        return el["value"] if el and el.has_attr("value") else ""
+
+    hidden = {"__VIEWSTATE": hidden_values("__VIEWSTATE"), "__VIEWSTATEGENERATOR": hidden_values("__VIEWSTATEGENERATOR"),
+              "__EVENTVALIDATION": hidden_values("__EVENTVALIDATION")}
+
+    # Find the dropdown "page size" control name
+    size_select = soup.select_one("select[name*='grdCrowdFundingData'][name$='ctl03']")
+    if not size_select:
+        raise RuntimeError("Could not find page size dropdown in the HTML.")
+    size_name = size_select["name"]
+
+    payload = {"__EVENTTARGET": size_name, "__EVENTARGUMENT": "", **hidden, size_name: str(page_size)}
+
+    r2 = session.post(url, data=payload, headers=headers, timeout=30)
+    r2.encoding = "utf-8"
+    soup = BeautifulSoup(r2.text, "html.parser")
+
+    table = soup.find("table", id=lambda x: x and x.endswith("grdCrowdFundingData"))
+    if not table:
+        raise RuntimeError("Crowdfunding table not found after POST.")
+
+    rows = table.find_all("tr")
+    all_crowdfunding_platforms = []
+
+    for i, tr in enumerate(rows, start=1):
+        tds = tr.find_all("td")
+        if len(tds) < 9:
+            continue
+        platform = tds[1].get_text(strip=True)
+        inst = tds[2].get_text(strip=True)
+        start_date = tds[3].get_text(strip=True)
+        exp_date = tds[4].get_text(strip=True)
+        status = tds[5].get_text(strip=True)
+        phone = tds[6].get_text(strip=True)
+        a_dom = tds[7].find("a")
+        domain_url = (urljoin(base, a_dom["href"]) if a_dom and a_dom.has_attr("href") else "").lower()
+        # a_file = tds[8].find("a")
+        # file_url = urljoin(base, a_file["href"]) if a_file and a_file.has_attr("href") else ""
+
+        all_crowdfunding_platforms.append({"Platform": platform, "Institute": inst, "ActivityStartDate": start_date,
+                     "LicenseExpiryDate": exp_date, "Status": status, "PhoneNumber": phone, "Domain": domain_url})
+
+    all_crowdfunding_platforms = pd.DataFrame(all_crowdfunding_platforms)
+
+    all_crowdfunding_platforms['ActivityStartDate'] = \
+        all_crowdfunding_platforms['ActivityStartDate'].apply(lambda date_str:
+                                                              jd.date(year=int(date_str.split('-')[0]),
+                                                                      month=int(date_str.split('-')[1]),
+                                                                      day=int(date_str.split('-')[2])))
+    all_crowdfunding_platforms['LicenseExpiryDate'] = \
+        all_crowdfunding_platforms['LicenseExpiryDate'].apply(lambda date_str:
+                                                              jd.date(year=int(date_str.split('-')[0]),
+                                                                      month=int(date_str.split('-')[1]),
+                                                                      day=int(date_str.split('-')[2])))
+
+    all_crowdfunding_platforms["Domain"] = (all_crowdfunding_platforms["Domain"].apply(lambda domain: clean_domain(domain)))
+
+    return all_crowdfunding_platforms
