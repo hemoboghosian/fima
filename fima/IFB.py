@@ -441,7 +441,8 @@ def get_all_crowdfunding_plans() -> pd.DataFrame:
 
     def parse_rows(pr_soup):
         table = pr_soup.select_one(table_css)
-        if not table: return []
+        if not table:
+            return []
         output = []
         for tr in table.select("tr"):
             if tr.find("th") or "pgr" in tr.get("class", []):
@@ -460,11 +461,13 @@ def get_all_crowdfunding_plans() -> pd.DataFrame:
         return output
 
     def html_to_text(s):
-        if not s: return None
+        if not s:
+            return None
         return BeautifulSoup(s, "html.parser").get_text(" ").strip()
 
     def fetch_desc(desc_id):
-        if not desc_id: return None
+        if not desc_id:
+            return None
         for fd_payload in ({"id": str(desc_id)}, {"ID": str(desc_id)}, {"ID": int(desc_id)}):
             r = request_session.post(show_desc, headers=ajax_headers, data=json.dumps(fd_payload), timeout=30)
             if r.status_code != 200:
@@ -479,32 +482,36 @@ def get_all_crowdfunding_plans() -> pd.DataFrame:
                 return html_to_text(html.unescape(raw))
         return None
 
-    request_session.get(url, headers=base_headers, timeout=30)
+    request_session.get(url, headers=base_headers, timeout=10)
 
-    r0 = request_session.get(url, headers=base_headers, timeout=30)
+    r0 = request_session.get(url, headers=base_headers, timeout=10)
     r0.raise_for_status()
     soup = BeautifulSoup(r0.text, "html.parser")
     soup = set_page_size(soup, page_size_value)
 
-    rows, seen = [], set(); page = 1
+    rows, seen = [], set()
+    page = 1
     while True:
         if page > 1:
             payload = {"__EVENTTARGET": grid_unique_id, "__EVENTARGUMENT": f"Page${page}", **extract_hidden_fields(soup)}
-            rp = request_session.post(url, headers=post_headers, data=payload, timeout=30)
+            rp = request_session.post(url, headers=post_headers, data=payload, timeout=10)
             rp.raise_for_status()
             soup = BeautifulSoup(rp.text, "html.parser")
             time.sleep(0.15)
 
         batch = parse_rows(soup)
 
-        if not batch: break
+        if not batch:
+            break
         sig = tuple(tuple(x.values()) for x in batch)
-        if sig in seen: break
+        if sig in seen:
+            break
         seen.add(sig)
 
         for item in batch:
             item["Description"] = fetch_desc(item["DescriptionID"])
-        rows.extend(batch); page += 1
+        rows.extend(batch)
+        page += 1
 
     all_crowdfunding_plans = pd.DataFrame(rows)
     all_crowdfunding_plans["Row"] = pd.to_numeric(all_crowdfunding_plans["Row"], errors="coerce")
@@ -522,6 +529,7 @@ def get_all_crowdfunding_plans() -> pd.DataFrame:
     all_crowdfunding_platforms = get_all_crowdfunding_platforms()
     all_crowdfunding_plans = pd.merge(all_crowdfunding_plans, all_crowdfunding_platforms, on="Domain", how="left")
     all_crowdfunding_plans = all_crowdfunding_plans.iloc[:, :-4]
+    all_crowdfunding_plans.rename(columns={'Status_x': 'Status'}, inplace=True)
     return all_crowdfunding_plans
 
 
