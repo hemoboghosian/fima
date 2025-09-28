@@ -5,6 +5,7 @@ from io import StringIO
 import jdatetime as jd
 import re, json, html, time, requests
 from urllib.parse import urljoin, urlparse
+from typing import Tuple
 
 
 def clean_domain(url: str) -> str:
@@ -604,3 +605,295 @@ def get_all_crowdfunding_platforms():
     all_crowdfunding_platforms["Domain"] = (all_crowdfunding_platforms["Domain"].apply(lambda domain: clean_domain(domain)))
 
     return all_crowdfunding_platforms
+
+
+def get_all_standard_financing_instruments() -> pd.DataFrame:
+    url = "https://ifb.ir/MFI/FinancialInstrument.aspx"
+    grid_unique_id = "ctl00$ContentPlaceHolder1$grdFinancialData"
+    table_css = "table[id$='grdFinancialData']"
+
+    page_size_value = "50"
+    base_headers = {"User-Agent": "Mozilla/5.0", "Referer": url}
+    post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
+
+    request_session = requests.Session()
+
+
+    def p2l(s: str) -> str:
+        if s is None:
+            return s
+        return re.sub(r"\s+", " ", str(s)).strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+
+
+    def to_int(x):
+        if x is None:
+            return None
+        x = p2l(x).replace(",", "")
+        return int(x) if re.fullmatch(r"\d+", x) else None
+
+
+    def to_pct(x):
+        if x is None:
+            return None
+        x = p2l(x).replace("%", "").strip()
+        try:
+            return float(x)
+        except:
+            return None
+
+
+    def extract_hidden_fields(hf_soup):
+        def v(name):
+            el = hf_soup.select_one(f"input[name='{name}']")
+            return el["value"] if el and el.has_attr("value") else None
+        data = {"__VIEWSTATE": v("__VIEWSTATE"), "__VIEWSTATEGENERATOR": v("__VIEWSTATEGENERATOR")}
+        ev = v("__EVENTVALIDATION")
+        if ev:
+            data["__EVENTVALIDATION"] = ev
+        return data
+
+
+    def find_pagesize_control_name(fpscn_soup):
+        sel = fpscn_soup.select_one("div.sizeselector select[name*='grdFinancialData']")
+        return sel.get("name") if sel else None
+
+
+    def set_page_size(sps_soup, size_value):
+        name = find_pagesize_control_name(sps_soup)
+        if not name:
+            return sps_soup
+        sps_payload = {"__EVENTTARGET": name, "__EVENTARGUMENT": "", **extract_hidden_fields(sps_soup), name: str(size_value)}
+        r = request_session.post(url, headers=post_headers, data=sps_payload, timeout=30)
+        r.raise_for_status()
+        return BeautifulSoup(r.text, "html.parser")
+
+
+    def parse_rows(pr_soup):
+        table = pr_soup.select_one(table_css)
+        if not table:
+            return []
+
+        tbody = table.find("tbody")
+        tr_list = (tbody.find_all("tr", recursive=False) if tbody else table.find_all("tr", recursive=False))
+
+        out = []
+        for tr in tr_list:
+            # skip header rows, pager container row, and any row that contains a nested table (pager inner table)
+            if tr.find("th") or "pgr" in (tr.get("class") or []) or tr.find("table"):
+                continue
+
+            tds = tr.find_all("td", recursive=False)
+            if len(tds) < 11:
+                continue
+
+            # first cell must be a digit row index
+            first_text = p2l(tds[0].get_text(strip=True))
+            if not re.fullmatch(r"\d+", first_text):
+                continue
+
+            # نماد + detail link
+            a = tds[1].find("a")
+            symbol = p2l(a.get_text(strip=True) if a else tds[1].get_text(strip=True))
+            href = (a.get("href") if a else "") or ""
+            detail_url = None if href.lower().startswith("javascript:") else (urljoin(url, href) if href else None)
+            ticker_id = detail_url[-5:]
+            issue_date_list = p2l(tds[6].get_text()).split('-')
+            issue_date = jd.date(year=int(issue_date_list[0]), month=int(issue_date_list[1]), day=int(issue_date_list[2]))
+
+            out.append({"Row": to_int(first_text), "Ticker": symbol, "TickerID": ticker_id, "DetailURL": detail_url,
+                        "IssueVolume": to_int(tds[2].get_text()), "AcceptVolume": to_int(tds[3].get_text()),
+                        "ParValue": to_int(tds[4].get_text()), "CouponPercent": to_pct(tds[5].get_text()),
+                        "IssueDate": issue_date, "MarketMaker": p2l(tds[7].get_text()),
+                        "MarketMakingMethod": p2l(tds[8].get_text()), "VolatilityRange": p2l(tds[9].get_text())})
+        return out
+
+    request_session.get(url, headers=base_headers, timeout=10)
+    r0 = request_session.get(url, headers=base_headers, timeout=30)
+    r0.raise_for_status()
+    soup = BeautifulSoup(r0.text, "html.parser")
+    soup = set_page_size(soup, page_size_value)
+
+    rows, seen = [], set()
+    page = 1
+    while True:
+        if page > 1:
+            payload = {"__EVENTTARGET": grid_unique_id, "__EVENTARGUMENT": f"Page${page}", **extract_hidden_fields(soup)}
+            rp = request_session.post(url, headers=post_headers, data=payload, timeout=30)
+            soup = BeautifulSoup(rp.text, "html.parser")
+            time.sleep(0.15)
+
+        batch = parse_rows(soup)
+        if not batch:
+            break  # nothing parsed on this page; end
+
+        # guard against accidental repeats
+        sig = tuple(tuple(x.values()) for x in batch)
+        if sig in seen:
+            break
+        seen.add(sig)
+
+        rows.extend(batch)
+        page += 1
+
+    all_standard_financing_instruments = pd.DataFrame(rows)
+    if not all_standard_financing_instruments.empty:
+        all_standard_financing_instruments["Row"] = \
+            pd.to_numeric(all_standard_financing_instruments["Row"], errors="coerce").astype("Int64")
+        all_standard_financing_instruments = \
+            all_standard_financing_instruments.sort_values("Row").reset_index(drop=True)
+        all_standard_financing_instruments.drop(columns='Row', inplace=True)
+    return all_standard_financing_instruments
+
+
+def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+    all_standard_financing_instruments = get_all_standard_financing_instruments()
+    ticker_details_url = all_standard_financing_instruments[all_standard_financing_instruments['Ticker'] == ticker].loc[0, 'DetailURL']
+
+    # grids / selectors on this page
+    pb_grid_unique_id = "ctl00$ContentPlaceHolder1$grdPBs"
+    pb_table_css = "table[id$='grdPBs']"
+    # Page-size control observed on your screenshot: ctl00$ContentPlaceHolder1$grdPBs$ctl13$ctl04
+    # We'll auto-detect it in case it shifts.
+    page_size_value = "50"
+
+    base_headers = {"User-Agent": "Mozilla/5.0", "Referer": ticker_details_url}
+    post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
+    session = requests.Session()
+
+
+    def p2l(s: str) -> str:
+        if s is None: return s
+        return re.sub(r"\s+", " ", str(s)).strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+
+
+    def to_amount(s: str):
+        """'58,602/74' or '1,000,000' -> float"""
+        if not s: return None
+        s = p2l(s).replace(",", "").replace("/", ".")
+        try: return float(s)
+        except ValueError: return None
+
+
+    def extract_hidden_fields(hf_soup):
+        def val(name):
+            el = hf_soup.select_one(f"input[name='{name}']")
+            return el["value"] if el and el.has_attr("value") else None
+        data = {"__VIEWSTATE": val("__VIEWSTATE"),
+                "__VIEWSTATEGENERATOR": val("__VIEWSTATEGENERATOR")}
+        ev = val("__EVENTVALIDATION")
+        if ev: data["__EVENTVALIDATION"] = ev
+        return data
+
+
+    def find_pagesize_control_name(pscn_soup, grid_suffix="grdPBs"):
+        sel = pscn_soup.select_one(f"div.sizeselector select[name*='{grid_suffix}']")
+        return sel.get("name") if sel else None
+
+
+    def set_page_size(ps_soup, size_value):
+        name = find_pagesize_control_name(ps_soup, "grdPBs")
+        if not name:
+            return ps_soup
+        ps_payload = {"__EVENTTARGET": name, "__EVENTARGUMENT": "",
+                   **extract_hidden_fields(ps_soup), name: str(size_value)}
+        r = session.post(ticker_details_url, headers=post_headers, data=ps_payload, timeout=30)
+        r.raise_for_status()
+        return BeautifulSoup(r.text, "html.parser")
+
+
+    def parse_info_tables(it_soup):
+        """All key/value pairs from all .insTable blocks, with section titles."""
+        out = []
+        for panel in it_soup.select("div.subpanel"):
+            section = p2l((panel.select_one(".panelheader label") or {}).get_text(strip=True) if panel.select_one(".panelheader label") else "")
+            if section in ["", "اطلاعات ارکان"]:
+                continue  # exclude this section
+            for tbl in panel.select("table.insTable"):
+                for tr in tbl.select("tr"):
+                    tds = tr.find_all("td")
+                    if len(tds) < 2: continue
+                    label = p2l(tds[0].get_text())
+                    value = p2l(tds[1].get_text())
+                    if label or value:
+                        out.append({"Section": section, "Label": label, "Value": value})
+        return out
+
+
+    def parse_payments_page(pp_soup):
+        """One page of grdPBs -> list of dicts."""
+        table = pp_soup.select_one(pb_table_css)
+        if not table: return []
+        tbody = table.find("tbody") or table
+        rows = []
+        for tr in tbody.find_all("tr", recursive=False):
+            if tr.find("th") or "pgr" in (tr.get("class") or []) or tr.find("table"):
+                continue
+            tds = tr.find_all("td", recursive=False)
+            if len(tds) < 2:
+                continue
+            payment_date_list = p2l(tds[0].get_text()).split('/')
+            payment_date = jd.date(year=int(payment_date_list[0]), month=int(payment_date_list[1]), day=int(payment_date_list[2]))
+            payment_amount_per_unit = to_amount(tds[1].get_text())
+            rows.append({"PaymentDate": payment_date, "PaymentAmountPerUnit": payment_amount_per_unit})
+        return rows
+
+
+    session.get(ticker_details_url, headers=base_headers, timeout=10)
+    r0 = session.get(ticker_details_url, headers=base_headers, timeout=30)
+    r0.raise_for_status()
+    soup = BeautifulSoup(r0.text, "html.parser")
+
+    # 1) Info tables
+    info_rows = parse_info_tables(soup)
+
+    # 2) Payments grid: set page size to 50 (if selector exists) and iterate pages
+    soup = set_page_size(soup, page_size_value)
+
+    # pager: read last page number (might be only 1)
+    def get_last_page(s):
+        pager_tr = s.select_one("table[id$='grdPBs'] tr.pgr")
+        if not pager_tr: return 1
+        nums = []
+        for td in pager_tr.find_all("td"):
+            t = p2l(td.get_text(strip=True)).replace("...", "")
+            if t.isdigit():
+                nums.append(int(t))
+        return max(nums) if nums else 1
+
+    total_pages = get_last_page(soup)
+    payments_rows, page = [], 1
+    seen = set()
+
+    while page <= total_pages:
+        if page > 1:
+            payload = {"__EVENTTARGET": pb_grid_unique_id,
+                       "__EVENTARGUMENT": f"Page${page}",
+                       **extract_hidden_fields(soup)}
+            rp = session.post(ticker_details_url, headers=post_headers, data=payload, timeout=30)
+            soup = BeautifulSoup(rp.text, "html.parser")
+            time.sleep(0.12)
+
+        batch = parse_payments_page(soup)
+        if not batch:
+            break
+        sig = tuple(tuple(x.values()) for x in batch)
+        if sig in seen:
+            break
+        seen.add(sig)
+
+        payments_rows.extend(batch)
+        page += 1
+
+    ticker_info = pd.DataFrame(info_rows)
+    ticker_info['Label'] = ticker_info['Label'].apply(lambda label: label.replace(":", ""))
+    ticker_info.sort_values('Section', inplace=True, ignore_index=True)
+
+    ticker_payments = pd.DataFrame(payments_rows)
+    if not ticker_payments.empty:
+        ticker_payments.sort_values(["PaymentDate", 'PaymentAmountPerUnit'], inplace=True, ignore_index=True)
+
+    return ticker_info, ticker_payments
+
+
+TickerInfo, TickerPayments = get_ticker_info('تابان26')
