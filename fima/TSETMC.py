@@ -4,6 +4,7 @@ import requests
 from persian import convert_ar_characters
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Tuple
 
 
 def get_flow_price_adjustments() -> pd.DataFrame:
@@ -194,7 +195,7 @@ def _update_ticker_info_parallel(df: pd.DataFrame, _max_workers: int = 10) -> pd
     return df.reset_index()
 
 
-def _get_static_data() -> (pd.DataFrame, pd.DataFrame):
+def _get_static_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     url = "https://cdn.tsetmc.com/api/StaticData/GetStaticData"
     static_data_combined = requests.get(url).json()['staticData']
     paper_types = []
@@ -362,7 +363,7 @@ def get_index_last_intraday_data(index: str) -> pd.DataFrame:
     return index_intradyay_data
 
 
-def get_index_companies(index: str, thirty_days_history: bool=False) -> (pd.DataFrame, pd.DataFrame):
+def get_index_companies(index: str, thirty_days_history: bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
     indexes_status = get_indexes_status()
     index_instrument_code = indexes_status.loc[index, 'InstrumentCode']
     url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/{index_instrument_code}"
@@ -380,8 +381,7 @@ def get_index_companies(index: str, thirty_days_history: bool=False) -> (pd.Data
     index_companies = index_companies[['Ticker', 'Name', 'InstrumentCode', 'YesterdayPrice', 'FirstPrice', 'MinPrice',
                                        'MaxPrice', 'ClosePrice', 'PriceChange', 'LastPrice', 'TransactionsNo', 'Value', 'Value']]
     index_companies.set_index('Ticker', inplace=True, drop=True)
-
-    tickers_instrument_code = index_companies.loc[:, 'InstrumentCode'].to_frame('InstrumentCode').reset_index().set_index('InstrumentCode')
+    tickers_instrument_code = index_companies.loc['InstrumentCode'].to_frame('InstrumentCode').reset_index().set_index('InstrumentCode')
 
     if thirty_days_history:
         index_companies_past_30_days = pd.DataFrame(index_companies_data['relatedCompanyThirtyDayHistory'])
