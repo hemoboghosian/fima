@@ -748,7 +748,20 @@ def get_all_standard_financing_instruments() -> pd.DataFrame:
 def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     all_standard_financing_instruments = get_all_standard_financing_instruments()
-    ticker_details_url = all_standard_financing_instruments[all_standard_financing_instruments['Ticker'] == ticker].loc[0, 'DetailURL']
+    all_special_financing_instruments = get_all_special_financing_instruments()
+    all_financing_instruments = pd.concat([all_standard_financing_instruments, all_special_financing_instruments], ignore_index=True)
+    all_financing_instruments.drop_duplicates(subset=["TickerID"], inplace=True, ignore_index=True)
+
+    if ticker in all_financing_instruments['Ticker'].values:
+        ticker_details_urls = all_financing_instruments[all_financing_instruments['Ticker'] == ticker]
+        if len(ticker_details_urls) > 1:
+            print('There are more of one record for the ticker you entered. Check the website and try again.')
+            return None, None
+        else:
+            ticker_details_url = all_financing_instruments[all_financing_instruments['Ticker'] == ticker].iloc[0]['DetailURL']
+    else:
+        print('You entered a wrong ticker. Try again with a correct one.')
+        return None, None
 
     # grids / selectors on this page
     pb_grid_unique_id = "ctl00$ContentPlaceHolder1$grdPBs"
@@ -896,4 +909,143 @@ def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     return ticker_info, ticker_payments
 
 
-TickerInfo, TickerPayments = get_ticker_info('تابان26')
+def get_all_special_financing_instruments() -> pd.DataFrame:
+
+    url = "https://ifb.ir/MFI/QualifiedMFI.aspx"
+    grid_unique_id = "ctl00$ContentPlaceHolder1$grdFinancialData"
+    table_css = "table[id$='grdFinancialData']"
+
+    page_size_value = "50"
+    base_headers = {"User-Agent": "Mozilla/5.0", "Referer": url}
+    post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
+
+    session = requests.Session()
+
+
+    def p2l(s: str) -> str:
+        if s is None:
+            return s
+        return re.sub(r"\s+", " ", str(s)).strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+
+
+    def to_int(x):
+        if x is None:
+            return None
+        x = p2l(x).replace(",", "")
+        return int(x) if re.fullmatch(r"\d+", x) else None
+
+
+    def extract_hidden_fields(hf_soup):
+        def val(name):
+            el = hf_soup.select_one(f"input[name='{name}']")
+            return el["value"] if el and el.has_attr("value") else None
+        data = {"__VIEWSTATE": val("__VIEWSTATE"), "__VIEWSTATEGENERATOR": val("__VIEWSTATEGENERATOR")}
+        ev = val("__EVENTVALIDATION")
+        if ev:
+            data["__EVENTVALIDATION"] = ev
+        return data
+
+
+    def find_pagesize_control_name(fpscn_soup):
+        sel = fpscn_soup.select_one("div.sizeselector select[name*='grdFinancialData']")
+        return sel.get("name") if sel else None
+
+
+    def set_page_size(sps_soup, size_value):
+        name = find_pagesize_control_name(sps_soup)
+        if not name:
+            return sps_soup
+        sps_payload = {"__EVENTTARGET": name, "__EVENTARGUMENT": "", **extract_hidden_fields(sps_soup), name: str(size_value)}
+        r = session.post(url, headers=post_headers, data=sps_payload, timeout=30)
+        r.raise_for_status()
+        return BeautifulSoup(r.text, "html.parser")
+
+
+    def parse_rows(pr_soup):
+        table = pr_soup.select_one(table_css)
+        if not table:
+            return []
+        tbody = table.find("tbody") or table
+        rows_out = []
+        for tr in tbody.find_all("tr", recursive=False):
+            # skip header / pager rows and any row with nested table (pager inner table)
+            if tr.find("th") or "pgr" in (tr.get("class") or []) or tr.find("table"):
+                continue
+            tds = tr.find_all("td", recursive=False)
+            if len(tds) < 10:
+                continue
+
+            # guard: first cell should be a number
+            row_txt = p2l(tds[0].get_text())
+            if not re.fullmatch(r"\d+", row_txt):
+                continue
+
+            # Symbol + link
+            a = tds[1].find("a")
+            ticker = p2l(a.get_text(strip=True) if a else tds[1].get_text(strip=True))
+            href = (a.get("href") if a else "") or ""
+            detail_url = urljoin(url, href) if href and not href.lower().startswith("javascript:") else None
+            ticker_id = detail_url[-5:]
+            coupon_type = p2l(tds[5].get_text())
+            market_maker = p2l(tds[7].get_text())
+            description = p2l(tds[8].get_text()) or None
+            issue_date_list = p2l(tds[6].get_text()).split('-')
+            issue_date = jd.date(year=int(issue_date_list[0]), month=int(issue_date_list[1]),
+                                 day=int(issue_date_list[2]))
+
+            rows_out.append({"Row": to_int(row_txt), "Ticker": ticker, "TickerID": ticker_id, "DetailURL": detail_url,
+                             "IssueVolume": to_int(tds[2].get_text()), "AcceptVolume": to_int(tds[3].get_text()),
+                             "ParValue": to_int(tds[4].get_text()), "NominalCouponType": coupon_type,
+                             "IssueDate": issue_date, "MarketMaker": market_maker, "Description": description})
+
+        return rows_out
+
+
+    session.get(url, headers=base_headers, timeout=10)
+    r0 = session.get(url, headers=base_headers, timeout=30)
+    r0.raise_for_status()
+    soup = BeautifulSoup(r0.text, "html.parser")
+    soup = set_page_size(soup, page_size_value)
+
+
+    def get_last_page(s):
+        pager_tr = s.select_one("table[id$='grdFinancialData'] tr.pgr")
+        if not pager_tr:
+            return 1
+        nums = []
+        for td in pager_tr.find_all("td"):
+            t = p2l(td.get_text(strip=True)).replace("...", "")
+            if t.isdigit():
+                nums.append(int(t))
+        return max(nums) if nums else 1
+
+    total_pages = get_last_page(soup)
+
+    rows, page, seen = [], 1, set()
+    while page <= total_pages:
+        if page > 1:
+            payload = {"__EVENTTARGET": grid_unique_id, "__EVENTARGUMENT": f"Page${page}", **extract_hidden_fields(soup)}
+            rp = session.post(url, headers=post_headers, data=payload, timeout=30)
+            rp.raise_for_status()
+            soup = BeautifulSoup(rp.text, "html.parser")
+            time.sleep(0.12)
+
+        batch = parse_rows(soup)
+        if not batch:
+            break
+        sig = tuple(tuple(x.values()) for x in batch)
+        if sig in seen:
+            break
+        seen.add(sig)
+
+        rows.extend(batch)
+        page += 1
+
+    all_special_financing_instruments = pd.DataFrame(rows)
+    if not all_special_financing_instruments.empty:
+        all_special_financing_instruments["Row"] = \
+            pd.to_numeric(all_special_financing_instruments["Row"], errors="coerce").astype("Int64")
+        all_special_financing_instruments = \
+            all_special_financing_instruments.sort_values("Row").reset_index(drop=True)
+        all_special_financing_instruments.drop(columns='Row', inplace=True)
+    return all_special_financing_instruments
