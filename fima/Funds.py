@@ -16,21 +16,15 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 def _get_fund_types() -> pd.DataFrame:
-    url = "https://fund.fipiran.ir/api/v1/fund/fundtype"
-    response = requests.get(url)
-    response.raise_for_status()  # raises error for bad responses
-    data = response.json()
-    fund_types = pd.DataFrame(data['items'])
+    url = "https://www.fipiran.ir/services/fund/fundtype"
+    fund_types = pd.DataFrame(requests.get(url).json()['items'])
     fund_types.columns = ['FundTypeID', 'FundTypeName', 'IsActive']
     return fund_types
 
 
-def get_all_funds(set_website_developers: bool = False) ->pd.DataFrame:
-    url = "https://fund.fipiran.ir/api/v1/fund/fundcompare"
-    headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    all_funds = pd.DataFrame(data['items'])
+def get_all_funds(set_website_developers: bool = False) -> pd.DataFrame:
+    url = "https://www.fipiran.ir/services/fund/fundcompare"
+    all_funds = pd.DataFrame(requests.get(url).json()['items'])
 
     all_funds.drop(['rankOf12Month', 'rankOf24Month', 'rankOf36Month', 'rankOf48Month', 'rankOf60Month',
                    'rankLastUpdate', 'guaranteedEarningRate', 'articlesOfAssociationLink', 'prosoectusLink',
