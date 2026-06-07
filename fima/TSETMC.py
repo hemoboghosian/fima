@@ -4,7 +4,7 @@ import requests
 from persian import convert_ar_characters
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Tuple
+from typing import Tuple, List, Literal
 
 
 def get_flow_price_adjustments() -> pd.DataFrame:
@@ -244,47 +244,71 @@ def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=Non
         return None
 
 
-def _find_instrument_code(ticker: str) -> str:
-    url = "https://old.tsetmc.com/tsev2/data/MarketWatchInit.aspx?h=0&r=0"
-    response = requests.get(url, timeout=10)
-    time.sleep(5)
-    raw_text = response.text
-
-    percent_index = raw_text.find('%')
-    if percent_index == -1:
-        raise ValueError("No '%' found in the response.")
-    trimmed_text = raw_text[percent_index + 1:]
-    if '@' not in trimmed_text:
-        raise ValueError("The trimmed response does not contain '@'. Unexpected format.")
-
-    _, main_data = trimmed_text.split('@', 1)
-    records = [row for row in main_data.split(';') if row.strip()]
-    parsed_data = [row.split(',') for row in records]
-
-    market_watch = pd.DataFrame(parsed_data)
-    market_watch = market_watch.iloc[:, [0, 2, 3]]
-    market_watch.rename(columns={0: 'InstrumentID', 2: 'Ticker', 3: 'Name'}, inplace=True)
-
-    unknown_instrument_codes = market_watch[market_watch['Ticker'].astype(str).str.fullmatch(r'\d+(\.\d+)?')].copy()
-    known_instrument_codes = market_watch[~market_watch['Ticker'].astype(str).str.fullmatch(r'\d+(\.\d+)?')].copy()
-    known_instrument_codes['Ticker'] = known_instrument_codes['Ticker'].apply(lambda ar_ticker: convert_ar_characters(ar_ticker))
-
-    if ticker in known_instrument_codes['Ticker'].values:
-        found_item = known_instrument_codes[known_instrument_codes['Ticker'] == ticker]
-        return found_item['InstrumentID'].values[0]
+def _find_instrument_code(search_key: str, trade_type: List[Literal['Ordinary', 'Block', 'Jobrani', 'Omde']] = 'Ordinary') -> str:
+    search_key = convert_ar_characters(search_key)
+    ticker_or_name = 'name' if len(search_key.split()) > 1 else 'ticker'
+    search_result = pd.DataFrame(requests.get(f'http://cdn.tsetmc.com/api/Instrument/GetInstrumentSearch/{search_key}').json()['instrumentSearch'])
+    if ticker_or_name == 'name':
+        found_record = search_result[search_result['lVal30'] == search_key].reset_index(drop=True)
     else:
-        tree_map_instrument_codes = _get_instrument_codes_tree_map()
-        if ticker in tree_map_instrument_codes['Ticker'].values:
-            found_item = tree_map_instrument_codes[tree_map_instrument_codes['Ticker'] == ticker]
-            return found_item['InstrumentID'].values[0]
+        found_record = search_result[search_result['lVal18AFC'] == search_key].reset_index(drop=True)
+
+    if len(found_record) == 0:
+        print('The search key you entered is not present.')
+        return ''
+    else:
+        if trade_type == 'Ordinary':
+            return found_record.loc[0, 'insCode']
+        elif trade_type == 'Block':
+            return found_record.loc[0, 'insCode2']
+        elif trade_type == 'Jobrani':
+            return found_record.loc[0, 'insCode3']
+        elif trade_type == 'Omde':
+            return found_record.loc[0, 'insCode4']
         else:
-            unknown_instrument_codes = _update_ticker_info_parallel(unknown_instrument_codes)
-            unknown_instrument_codes['Ticker'] = unknown_instrument_codes['Ticker'].apply(lambda ar_ticker: convert_ar_characters(ar_ticker))
-            # still_unknown_instrument_codes = unknown_instrument_codes[unknown_instrument_codes['Ticker'].astype(str).str.fullmatch(r'\d+(\.\d+)?')].copy()
-            if ticker in unknown_instrument_codes['Ticker'].values:
-                found_item = unknown_instrument_codes[unknown_instrument_codes['Ticker'] == ticker]
-                return found_item['InstrumentID'].values[0]
-    return ''
+            return found_record.loc[0, 'insCode']
+
+
+    # url = "https://old.tsetmc.com/tsev2/data/MarketWatchInit.aspx?h=0&r=0"
+    # response = requests.get(url, timeout=10)
+    # time.sleep(5)
+    # raw_text = response.text
+    #
+    # percent_index = raw_text.find('%')
+    # if percent_index == -1:
+    #     raise ValueError("No '%' found in the response.")
+    # trimmed_text = raw_text[percent_index + 1:]
+    # if '@' not in trimmed_text:
+    #     raise ValueError("The trimmed response does not contain '@'. Unexpected format.")
+    #
+    # _, main_data = trimmed_text.split('@', 1)
+    # records = [row for row in main_data.split(';') if row.strip()]
+    # parsed_data = [row.split(',') for row in records]
+    #
+    # market_watch = pd.DataFrame(parsed_data)
+    # market_watch = market_watch.iloc[:, [0, 2, 3]]
+    # market_watch.rename(columns={0: 'InstrumentID', 2: 'Ticker', 3: 'Name'}, inplace=True)
+    #
+    # unknown_instrument_codes = market_watch[market_watch['Ticker'].astype(str).str.fullmatch(r'\d+(\.\d+)?')].copy()
+    # known_instrument_codes = market_watch[~market_watch['Ticker'].astype(str).str.fullmatch(r'\d+(\.\d+)?')].copy()
+    # known_instrument_codes['Ticker'] = known_instrument_codes['Ticker'].apply(lambda ar_ticker: convert_ar_characters(ar_ticker))
+    #
+    # if ticker in known_instrument_codes['Ticker'].values:
+    #     found_item = known_instrument_codes[known_instrument_codes['Ticker'] == ticker]
+    #     return found_item['InstrumentID'].values[0]
+    # else:
+    #     tree_map_instrument_codes = _get_instrument_codes_tree_map()
+    #     if ticker in tree_map_instrument_codes['Ticker'].values:
+    #         found_item = tree_map_instrument_codes[tree_map_instrument_codes['Ticker'] == ticker]
+    #         return found_item['InstrumentID'].values[0]
+    #     else:
+    #         unknown_instrument_codes = _update_ticker_info_parallel(unknown_instrument_codes)
+    #         unknown_instrument_codes['Ticker'] = unknown_instrument_codes['Ticker'].apply(lambda ar_ticker: convert_ar_characters(ar_ticker))
+    #         # still_unknown_instrument_codes = unknown_instrument_codes[unknown_instrument_codes['Ticker'].astype(str).str.fullmatch(r'\d+(\.\d+)?')].copy()
+    #         if ticker in unknown_instrument_codes['Ticker'].values:
+    #             found_item = unknown_instrument_codes[unknown_instrument_codes['Ticker'] == ticker]
+    #             return found_item['InstrumentID'].values[0]
+    # return ''
 
 
 def get_ticker_intraday_trades(ticker: str) -> pd.DataFrame:
