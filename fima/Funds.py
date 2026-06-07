@@ -26,9 +26,9 @@ def get_all_funds(set_website_developers: bool = False) -> pd.DataFrame:
     url = "https://www.fipiran.ir/services/fund/fundcompare"
     all_funds = pd.DataFrame(requests.get(url).json()['items'])
 
-    all_funds.drop(['rankOf12Month', 'rankOf24Month', 'rankOf36Month', 'rankOf48Month', 'rankOf60Month',
-                   'rankLastUpdate', 'guaranteedEarningRate', 'articlesOfAssociationLink', 'prosoectusLink',
-                   'fundPublisher', 'fundWatch'], inplace=True, axis=1)
+    # all_funds.drop(['rankOf12Month', 'rankOf24Month', 'rankOf36Month', 'rankOf48Month', 'rankOf60Month',
+    #                'rankLastUpdate', 'guaranteedEarningRate', 'articlesOfAssociationLink', 'prosoectusLink',
+    #                'fundPublisher', 'fundWatch'], inplace=True, axis=1)
     all_funds.columns = all_funds.columns.map(lambda column: column[0].upper() + column[1:])
     all_funds.rename({'RegNo': 'RegNo', 'TypeOfInvest': 'InvestmentType', 'FundSize': 'TotalNAV',
                       'InitiationDate': 'InceptionDate', 'DailyEfficiency': 'DailyReturn',
@@ -83,7 +83,7 @@ def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     fund_id = 1
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     response.raise_for_status()
     data = response.json()
     df = pd.json_normalize(data, sep='_')
@@ -114,7 +114,7 @@ def _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataF
     fund_id = 1
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     response.raise_for_status()
     data = response.json()
     df = pd.json_normalize(data, sep='_')
@@ -159,7 +159,7 @@ def _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataF
 def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId=1"
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     response.raise_for_status()
     data = response.json()
     df = pd.json_normalize(data, sep='_')
@@ -204,7 +204,7 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 
     while True:
         # Request the page
-        response = requests.get(base_url, params=params, timeout=10, verify=False)
+        response = requests.get(base_url, params=params, timeout=20, verify=False)
         soup = BeautifulSoup(response.text, "html.parser")
 
         # Extract headers (only once)
@@ -258,7 +258,7 @@ def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     fund_website = get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/data/DailyAssetStructure/{fund_id}"
 
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     response.raise_for_status()
     json_data = response.json()
     daily_asset_allocation = pd.DataFrame(json_data["data"])
@@ -282,7 +282,7 @@ def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
 def _get_daily_asset_allocation_mabna(fund_name: str) -> pd.DataFrame:
     fund_website = get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/v1/overall/allassetsdaily.json"
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     data = response.json()[0]
     records = []
     for item in data['values']:
@@ -328,7 +328,7 @@ def _get_daily_asset_allocation_pikad(fund_name: str) -> pd.DataFrame:
     payload = {"ReportFilter": {"StartDate": start_date, "EndDate": end_date},
                "OptionalFilter": {"take": take, "page": page, "sort": [{"field": "Date", "dir": "desc"}]}}
 
-    response = requests.post(url, headers=headers, json=payload, timeout=10, verify=False)
+    response = requests.post(url, headers=headers, json=payload, timeout=20, verify=False)
     response.raise_for_status()
     daily_asset_allocation = pd.DataFrame(response.json()['Result'])
     daily_asset_allocation.drop(['Id', 'Date', 'Created', 'Total'], inplace=True, axis=1)
@@ -356,7 +356,7 @@ def _get_daily_asset_allocation_rahkar(fund_name: str) -> pd.DataFrame:
     mutual_fund_id = 1
     fund_website = get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/app/asset/daily-asset-list?MutualFundCompanyID={mutual_fund_id}"
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     daily_asset_allocation = pd.DataFrame(response.json())
     daily_asset_allocation.drop(['rowNum', 'totalRows'], inplace=True, axis=1)
     daily_asset_allocation.rename(
@@ -385,14 +385,14 @@ def get_fund_website_address(fund_name: str) -> str:
 
 def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
-    url = f"https://{website}/api/data/NavMulti"
-    response = requests.get(url, timeout=10, verify=False)
+    url = f"https://{website}/api/data/NAV/1"
+    response = requests.get(url, timeout=20, verify=False)
     response.raise_for_status()
-    data = response.json()
+    data = response.json()['data']
     navs = pd.json_normalize(data)
 
     navs.rename({'JalaliDate': 'JDate', 'PurchaseNAVPerShare': 'Subscription', 'SellNAVPerShare': 'Redemption',
-                 'StatisticNav': 'Statistical', 'TotalAssetsValue': 'TotalNAV'}, inplace=True, axis=1)
+                 'StatisticalNAVPerShare': 'Statistical', 'NAV': 'TotalNAV'}, inplace=True, axis=1)
 
     navs['JDate'] = navs['JDate'].apply(lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
     navs = navs[['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']]
@@ -418,7 +418,7 @@ def _get_daily_navs_pikad(fund_name: str) -> pd.DataFrame:
                "OptionalFilter": {"take": page_size, "skip": 1, "page": 1, "sort": [{"field": "Date", "dir": "asc"}]},
                "BranchId": 0, "PartyId": 0}
 
-    response = requests.post(url, headers=headers, json=payload, timeout=10, verify=False)
+    response = requests.post(url, headers=headers, json=payload, timeout=20, verify=False)
     navs = pd.DataFrame(response.json()['Result'])
     navs = navs.iloc[:, 1:6]
     navs['Date'] = pd.to_datetime(navs['Date']).dt.date
@@ -440,12 +440,12 @@ def _get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 
 def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     website = get_fund_website_address(fund_name)
-    url = f"https://{website}/api/v1/overall/navps.json"
-    response = requests.get(url, timeout=10, verify=False)
-    navs = pd.DataFrame(response.json()[0]['values'])
-    navs['date'] = navs['date'].apply(
-        lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[4:6]), day=int(date_str[6:8])))
-    navs = navs.iloc[:, :5].copy()
+    url = f"https://{website}/api/v2/public/reports/navps?start_date=1997-11-10T08%3A13%3A36.377Z&end_date=2026-01-11T08%3A13%3A36.377Z&page=1&size=1000000"
+    response = requests.get(url, timeout=20, verify=False)
+    navs = pd.DataFrame(response.json()['data'])
+    navs['date_time'] = navs['date_time'].apply(pd.to_datetime)
+    navs['date_time'] = navs['date_time'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
+    navs = navs.iloc[:, [0, 2, 3, 12, 5]].copy()
     navs.columns = ['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']
     return navs
 
@@ -454,7 +454,7 @@ def _get_leveraged_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     portfolio_id = 1
     website = get_fund_website_address(fund_name)
     url = f"https://{website}/api/v2/public/fund/chart?portfolio_id={portfolio_id}"
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     navs = pd.DataFrame(response.json()['data'])
     navs['date_time'] = pd.to_datetime(navs['date_time']).dt.date
     navs['date_time'] = navs['date_time'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
@@ -470,7 +470,7 @@ def _get_daily_navs_rahkar(fund_name: str) -> pd.DataFrame:
     mutual_fund_id = 1
     fund_website = get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/app/nav/nav-list?MutualFundCompanyID={mutual_fund_id}"
-    response = requests.get(url, timeout=10, verify=False)
+    response = requests.get(url, timeout=20, verify=False)
     navs = pd.DataFrame(response.json())
     navs['date'] = navs['date'].apply(lambda date_str: jd.date(year=int(date_str[:4]), month=int(date_str[5:7]), day=int(date_str[8:])))
     navs = navs.iloc[:, :5].copy()
@@ -568,7 +568,7 @@ def _detect_website_developer(website: str) -> str:
     urls = [f'https://{website}', f'http://{website}']
     for url in urls:
         try:
-            response = requests.get(url, timeout=15, verify=False)
+            response = requests.get(url, timeout=20, verify=False)
             html = response.text
             soup = BeautifulSoup(html, "html.parser")
 
@@ -623,13 +623,13 @@ def _detect_website_developer(website: str) -> str:
     return "-"
 
 
-# AllFunds = get_all_funds(set_website_developers=True)
-#
+# AllFunds = get_all_funds(set_website_developers=False)
 # UknownFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'Unknown']
 # BarFunds = AllFunds[AllFunds['WebsiteDeveloper'] == '-']
-#
-# TestFunds = AllFunds[AllFunds['WebsiteDeveloper'] == 'گروه رایانه تدبیر پرداز']
-# TestFund = TestFunds.iloc[1, :].to_frame().T
-# TestFundName = TestFund['Name'].values[0]
-# TestFundWebsiteAddress = TestFund['WebsiteAddress'].values[0]
-# print(TestFundWebsiteAddress)
+
+# IndexFunds = AllFunds[AllFunds['FundType'] == 'در سهام-شاخصی'].reset_index(drop=True)
+# IndexFunds = IndexFunds[IndexFunds['InceptionDate'] < jd.date(year=1403, month=12, day=1)].reset_index(drop=True)
+# StockFunds = AllFunds[AllFunds['FundType'] == 'در سهام'].sort_values(by='Alpha', ascending=False).head(35).reset_index(drop=True)
+# StockFunds = StockFunds[~StockFunds['Name'].isin(['مشترک نقش جهان', 'توسعه اعتماد رفاه'])].copy()
+# StockFunds = StockFunds[StockFunds['InceptionDate'] < jd.date(year=1393, month=12, day=1)].head(10).reset_index(drop=True)
+# FundList = list(IndexFunds['Name']) + list(StockFunds['Name'])
