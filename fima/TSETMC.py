@@ -4,6 +4,7 @@ import requests
 from persian import convert_ar_characters
 from concurrent.futures import ThreadPoolExecutor
 from typing import Tuple, List, Literal
+import time
 
 
 def get_share_changes() -> pd.DataFrame:
@@ -270,6 +271,7 @@ def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=Non
 def _find_instrument_code(search_key: str, trade_type: List[Literal['Ordinary', 'Block', 'Jobrani', 'Omde']] = 'Ordinary') -> str:
     search_key = convert_ar_characters(search_key)
     search_result = pd.DataFrame(requests.get(f'http://cdn.tsetmc.com/api/Instrument/GetInstrumentSearch/{search_key}').json()['instrumentSearch'])
+    search_result['lVal18AFC'] = search_result['lVal18AFC'].apply(convert_ar_characters)
     found_record = search_result[search_result['lVal18AFC'] == search_key].reset_index(drop=True)
     if len(found_record) == 0:
         print('The search key you entered is not present.')
