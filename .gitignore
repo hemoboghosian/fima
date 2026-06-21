@@ -314,5 +314,6 @@ $RECYCLE.BIN/
 
 ### Project-specific ###
 fima/Funds.py
+fima/Codal.py
 
 # End of https://www.toptal.com/developers/gitignore/api/pycharm,python,windows
