@@ -1,5 +1,9 @@
 import pandas as pd
 import requests
+import truststore
+
+
+truststore.inject_into_ssl()
 
 
 def _get_institute_types():
@@ -66,9 +70,8 @@ def get_all_institutions():
     url = "https://cfi.rbcapi.ir/institutes"
     params = {"offset": 0, "limit": 10000, "lng": "fa", "name": "", "city": "", "province": "", "instituteType": "",
               "instituteKind": "", "activityType": "", "licenseType": "", "status": ""}
-
     headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, params=params, headers=headers, timeout=10)
+    response = requests.get(url, params=params, headers=headers, timeout=15)
     response.raise_for_status()
     institutions = pd.DataFrame(response.json().get("data", []))
     institutions.drop(columns=['InstituteTypeId', 'InstituteKindId', 'StateId', 'Id', 'InquiryStatus'], inplace=True)
