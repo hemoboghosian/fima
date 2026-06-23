@@ -3,12 +3,412 @@ import numpy as np
 from bs4 import BeautifulSoup
 from io import StringIO
 import jdatetime as jd
-import re, json, html, time, requests
+import re, json, html, time, requests, threading
 from urllib.parse import urljoin, urlparse
 from typing import Tuple
+from concurrent.futures import ThreadPoolExecutor
+from requests.adapters import HTTPAdapter
 
 
-def clean_domain(url: str) -> str:
+_THREAD_LOCAL = threading.local()
+
+
+def _ifb_clean_text(value):
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value).replace("\u200c", "")
+                  .translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))).strip()
+
+
+def _ifb_hidden_fields(soup):
+    def get(name):
+        tag = soup.select_one(f"input[name='{name}']")
+        return tag.get("value", "") if tag else ""
+
+    data = {"__VIEWSTATE": get("__VIEWSTATE"), "__VIEWSTATEGENERATOR": get("__VIEWSTATEGENERATOR")}
+    event_validation = get("__EVENTVALIDATION")
+    if event_validation:
+        data["__EVENTVALIDATION"] = event_validation
+    return data
+
+
+def _ifb_mount_adapter(session, pool_size=20):
+    adapter = HTTPAdapter(pool_connections=pool_size, pool_maxsize=pool_size, max_retries=0)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def _ifb_find_page_size_control(soup, grid_name_part):
+    select = soup.select_one(f"div.sizeselector select[name*='{grid_name_part}']")
+    return select.get("name") if select else None
+
+
+def _ifb_best_page_size(soup, grid_name_part, requested=100):
+    """Use the largest allowed page size up to requested. Falls back to requested."""
+    select = soup.select_one(f"div.sizeselector select[name*='{grid_name_part}']")
+    if not select:
+        return str(requested)
+
+    values = []
+    for option in select.find_all("option"):
+        value = _ifb_clean_text(option.get("value") or option.get_text(strip=True))
+        if value.isdigit():
+            values.append(int(value))
+
+    if not values:
+        return str(requested)
+
+    allowed = [v for v in values if v <= requested]
+    return str(max(allowed) if allowed else max(values))
+
+
+def _ifb_set_page_size(session, url, headers, soup, grid_name_part, requested=100,
+                       fallback_control_name=None, timeout=30):
+    control_name = _ifb_find_page_size_control(soup, grid_name_part) or fallback_control_name
+    if not control_name:
+        return soup
+
+    page_size = _ifb_best_page_size(soup, grid_name_part, requested=requested)
+    payload = {"__EVENTTARGET": control_name, "__EVENTARGUMENT": "", **_ifb_hidden_fields(soup), control_name: page_size,}
+    response = session.post(url, headers=headers, data=payload, timeout=timeout)
+    response.raise_for_status()
+    return BeautifulSoup(response.text, "html.parser")
+
+
+def _ifb_get_grid_page(session, url, headers, soup, grid_unique_id, page, timeout=30):
+    payload = {"__EVENTTARGET": grid_unique_id, "__EVENTARGUMENT": f"Page${page}", **_ifb_hidden_fields(soup),}
+    response = session.post(url, headers=headers, data=payload, timeout=timeout)
+    response.raise_for_status()
+    return BeautifulSoup(response.text, "html.parser")
+
+
+def _ifb_collect_grid_rows(url, headers, grid_unique_id, parse_rows_func, page_size_grid_name_part,
+                           requested_page_size=100, fallback_page_size_control=None, timeout=30,
+                           max_pages=10_000):
+    """Sequential pagination is kept because ASP.NET ViewState is stateful.
+    The speed gain comes from no artificial sleep and larger page size.
+    """
+    session = _ifb_mount_adapter(requests.Session(), pool_size=10)
+
+    response = session.get(url, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    soup = _ifb_set_page_size(session=session, url=url, headers=headers, soup=soup,
+                              grid_name_part=page_size_grid_name_part, requested=requested_page_size,
+                              fallback_control_name=fallback_page_size_control, timeout=timeout,)
+
+    all_rows = []
+    seen_pages = set()
+    page = 1
+
+    while page <= max_pages:
+        rows = parse_rows_func(soup)
+        if not rows:
+            break
+
+        page_signature = tuple(map(tuple, rows))
+        if page_signature in seen_pages:
+            break
+        seen_pages.add(page_signature)
+        all_rows.extend(rows)
+
+        page += 1
+        soup = _ifb_get_grid_page(session, url, headers, soup, grid_unique_id, page, timeout=timeout)
+
+    return all_rows
+
+
+def _ifb_parse_jdate(value):
+    text = _ifb_clean_text(value)
+    parts = re.findall(r"\d+", text)
+    if len(parts) < 3:
+        return np.nan
+    return jd.date(int(parts[0]), int(parts[1]), int(parts[2]))
+
+
+def _ifb_clean_amount_columns(df, columns):
+    for column in columns:
+        df[column] = \
+            (df[column].astype(str).str.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+             .str.replace("B", "", regex=False).str.replace(",", "", regex=False)
+             .str.replace("/", ".", regex=False).str.strip())
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df
+
+
+def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
+    url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": url,
+        "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    def parse_rows(soup):
+        table = soup.select_one("table[id$='grdDSTs']")
+        if not table:
+            return []
+
+        output = []
+        for tr in table.find_all("tr"):
+            if tr.find("th") or "pgr" in (tr.get("class") or []) or tr.find("table"):
+                continue
+            tds = tr.find_all("td", recursive=False)
+            if len(tds) == 12:
+                row = [_ifb_clean_text(td.get_text(strip=True)) for td in tds]
+                if row[0].replace(",", "").isdigit():
+                    output.append(row)
+        return output
+
+    rows = _ifb_collect_grid_rows(
+        url=url,
+        headers=headers,
+        grid_unique_id="ctl00$ContentPlaceHolder1$grdDSTs",
+        parse_rows_func=parse_rows,
+        page_size_grid_name_part="grdDSTs",
+        requested_page_size=100,
+        fallback_page_size_control="ctl00$ContentPlaceHolder1$grdDSTs$ctl14$ctl13",
+        timeout=30,
+    )
+
+    raw_columns = [
+        "RowIndex", "Date",
+        "Buyer: Government", "Buyer: CentralBank", "Buyer: Funds", "Buyer: Banks", "Buyer: Others",
+        "Seller: Government", "Seller: CentralBank", "Seller: Funds", "Seller: Banks", "Seller: Others",
+    ]
+    raw = pd.DataFrame(rows, columns=raw_columns)
+    if raw.empty:
+        return pd.DataFrame(columns=["Date", "Buyer/Seller", "Government", "CentralBank", "Funds", "Banks", "Others"])
+
+    raw["RowIndex"] = pd.to_numeric(raw["RowIndex"], errors="coerce")
+    raw = raw.dropna(subset=["RowIndex"])
+
+    buyer_cols = [col for col in raw.columns if col.startswith("Buyer")]
+    seller_cols = [col for col in raw.columns if col.startswith("Seller")]
+
+    buyer = raw[["Date"] + buyer_cols].copy()
+    buyer.columns = ["Date"] + [col.split(":", 1)[1].strip() for col in buyer_cols]
+    buyer["Buyer/Seller"] = "Buyer"
+
+    seller = raw[["Date"] + seller_cols].copy()
+    seller.columns = ["Date"] + [col.split(":", 1)[1].strip() for col in seller_cols]
+    seller["Buyer/Seller"] = "Seller"
+
+    result = pd.concat([buyer, seller], ignore_index=True)
+    result = result[["Date", "Buyer/Seller", "Government", "CentralBank", "Funds", "Banks", "Others"]]
+    result.sort_values("Date", inplace=True, ignore_index=True, ascending=False)
+    result["Date"] = result["Date"].apply(_ifb_parse_jdate)
+    result = result[result["Date"] != jd.date(1278, 10, 10)].reset_index(drop=True)
+    result = _ifb_clean_amount_columns(result, ["Government", "CentralBank", "Funds", "Banks", "Others"])
+    return result
+
+
+def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
+    url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": url,
+        "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    def parse_rows(soup):
+        table = soup.select_one("table[id$='grdDSTTypes']")
+        if not table:
+            return []
+
+        output = []
+        for tr in table.find_all("tr"):
+            if tr.find("th") or "pgr" in (tr.get("class") or []) or tr.find("table"):
+                continue
+            tds = tr.find_all("td", recursive=False)
+            if len(tds) == 5:
+                row = [_ifb_clean_text(td.get_text(strip=True)) for td in tds]
+                if row[0].replace(",", "").isdigit():
+                    output.append(row)
+        return output
+
+    rows = _ifb_collect_grid_rows(
+        url=url,
+        headers=headers,
+        grid_unique_id="ctl00$ContentPlaceHolder1$grdDSTTypes",
+        parse_rows_func=parse_rows,
+        page_size_grid_name_part="grdDSTs",  # this page-size dropdown controls the DailySukukTrades page
+        requested_page_size=100,
+        fallback_page_size_control="ctl00$ContentPlaceHolder1$grdDSTs$ctl14$ctl13",
+        timeout=30,
+    )
+
+    result = pd.DataFrame(rows, columns=["RowIndex", "Date", "OpenMarketOperations", "GovernmentSubscription", "Others"])
+    if result.empty:
+        return pd.DataFrame(columns=["Date", "OpenMarketOperations", "GovernmentSubscription", "Others"])
+
+    result["RowIndex"] = pd.to_numeric(result["RowIndex"], errors="coerce")
+    result = result.dropna(subset=["RowIndex"]).drop(columns="RowIndex")
+    result.sort_values("Date", inplace=True, ignore_index=True, ascending=False)
+    result["Date"] = result["Date"].apply(_ifb_parse_jdate)
+    result = result[result["Date"] != jd.date(1278, 10, 10)].reset_index(drop=True)
+    result = _ifb_clean_amount_columns(result, ["OpenMarketOperations", "GovernmentSubscription", "Others"])
+    return result
+
+
+def get_all_crowdfunding_plans(include_descriptions=True, max_workers=8) -> pd.DataFrame:
+    url = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx"
+    show_desc = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx/showDesc"
+    grid_unique_id = "ctl00$ContentPlaceHolder1$grdCrowdFundingData"
+    table_css = "table[id$='grdCrowdFundingData']"
+
+    base_headers = {"User-Agent": "Mozilla/5.0", "Referer": url}
+    post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
+    ajax_headers = {
+        **base_headers,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": "https://ifb.ir",
+    }
+
+    request_session = _ifb_mount_adapter(requests.Session(), pool_size=max_workers + 2)
+
+    def parse_rows(soup):
+        table = soup.select_one(table_css)
+        if not table:
+            return []
+
+        output = []
+        for tr in table.find_all("tr"):
+            if tr.find("th") or "pgr" in (tr.get("class") or []) or tr.find("table"):
+                continue
+            tds = tr.find_all("td", recursive=False)
+            if len(tds) != 10:
+                continue
+
+            row_no = _ifb_clean_text(tds[0].get_text(strip=True))
+            if not row_no.replace(",", "").isdigit():
+                continue
+
+            a_dom = tds[4].find("a")
+            a_desc = tds[8].find("a")
+            match = re.search(r"showDesc\('([^']+)'\)", a_desc.get("onclick", "")) if a_desc else None
+
+            output.append({
+                "Row": row_no,
+                "PlanName": _ifb_clean_text(tds[1].get_text(strip=True)),
+                "Company": _ifb_clean_text(tds[2].get_text(strip=True)),
+                "NationalID": _ifb_clean_text(tds[3].get_text(strip=True)),
+                "Domain": (_clean_domain(a_dom["href"]) if a_dom and a_dom.has_attr("href") else None),
+                "Status": _ifb_clean_text(tds[5].get_text(strip=True)),
+                "StartDate": _ifb_clean_text(tds[6].get_text(strip=True)),
+                "EndDate": _ifb_clean_text(tds[7].get_text(strip=True)),
+                "DescriptionID": match.group(1) if match else None,
+            })
+        return output
+
+    response = request_session.get(url, headers=base_headers, timeout=30)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+    soup = _ifb_set_page_size(
+        session=request_session,
+        url=url,
+        headers=post_headers,
+        soup=soup,
+        grid_name_part="grdCrowdFundingData",
+        requested=100,
+        timeout=30,
+    )
+
+    rows = []
+    seen_pages = set()
+    page = 1
+    while True:
+        batch = parse_rows(soup)
+        if not batch:
+            break
+
+        page_signature = tuple(tuple(item.values()) for item in batch)
+        if page_signature in seen_pages:
+            break
+        seen_pages.add(page_signature)
+        rows.extend(batch)
+
+        page += 1
+        soup = _ifb_get_grid_page(request_session, url, post_headers, soup, grid_unique_id, page, timeout=30)
+
+    all_crowdfunding_plans = pd.DataFrame(rows)
+    if all_crowdfunding_plans.empty:
+        return pd.DataFrame()
+
+    # Fetch descriptions AFTER collecting all pages, and do it concurrently.
+    if include_descriptions:
+        desc_ids = [x for x in all_crowdfunding_plans["DescriptionID"].dropna().astype(str).unique() if x]
+        base_cookies = request_session.cookies.copy()
+
+        def html_to_text(value):
+            if not value:
+                return None
+            return BeautifulSoup(value, "html.parser").get_text(" ").strip()
+
+        def get_thread_session():
+            session = getattr(_THREAD_LOCAL, "ifb_desc_session", None)
+            if session is None:
+                session = _ifb_mount_adapter(requests.Session(), pool_size=2)
+                session.cookies.update(base_cookies)
+                _THREAD_LOCAL.ifb_desc_session = session
+            return session
+
+        def fetch_desc(desc_id):
+            if not desc_id:
+                return desc_id, None
+
+            session = get_thread_session()
+            # Keep your original fallback logic, but run it in parallel.
+            payloads = ({"id": str(desc_id)}, {"ID": str(desc_id)}, {"ID": int(desc_id)} if str(desc_id).isdigit() else None)
+            for payload in payloads:
+                if payload is None:
+                    continue
+                try:
+                    response = session.post(show_desc, headers=ajax_headers, data=json.dumps(payload), timeout=30)
+                    if response.status_code != 200:
+                        continue
+                    try:
+                        data = response.json()
+                        raw = data.get("d", "") if isinstance(data, dict) else data
+                    except Exception:
+                        raw = response.text
+                    raw = (raw or "").strip()
+                    if raw:
+                        return desc_id, html_to_text(html.unescape(raw))
+                except requests.RequestException:
+                    continue
+            return desc_id, None
+
+        descriptions = {}
+        if desc_ids:
+            workers = max(1, min(int(max_workers), len(desc_ids)))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                for desc_id, text in executor.map(fetch_desc, desc_ids):
+                    descriptions[desc_id] = text
+        all_crowdfunding_plans["Description"] = all_crowdfunding_plans["DescriptionID"].astype(str).map(descriptions)
+    else:
+        all_crowdfunding_plans["Description"] = None
+
+    all_crowdfunding_plans["Row"] = pd.to_numeric(all_crowdfunding_plans["Row"], errors="coerce")
+    all_crowdfunding_plans.sort_values("Row", inplace=True, ignore_index=True)
+    all_crowdfunding_plans["StartDate"] = all_crowdfunding_plans["StartDate"].apply(_ifb_parse_jdate)
+    all_crowdfunding_plans["EndDate"] = all_crowdfunding_plans["EndDate"].apply(_ifb_parse_jdate)
+    all_crowdfunding_plans.drop(columns=["Row", "DescriptionID"], inplace=True)
+
+    all_crowdfunding_platforms = get_all_crowdfunding_platforms()
+    all_crowdfunding_plans = pd.merge(all_crowdfunding_plans, all_crowdfunding_platforms, on="Domain", how="left")
+    all_crowdfunding_plans = all_crowdfunding_plans.iloc[:, :-4]
+    all_crowdfunding_plans.rename(columns={"Status_x": "Status"}, inplace=True)
+    return all_crowdfunding_plans
+
+
+def _clean_domain(url: str) -> str:
     parsed = urlparse(url.strip().lower())
     return parsed.netloc.replace("www.", "")
 
@@ -209,331 +609,6 @@ def get_ifb_total_sukuk_index_historical_data() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
-
-    def extract_hidden_fields(soup):
-        def get(name):
-            tag = soup.select_one(f"input[name='{name}']")
-            return tag["value"] if tag else None
-        return {"__VIEWSTATE": get("__VIEWSTATE"),"__VIEWSTATEGENERATOR": get("__VIEWSTATEGENERATOR")}
-
-    def parse_table(soup):
-        table = soup.select_one("table[id$='grdDSTs']")
-        table_rows = table.select("tr")[2:-1]
-        table_data = []
-        for row in table_rows:
-            cols = row.find_all("td")
-            if len(cols) == 12:
-                values = [td.get_text(strip=True).replace("\u200c", "") for td in cols]
-                table_data.append(values)
-        return table_data
-
-    def set_rows_per_page(page_session, hidden_fields, per_page="50"):
-        dropdown_field = "ctl00$ContentPlaceHolder1$grdDSTs$ctl14$ctl13"
-        page_data = {"__EVENTTARGET": dropdown_field, "__EVENTARGUMENT": "", "__VIEWSTATE": hidden_fields["__VIEWSTATE"],
-                     "__VIEWSTATEGENERATOR": hidden_fields["__VIEWSTATEGENERATOR"], dropdown_field: per_page}
-        page_result = page_session.post(url, headers=headers, data=page_data)
-        return BeautifulSoup(page_result.text, "html.parser")
-
-    url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
-
-    headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded", "Referer": url,
-               "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"}
-
-    session = requests.Session()
-    result = session.get(url, headers=headers)
-    beautiful_soup = BeautifulSoup(result.text, "html.parser")
-    hidden = extract_hidden_fields(beautiful_soup)
-
-    beautiful_soup = set_rows_per_page(session, hidden)
-    hidden = extract_hidden_fields(beautiful_soup)
-
-    all_rows = []
-    seen_rows = set()
-    page = 1
-
-    while True:
-        if page > 1:
-            data = {"__EVENTTARGET": "ctl00$ContentPlaceHolder1$grdDSTs", "__EVENTARGUMENT": f"Page${page}",
-                    "__VIEWSTATE": hidden["__VIEWSTATE"], "__VIEWSTATEGENERATOR": hidden["__VIEWSTATEGENERATOR"]}
-            res = session.post(url, headers=headers, data=data)
-            beautiful_soup = BeautifulSoup(res.text, "html.parser")
-            hidden = extract_hidden_fields(beautiful_soup)
-            time.sleep(0.5)
-
-        rows = parse_table(beautiful_soup)
-        if not rows:
-            break
-
-        key = tuple(map(tuple, rows))
-        if key in seen_rows:
-            break
-        seen_rows.add(key)
-
-        all_rows.extend(rows)
-        page += 1
-
-    sukuk_daily_trades = pd.DataFrame(all_rows, columns=["RowIndex", "Date", "Buyer: Government",
-                                                         "Buyer: CentralBank", "Buyer: Funds", "Buyer: Banks",
-                                                         "Buyer: Others", "Seller: Government",
-                                                         "Seller: CentralBank", "Seller: Funds", "Seller: Banks",
-                                                         "Seller: Others"])
-
-    sukuk_daily_trades["RowIndex"] = pd.to_numeric(sukuk_daily_trades["RowIndex"], errors="coerce")
-    sukuk_daily_trades = sukuk_daily_trades.dropna(subset=["RowIndex"])
-
-    buyer_cols = [col for col in sukuk_daily_trades.columns if col.startswith("Buyer")]
-    seller_cols = [col for col in sukuk_daily_trades.columns if col.startswith("Seller")]
-
-    buyer_sukuk_daily_trades = sukuk_daily_trades[["Date"] + buyer_cols].copy()
-    buyer_sukuk_daily_trades.columns = ["Date"] + [col.split(":")[1].strip() for col in buyer_cols]
-    buyer_sukuk_daily_trades["Buyer/Seller"] = "Buyer"
-
-    seller_sukuk_daily_trades = sukuk_daily_trades[["Date"] + seller_cols].copy()
-    seller_sukuk_daily_trades.columns = ["Date"] + [col.split(":")[1].strip() for col in seller_cols]
-    seller_sukuk_daily_trades["Buyer/Seller"] = "Seller"
-
-    sukuk_daily_trades = pd.concat([buyer_sukuk_daily_trades, seller_sukuk_daily_trades], ignore_index=True)
-
-    columns = ["Date", "Buyer/Seller"] + [col for col in sukuk_daily_trades.columns if col not in ["Date",
-                                                                                                   "Buyer/Seller"]]
-    sukuk_daily_trades = sukuk_daily_trades[columns]
-    sukuk_daily_trades.sort_values('Date', inplace=True, ignore_index=True, ascending=False)
-
-    sukuk_daily_trades['Date'] = sukuk_daily_trades['Date'].apply(lambda jdate: jd.date(year=int(jdate[:4]),
-                                                                                        month=int(jdate[5:7]),
-                                                                                        day=int(jdate[8:])))
-    sukuk_daily_trades = sukuk_daily_trades[sukuk_daily_trades['Date'] != jd.date(1278, 10, 10)]
-    sukuk_daily_trades.reset_index(inplace=True, drop=True)
-
-    for amount_column in ['Government', 'CentralBank', 'Funds', 'Banks', 'Others']:
-        sukuk_daily_trades[amount_column] = (sukuk_daily_trades[amount_column].astype(str)
-                                             .str.replace("B|,", "", regex=True)
-                                             .str.replace("/", ".", regex=False).str.strip())
-        sukuk_daily_trades[amount_column] = pd.to_numeric(sukuk_daily_trades[amount_column], errors="coerce")
-
-    return sukuk_daily_trades
-
-
-def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
-    def extract_hidden_fields(hidden_soup):
-        def get(name):
-            tag = hidden_soup.select_one(f"input[name='{name}']")
-            return tag["value"] if tag else None
-
-        return {"__VIEWSTATE": get("__VIEWSTATE"), "__VIEWSTATEGENERATOR": get("__VIEWSTATEGENERATOR")}
-
-    def parse_table(table_soup):
-        table = table_soup.select_one("table[id$='grdDSTTypes']")
-        table_rows = table.select("tr")[1:-1]
-        table_data = []
-        for row in table_rows:
-            cols = row.find_all("td")
-            if len(cols) == 5:
-                values = [td.get_text(strip=True).replace("\u200c", "") for td in cols]
-                table_data.append(values)
-        return table_data
-
-    def set_rows_per_page(page_session, hidden_fields, per_page="50"):
-        dropdown_field = "ctl00$ContentPlaceHolder1$grdDSTs$ctl14$ctl13"
-        page_data = {"__EVENTTARGET": dropdown_field, "__EVENTARGUMENT": "", "__VIEWSTATE": hidden_fields["__VIEWSTATE"],
-                "__VIEWSTATEGENERATOR": hidden_fields["__VIEWSTATEGENERATOR"], dropdown_field: per_page}
-        page_result = page_session.post(url, headers=headers, data=page_data)
-        return BeautifulSoup(page_result.text, "html.parser")
-
-    url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
-
-    headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded", "Referer": url,
-               "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"}
-
-    session = requests.Session()
-    res = session.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
-    hidden = extract_hidden_fields(soup)
-
-    soup = set_rows_per_page(session, hidden)
-    hidden = extract_hidden_fields(soup)
-
-    all_rows = []
-    seen_rows = set()
-    page = 1
-
-    while True:
-        if page > 1:
-            data = {"__EVENTTARGET": "ctl00$ContentPlaceHolder1$grdDSTTypes", "__EVENTARGUMENT": f"Page${page}",
-                    "__VIEWSTATE": hidden["__VIEWSTATE"], "__VIEWSTATEGENERATOR": hidden["__VIEWSTATEGENERATOR"]}
-            res = session.post(url, headers=headers, data=data)
-            soup = BeautifulSoup(res.text, "html.parser")
-            hidden = extract_hidden_fields(soup)
-            time.sleep(0.25)
-
-        rows = parse_table(soup)
-        if not rows:
-            break
-
-        key = tuple(map(tuple, rows))
-        if key in seen_rows:
-            break
-        seen_rows.add(key)
-
-        all_rows.extend(rows)
-        page += 1
-
-    sukuk_daily_trades = pd.DataFrame(all_rows, columns=["RowIndex", "Date", "OpenMarketOperations",
-                                                         "GovernmentSubscription", "Others"])
-
-    sukuk_daily_trades["RowIndex"] = pd.to_numeric(sukuk_daily_trades["RowIndex"], errors="coerce")
-    sukuk_daily_trades = sukuk_daily_trades.dropna(subset=["RowIndex"])
-    sukuk_daily_trades.drop('RowIndex', inplace=True, axis=1)
-
-    sukuk_daily_trades.sort_values('Date', inplace=True, ignore_index=True, ascending=False)
-    sukuk_daily_trades['Date'] = sukuk_daily_trades['Date'].apply(lambda jdate: jd.date(year=int(jdate[:4]),
-                                                                                        month=int(jdate[5:7]),
-                                                                                        day=int(jdate[8:])))
-    sukuk_daily_trades = sukuk_daily_trades[sukuk_daily_trades['Date'] != jd.date(1278, 10, 10)]
-    sukuk_daily_trades.reset_index(inplace=True, drop=True)
-
-    for amount_column in ["OpenMarketOperations", "GovernmentSubscription", "Others"]:
-        sukuk_daily_trades[amount_column] = (sukuk_daily_trades[amount_column].astype(str)
-                                             .str.replace("B|,", "", regex=True)
-                                             .str.replace("/", ".", regex=False).str.strip())
-        sukuk_daily_trades[amount_column] = pd.to_numeric(sukuk_daily_trades[amount_column], errors="coerce")
-
-    return sukuk_daily_trades
-
-
-def get_all_crowdfunding_plans() -> pd.DataFrame:
-
-    url = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx"
-    show_desc = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx/showDesc"
-    grid_unique_id = "ctl00$ContentPlaceHolder1$grdCrowdFundingData"
-    table_css = "table[id$='grdCrowdFundingData']"
-
-    page_size_value = "50"
-    base_headers = {"User-Agent": "Mozilla/5.0", "Referer": url}
-    post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
-    ajax_headers = {**base_headers, "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "Content-Type": "application/json; charset=UTF-8", "X-Requested-With": "XMLHttpRequest",
-                    "Origin": "https://ifb.ir"}
-
-    request_session = requests.Session()
-
-    def extract_hidden_fields(hf_soup):
-        def validation(name):
-            element = hf_soup.select_one(f"input[name='{name}']")
-            return element["value"] if element else None
-        hidden_fields_data = {"__VIEWSTATE": validation("__VIEWSTATE"), "__VIEWSTATEGENERATOR": validation("__VIEWSTATEGENERATOR")}
-        ev = validation("__EVENTVALIDATION")
-        if ev: hidden_fields_data["__EVENTVALIDATION"] = ev
-        return hidden_fields_data
-
-    def find_pagesize_control_name(fpscn_soup):
-        select = fpscn_soup.select_one("div.sizeselector select[name*='grdCrowdFundingData']")
-        return select.get("name") if select else None
-
-    def set_page_size(sps_soup, size_value):
-        name = find_pagesize_control_name(sps_soup)
-        if not name:
-            return sps_soup
-        sps_payload = {"__EVENTTARGET": name, "__EVENTARGUMENT": "", **extract_hidden_fields(sps_soup), name: str(size_value)}
-        r = request_session.post(url, headers=post_headers, data=sps_payload, timeout=30)
-        r.raise_for_status()
-        return BeautifulSoup(r.text, "html.parser")
-
-    def parse_rows(pr_soup):
-        table = pr_soup.select_one(table_css)
-        if not table:
-            return []
-        output = []
-        for tr in table.select("tr"):
-            if tr.find("th") or "pgr" in tr.get("class", []):
-                continue
-            tds = tr.find_all("td")
-            if len(tds) != 10:
-                continue
-            a_dom = tds[4].find("a")
-            a_desc = tds[8].find("a")
-            m = re.search(r"showDesc\('(\d+)'\)", a_desc.get("onclick","")) if a_desc else None
-            output.append({"Row": tds[0].get_text(strip=True), "PlanName": tds[1].get_text(strip=True),
-                          "Company": tds[2].get_text(strip=True), "NationalID": tds[3].get_text(strip=True),
-                          "Domain": (clean_domain(a_dom["href"]) if a_dom and a_dom.has_attr("href") else None),
-                          "Status": tds[5].get_text(strip=True), "StartDate": tds[6].get_text(strip=True),
-                          "EndDate": tds[7].get_text(strip=True), "DescriptionID": m.group(1) if m else None})
-        return output
-
-    def html_to_text(s):
-        if not s:
-            return None
-        return BeautifulSoup(s, "html.parser").get_text(" ").strip()
-
-    def fetch_desc(desc_id):
-        if not desc_id:
-            return None
-        for fd_payload in ({"id": str(desc_id)}, {"ID": str(desc_id)}, {"ID": int(desc_id)}):
-            r = request_session.post(show_desc, headers=ajax_headers, data=json.dumps(fd_payload), timeout=30)
-            if r.status_code != 200:
-                continue
-            try:
-                fetched_data = r.json()
-                raw = fetched_data.get("d", "") if isinstance(fetched_data, dict) else fetched_data
-            except Exception:
-                raw = r.text
-            raw = (raw or "").strip()
-            if raw:
-                return html_to_text(html.unescape(raw))
-        return None
-
-    request_session.get(url, headers=base_headers, timeout=10)
-
-    r0 = request_session.get(url, headers=base_headers, timeout=10)
-    r0.raise_for_status()
-    soup = BeautifulSoup(r0.text, "html.parser")
-    soup = set_page_size(soup, page_size_value)
-
-    rows, seen = [], set()
-    page = 1
-    while True:
-        if page > 1:
-            payload = {"__EVENTTARGET": grid_unique_id, "__EVENTARGUMENT": f"Page${page}", **extract_hidden_fields(soup)}
-            rp = request_session.post(url, headers=post_headers, data=payload, timeout=10)
-            rp.raise_for_status()
-            soup = BeautifulSoup(rp.text, "html.parser")
-            time.sleep(0.15)
-
-        batch = parse_rows(soup)
-
-        if not batch:
-            break
-        sig = tuple(tuple(x.values()) for x in batch)
-        if sig in seen:
-            break
-        seen.add(sig)
-
-        for item in batch:
-            item["Description"] = fetch_desc(item["DescriptionID"])
-        rows.extend(batch)
-        page += 1
-
-    all_crowdfunding_plans = pd.DataFrame(rows)
-    all_crowdfunding_plans["Row"] = pd.to_numeric(all_crowdfunding_plans["Row"], errors="coerce")
-    all_crowdfunding_plans.sort_values("Row").reset_index(drop=True)
-    all_crowdfunding_plans['StartDate'] = all_crowdfunding_plans['StartDate'].apply(lambda date_str:
-                                                                  jd.date(year=int(date_str.split('-')[0]),
-                                                                          month=int(date_str.split('-')[1]),
-                                                                          day=int(date_str.split('-')[2])))
-    all_crowdfunding_plans['EndDate'] = all_crowdfunding_plans['EndDate'].apply(lambda date_str:
-                                                              jd.date(year=int(date_str.split('-')[0]),
-                                                                      month=int(date_str.split('-')[1]),
-                                                                      day=int(date_str.split('-')[2])))
-    all_crowdfunding_plans.drop(columns=['Row', 'DescriptionID'], inplace=True)
-
-    all_crowdfunding_platforms = get_all_crowdfunding_platforms()
-    all_crowdfunding_plans = pd.merge(all_crowdfunding_plans, all_crowdfunding_platforms, on="Domain", how="left")
-    all_crowdfunding_plans = all_crowdfunding_plans.iloc[:, :-4]
-    all_crowdfunding_plans.rename(columns={'Status_x': 'Status'}, inplace=True)
-    return all_crowdfunding_plans
-
-
 def get_all_crowdfunding_platforms():
     base = "https://ifb.ir"
     url = "https://ifb.ir/Finstars/AllCrowdFundingAgents.aspx"
@@ -558,7 +633,7 @@ def get_all_crowdfunding_platforms():
         raise RuntimeError("Could not find page size dropdown in the HTML.")
     size_name = size_select["name"]
 
-    payload = {"__EVENTTARGET": size_name, "__EVENTARGUMENT": "", **hidden, size_name: str(page_size)}
+    payload = {"__EVENTTARGET": size_name, "__EVENTARGUMENT": "", **hidden, str(size_name): str(page_size)}
 
     r2 = session.post(url, data=payload, headers=headers, timeout=30)
     r2.encoding = "utf-8"
@@ -576,18 +651,20 @@ def get_all_crowdfunding_platforms():
         if len(tds) < 9:
             continue
         platform = tds[1].get_text(strip=True)
-        inst = tds[2].get_text(strip=True)
-        start_date = tds[3].get_text(strip=True)
-        exp_date = tds[4].get_text(strip=True)
-        status = tds[5].get_text(strip=True)
-        phone = tds[6].get_text(strip=True)
-        a_dom = tds[7].find("a")
+        operator = tds[2].get_text(strip=True)
+        inst = tds[3].get_text(strip=True)
+        start_date = tds[4].get_text(strip=True)
+        exp_date = tds[5].get_text(strip=True)
+        status = tds[6].get_text(strip=True)
+        phone = tds[7].get_text(strip=True)
+        a_dom = tds[8].find("a")
         domain_url = (urljoin(base, a_dom["href"]) if a_dom and a_dom.has_attr("href") else "").lower()
         # a_file = tds[8].find("a")
         # file_url = urljoin(base, a_file["href"]) if a_file and a_file.has_attr("href") else ""
 
-        all_crowdfunding_platforms.append({"Platform": platform, "Institute": inst, "ActivityStartDate": start_date,
-                     "LicenseExpiryDate": exp_date, "Status": status, "PhoneNumber": phone, "Domain": domain_url})
+        all_crowdfunding_platforms.append({"Platform": platform, "Operator": operator, "Institute": inst,
+                                           "ActivityStartDate": start_date, "LicenseExpiryDate": exp_date,
+                                           "Status": status, "PhoneNumber": phone, "Domain": domain_url})
 
     all_crowdfunding_platforms = pd.DataFrame(all_crowdfunding_platforms)
 
@@ -602,7 +679,7 @@ def get_all_crowdfunding_platforms():
                                                                       month=int(date_str.split('-')[1]),
                                                                       day=int(date_str.split('-')[2])))
 
-    all_crowdfunding_platforms["Domain"] = (all_crowdfunding_platforms["Domain"].apply(lambda domain: clean_domain(domain)))
+    all_crowdfunding_platforms["Domain"] = (all_crowdfunding_platforms["Domain"].apply(lambda domain: _clean_domain(domain)))
 
     return all_crowdfunding_platforms
 
@@ -707,7 +784,7 @@ def get_all_standard_financing_instruments() -> pd.DataFrame:
                         "MarketMakingMethod": p2l(tds[8].get_text()), "VolatilityRange": p2l(tds[9].get_text())})
         return out
 
-    request_session.get(url, headers=base_headers, timeout=10)
+    request_session.get(url, headers=base_headers, timeout=30)
     r0 = request_session.get(url, headers=base_headers, timeout=30)
     r0.raise_for_status()
     soup = BeautifulSoup(r0.text, "html.parser")
@@ -852,7 +929,7 @@ def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         return rows
 
 
-    session.get(ticker_details_url, headers=base_headers, timeout=10)
+    session.get(ticker_details_url, headers=base_headers, timeout=30)
     r0 = session.get(ticker_details_url, headers=base_headers, timeout=30)
     r0.raise_for_status()
     soup = BeautifulSoup(r0.text, "html.parser")
@@ -1001,7 +1078,7 @@ def get_all_special_financing_instruments() -> pd.DataFrame:
         return rows_out
 
 
-    session.get(url, headers=base_headers, timeout=10)
+    session.get(url, headers=base_headers, timeout=30)
     r0 = session.get(url, headers=base_headers, timeout=30)
     r0.raise_for_status()
     soup = BeautifulSoup(r0.text, "html.parser")
