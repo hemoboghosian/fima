@@ -2,7 +2,8 @@ import pytest
 from fima.IFB import (get_risk_free_rate, get_all_bonds_without_coupons, get_all_bonds_with_coupons,
                       get_ifb_equally_weighted_total_index_historical_data, get_ifb_equally_weighted_price_index_historical_data,
                       get_ifb_price_index_historical_data, get_ifb_total_index_historical_data, get_ifb_total_sukuk_index_historical_data,
-                      get_sukuk_daily_trades_based_on_bs, get_sukuk_daily_trades_based_on_ct)
+                      get_sukuk_daily_trades_based_on_bs, get_sukuk_daily_trades_based_on_ct, get_all_crowdfunding_platforms,
+                      get_all_crowdfunding_plans, get_ticker_info, get_all_standard_financing_instruments, get_all_special_financing_instruments)
 
 
 def test_get_risk_free_rate_range():
@@ -83,3 +84,59 @@ def test_get_sukuk_daily_trades_based_on_ct():
     assert not sukuk_daily_trades_based_on_ct.empty
     for column in ['Date', 'OpenMarketOperations', 'GovernmentSubscription', 'Others']:
         assert column in sukuk_daily_trades_based_on_ct.columns
+
+
+def test_get_all_crowdfunding_platforms():
+    all_crowdfunding_platforms = get_all_crowdfunding_platforms()
+    assert all_crowdfunding_platforms is not None
+    assert not all_crowdfunding_platforms.empty
+    for column in ['Platform', 'Operator', 'Institute', 'ActivityStartDate', 'LicenseExpiryDate', 'Status',
+                   'PhoneNumber', 'Domain']:
+        assert column in all_crowdfunding_platforms.columns
+
+
+@pytest.mark.parametrize("include_descriptions", [True, False])
+def test_get_all_crowdfunding_plans(include_descriptions: bool):
+    all_crowdfunding_plans = get_all_crowdfunding_plans(include_descriptions=include_descriptions)
+    assert all_crowdfunding_plans is not None
+    assert not all_crowdfunding_plans.empty
+    if include_descriptions:
+        for column in ['PlanName', 'Company', 'NationalID', 'Domain', 'Status', 'StartDate', 'EndDate', 'Description',
+                       'Platform', 'Operator', 'Institute', 'Description']:
+            assert column in all_crowdfunding_plans.columns
+    else:
+        for column in ['PlanName', 'Company', 'NationalID', 'Domain', 'Status', 'StartDate', 'EndDate', 'Description',
+                       'Platform', 'Operator', 'Institute']:
+            assert column in all_crowdfunding_plans.columns
+
+
+@pytest.mark.parametrize("ticker", ['گام051122', 'اخزا402', 'کیش05', 'کارون073'])
+def test_get_ticker_info(ticker: str):
+    ticker_info, ticker_payments = get_ticker_info(ticker=ticker)
+    assert ticker_info is not None
+    assert ticker_payments is not None
+    assert not ticker_info.empty
+    assert not ticker_payments.empty
+    for column in ['Section', 'Label', 'Value']:
+        assert column in ticker_info.columns
+    for column in ['PaymentDate', 'PaymentAmountPerUnit']:
+        assert column in ticker_payments.columns
+
+
+def test_get_all_standard_financing_instruments():
+    all_standard_financing_instruments = get_all_standard_financing_instruments()
+    assert all_standard_financing_instruments is not None
+    assert not all_standard_financing_instruments.empty
+    for column in ['Ticker', 'TickerID', 'DetailURL', 'IssueVolume', 'AcceptVolume', 'ParValue', 'CouponPercent',
+                   'IssueDate', 'MarketMaker', 'MarketMakingMethod', 'VolatilityRange']:
+        assert column in all_standard_financing_instruments.columns
+
+
+def test_get_all_special_financing_instruments():
+    all_special_financing_instruments = get_all_special_financing_instruments()
+    assert all_special_financing_instruments is not None
+    assert not all_special_financing_instruments.empty
+    for column in ['Ticker', 'TickerID', 'DetailURL', 'IssueVolume', 'AcceptVolume', 'ParValue', 'NominalCouponType',
+                   'IssueDate', 'MarketMaker', 'Description']:
+        assert column in all_special_financing_instruments.columns
+

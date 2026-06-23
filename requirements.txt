@@ -11,3 +11,4 @@ beautifulsoup4~=4.13.4
 webdriver-manager~=4.0.2
 persian~=0.5.0
 truststore
+urllib3
