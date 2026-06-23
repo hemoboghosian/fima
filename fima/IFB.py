@@ -255,7 +255,7 @@ def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
     return result
 
 
-def get_all_crowdfunding_plans(include_descriptions=True, max_workers=8) -> pd.DataFrame:
+def get_all_crowdfunding_plans(include_descriptions=True, _max_workers=8) -> pd.DataFrame:
     url = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx"
     show_desc = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx/showDesc"
     grid_unique_id = "ctl00$ContentPlaceHolder1$grdCrowdFundingData"
@@ -263,15 +263,11 @@ def get_all_crowdfunding_plans(include_descriptions=True, max_workers=8) -> pd.D
 
     base_headers = {"User-Agent": "Mozilla/5.0", "Referer": url}
     post_headers = {**base_headers, "Content-Type": "application/x-www-form-urlencoded"}
-    ajax_headers = {
-        **base_headers,
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": "https://ifb.ir",
-    }
+    ajax_headers = {**base_headers, "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "Content-Type": "application/json; charset=UTF-8", "X-Requested-With": "XMLHttpRequest",
+                    "Origin": "https://ifb.ir",}
 
-    request_session = _ifb_mount_adapter(requests.Session(), pool_size=max_workers + 2)
+    request_session = _ifb_mount_adapter(requests.Session(), pool_size=_max_workers + 2)
 
     def parse_rows(soup):
         table = soup.select_one(table_css)
@@ -294,31 +290,21 @@ def get_all_crowdfunding_plans(include_descriptions=True, max_workers=8) -> pd.D
             a_desc = tds[8].find("a")
             match = re.search(r"showDesc\('([^']+)'\)", a_desc.get("onclick", "")) if a_desc else None
 
-            output.append({
-                "Row": row_no,
-                "PlanName": _ifb_clean_text(tds[1].get_text(strip=True)),
-                "Company": _ifb_clean_text(tds[2].get_text(strip=True)),
-                "NationalID": _ifb_clean_text(tds[3].get_text(strip=True)),
-                "Domain": (_clean_domain(a_dom["href"]) if a_dom and a_dom.has_attr("href") else None),
-                "Status": _ifb_clean_text(tds[5].get_text(strip=True)),
-                "StartDate": _ifb_clean_text(tds[6].get_text(strip=True)),
-                "EndDate": _ifb_clean_text(tds[7].get_text(strip=True)),
-                "DescriptionID": match.group(1) if match else None,
-            })
+            output.append({"Row": row_no, "PlanName": _ifb_clean_text(tds[1].get_text(strip=True)),
+                           "Company": _ifb_clean_text(tds[2].get_text(strip=True)),
+                           "NationalID": _ifb_clean_text(tds[3].get_text(strip=True)),
+                           "Domain": (_clean_domain(a_dom["href"]) if a_dom and a_dom.has_attr("href") else None),
+                           "Status": _ifb_clean_text(tds[5].get_text(strip=True)),
+                           "StartDate": _ifb_clean_text(tds[6].get_text(strip=True)),
+                           "EndDate": _ifb_clean_text(tds[7].get_text(strip=True)),
+                           "DescriptionID": match.group(1) if match else None})
         return output
 
     response = request_session.get(url, headers=base_headers, timeout=30)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
-    soup = _ifb_set_page_size(
-        session=request_session,
-        url=url,
-        headers=post_headers,
-        soup=soup,
-        grid_name_part="grdCrowdFundingData",
-        requested=100,
-        timeout=30,
-    )
+    soup = _ifb_set_page_size(session=request_session, url=url, headers=post_headers, soup=soup,
+                              grid_name_part="grdCrowdFundingData", requested=100, timeout=30,)
 
     rows = []
     seen_pages = set()
@@ -387,7 +373,7 @@ def get_all_crowdfunding_plans(include_descriptions=True, max_workers=8) -> pd.D
 
         descriptions = {}
         if desc_ids:
-            workers = max(1, min(int(max_workers), len(desc_ids)))
+            workers = max(1, min(int(_max_workers), len(desc_ids)))
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 for desc_id, text in executor.map(fetch_desc, desc_ids):
                     descriptions[desc_id] = text
