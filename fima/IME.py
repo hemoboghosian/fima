@@ -1,8 +1,12 @@
-import requests
-import json
+import requests, json, time, threading
 import pandas as pd
 import jdatetime as jd
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+
+_IME_THREAD_LOCAL = threading.local()
 
 
 def _chunk_jalali_dates(start_s: str, end_s: str, chunk_size_days: int):
@@ -20,77 +24,184 @@ def _chunk_jalali_dates(start_s: str, end_s: str, chunk_size_days: int):
     return chunks
 
 
-def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 180) -> pd.DataFrame:
+def _date_key(date_value) -> int:
+    return int(str(date_value).replace('-', '').replace('/', ''))
 
-    if start_date is None or (int(start_date.replace('-', '')) < 13850101):
-        start_date = '1385-01-01'
-    if end_date is None:
-        end_date = str(jd.date.today())
 
-    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+def _parse_ime_jdate(value):
+    if pd.isna(value):
+        return None
+    value = str(value).strip().replace('/', '-')
+    if not value:
+        return None
+    parts = value[:10].split('-')
+    if len(parts) != 3:
+        return None
+    try:
+        return jd.date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except Exception:
         return None
 
-    main_category = 0
-    category = 0
-    sub_category = 0
-    producer = 0
+
+def _make_ime_retry_session(pool_size: int = 10, max_retries: int = 1, backoff_factor: float = 0.4) -> requests.Session:
+    session = requests.Session()
+    retry_kwargs = dict(
+        total=max_retries,
+        connect=max_retries,
+        read=max_retries,
+        status=max_retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=(408, 429, 500, 502, 503, 504),
+        raise_on_status=False,
+    )
+    try:
+        retry = Retry(allowed_methods=frozenset(['POST']), **retry_kwargs)
+    except TypeError:  # older urllib3 compatibility
+        retry = Retry(method_whitelist=frozenset(['POST']), **retry_kwargs)
+
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=pool_size, pool_maxsize=pool_size)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
 
 
-    url = "https://www.ime.co.ir/subsystems/ime/services/home/imedata.asmx/GetAmareMoamelatList"
+def _get_thread_ime_session(pool_size: int, max_retries: int) -> requests.Session:
+    # requests.Session is not shared across threads. Each worker thread gets one session.
+    session_key = f'ime_session_{pool_size}_{max_retries}'
+    session = getattr(_IME_THREAD_LOCAL, session_key, None)
+    if session is None:
+        session = _make_ime_retry_session(pool_size=pool_size, max_retries=max_retries)
+        setattr(_IME_THREAD_LOCAL, session_key, session)
+    return session
 
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/plain, */*; q=0.01",
-               "Content-Type": "application/json; charset=utf-8", "X-Requested-With": "XMLHttpRequest",
-               "Origin": "https://www.ime.co.ir", "Referer": "https://www.ime.co.ir/offer-stat.html",
-               "Connection": "keep-alive"}
 
-    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
+def _clean_ime_physical_records(records) -> pd.DataFrame:
+    if not records:
+        return pd.DataFrame()
 
-    all_data = []
-    for from_date, to_date in chunked_dates:
-        payload = {"Language": 8, "fari": False, "GregorianFromDate": from_date, "GregorianToDate": to_date,
-                   "MainCat": main_category, "Cat": category, "SubCat": sub_category, "Producer": producer}
+    all_data = pd.DataFrame.from_records(records)
+    if all_data.empty:
+        return pd.DataFrame()
 
-        try:
-            res = requests.post(url, headers=headers, json=payload)
-        except requests.exceptions.RequestException as e:
-            continue
+    ending_1_columns = [column for column in all_data.columns if str(column).endswith('1')]
+    ime_physical_drop_columns = ['taghazavoroudi', 'xTalarReportPK', 'bArzehRadifTarSarresid', 'arzehPk', 'Category']
+    all_data.drop(columns=ending_1_columns + ime_physical_drop_columns, errors='ignore', inplace=True)
 
-        if not res.ok or not res.text.strip().startswith("{"):
-            continue
-
-        try:
-            raw_json = res.json()["d"]
-            records = json.loads(raw_json)
-        except Exception as e:
-            continue
-
-        if not records:
-            continue
-
-        all_data.extend(records)
-
-    if all_data:
-        all_data = pd.DataFrame(all_data)
-
-        all_data.drop([column for column in all_data.columns if column.endswith('1')], inplace=True, axis=1)
-        all_data.drop(['taghazavoroudi', 'xTalarReportPK', 'bArzehRadifTarSarresid', 'arzehPk', 'Category'], axis=1,
-                      inplace=True)
-
-        all_data.columns = ['GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'MinPrice', 'ClosePrice', 'MaxPrice',
+    ime_physical_columns = ['GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'MinPrice', 'ClosePrice', 'MaxPrice',
                             'SupplyVolume', 'SupplyBasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice',
                             'ContractSize', 'TransactionValue', 'Date', 'DeliveryDate', 'Warehouse', 'Supplier',
                             'SettlementDate', 'Broker', 'SupplyType', 'BuyType', 'Currency', 'Unit', 'ExchangeHall',
                             'PacketType', 'Settlement']
 
-        all_data['Date'] = all_data['Date'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-    else:
-        all_data = pd.DataFrame()
+    if len(all_data.columns) != len(ime_physical_columns):
+        raise ValueError('IME physical trades schema changed. ' 
+                         f'Expected {len(ime_physical_columns)} columns after cleanup, got {len(all_data.columns)}. '
+                         f'Columns: {list(all_data.columns)}')
+
+    all_data.columns = ime_physical_columns
+    all_data['Date'] = all_data['Date'].map(_parse_ime_jdate)
+    all_data['DeliveryDate'] = all_data['DeliveryDate'].map(_parse_ime_jdate)
     return all_data
+
+
+def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 60,
+                                _max_workers: int = 6, _timeout=(10, 30), _max_retries: int = 1,
+                                _strict: bool = True, _verbose: bool = False) -> pd.DataFrame:
+    """
+    Faster and safer version of physical trades downloader.
+
+    Why this fixes the hang:
+    - every request has a timeout, so one bad IME response cannot block forever;
+    - chunks are fetched in parallel because this endpoint is stateless;
+    - retry/backoff handles temporary IME/network errors;
+    - chunk order is preserved before building the final DataFrame.
+
+    Useful tuning:
+    - If IME is unstable: set _chunk_size=60 and _max_workers=3.
+    - If your internet/server is stable: try _chunk_size=180 and _max_workers=6 or 8.
+    - If you want to fail instead of silently skipping bad chunks: set _strict=True.
+    """
+
+    if start_date is None or (_date_key(start_date) < 13850101):
+        start_date = '1385-01-01'
+    else:
+        start_date = str(start_date).replace('/', '-')
+
+    if end_date is None:
+        end_date = str(jd.date.today())
+    else:
+        end_date = str(end_date).replace('/', '-')
+
+    if _date_key(start_date) > _date_key(end_date):
+        return None
+
+    url = 'https://www.ime.co.ir/subsystems/ime/services/home/imedata.asmx/GetAmareMoamelatList'
+    headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain, */*; q=0.01',
+               'Content-Type': 'application/json; charset=utf-8', 'X-Requested-With': 'XMLHttpRequest',
+               'Origin': 'https://www.ime.co.ir', 'Referer': 'https://www.ime.co.ir/offer-stat.html',
+               'Connection': 'keep-alive',}
+
+    chunks = _chunk_jalali_dates(start_date, end_date, _chunk_size)
+    if not chunks:
+        return pd.DataFrame()
+
+    def fetch_one_chunk(index: int, from_date: str, to_date: str):
+        payload = {'Language': 8, 'fari': False, 'GregorianFromDate': from_date, 'GregorianToDate': to_date,
+                   'MainCat': 0, 'Cat': 0, 'SubCat': 0, 'Producer': 0,}
+
+        session = _get_thread_ime_session(pool_size=max(2, _max_workers), max_retries=_max_retries)
+        try:
+            response = session.post(url, headers=headers, json=payload, timeout=_timeout)
+            response.raise_for_status()
+
+            text = response.text.strip()
+            if not text.startswith('{'):
+                return index, [], f'Non-JSON response for {from_date} to {to_date}'
+
+            raw_json = response.json().get('d', '[]')
+            records = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+            if not isinstance(records, list):
+                return index, [], f'Unexpected JSON shape for {from_date} to {to_date}'
+
+            return index, records, None
+
+        except Exception as exc:
+            return index, [], f'{from_date} to {to_date}: {exc}'
+
+    max_workers = max(1, min(int(_max_workers), len(chunks)))
+    results_by_index = {}
+    failures = []
+
+    if max_workers == 1:
+        for index, (from_date, to_date) in enumerate(chunks):
+            chunk_index, records, error = fetch_one_chunk(index, from_date, to_date)
+            results_by_index[chunk_index] = records
+            if error:
+                failures.append(error)
+                if _verbose:
+                    print(f'❌ {error}')
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(fetch_one_chunk, index, from_date, to_date): (index, from_date, to_date)
+                for index, (from_date, to_date) in enumerate(chunks)
+            }
+            for future in as_completed(futures):
+                chunk_index, records, error = future.result()
+                results_by_index[chunk_index] = records
+                if error:
+                    failures.append(error)
+                    if _verbose:
+                        print(f'❌ {error}')
+
+    if failures and _strict:
+        raise RuntimeError('Some IME physical-trade chunks failed:\n' + '\n'.join(failures[:20]))
+
+    all_records = []
+    for index in range(len(chunks)):
+        all_records.extend(results_by_index.get(index, []))
+
+    return _clean_ime_physical_records(all_records)
 
 
 def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None, end_date: str = None,
@@ -216,29 +327,36 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
     return pd.DataFrame(all_rows)
 
 
-def get_all_physical_producer_products() -> pd.DataFrame:
-    all_ime_physical_trades = get_all_ime_physical_trades()
-    producer_products = (all_ime_physical_trades.groupby('ProducerName')
-                         ['GoodsName'].agg(lambda x: list(sorted(set(x)))).reset_index()
+def get_all_physical_producer_products(start_date: str = None, end_date: str = None,
+                                       all_ime_physical_trades: pd.DataFrame = None) -> pd.DataFrame:
+    if all_ime_physical_trades is None:
+        all_ime_physical_trades = get_all_ime_physical_trades(start_date=start_date, end_date=end_date)
+    if all_ime_physical_trades is None or all_ime_physical_trades.empty:
+        return pd.DataFrame(columns=['Producer', 'Products'])
+    producer_products = (all_ime_physical_trades.groupby('ProducerName')['GoodsName']
+                         .agg(lambda x: list(sorted(set(x.dropna())))).reset_index()
                          .rename(columns={'GoodsName': 'Products', 'ProducerName': 'Producer'}))
     return producer_products
 
 
-def get_producer_physical_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-    all_ime_physical_trades = get_all_ime_physical_trades()
-    if producer in all_ime_physical_trades['ProducerName'].unique():
-        producer_physical_trades = all_ime_physical_trades[all_ime_physical_trades['ProducerName'] == producer].copy()
-        if start_date is not None:
-            start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-            producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] >= start_date]
-        if end_date is not None:
-            end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-            producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] <= end_date]
-        producer_physical_trades.reset_index(inplace=True, drop=True)
-        return producer_physical_trades
-    else:
+def get_producer_physical_trades(producer: str, start_date: str = None, end_date: str = None,
+                                 all_ime_physical_trades: pd.DataFrame = None,) -> pd.DataFrame:
+    if all_ime_physical_trades is None:
+        all_ime_physical_trades = get_all_ime_physical_trades(start_date=start_date, end_date=end_date)
+    if all_ime_physical_trades is None or all_ime_physical_trades.empty:
+        return pd.DataFrame()
+    if producer not in all_ime_physical_trades['ProducerName'].unique():
         print(f'Producer name you entered ({producer}) is not in the list of producers.')
         return pd.DataFrame()
+    producer_physical_trades = all_ime_physical_trades[all_ime_physical_trades['ProducerName'] == producer].copy()
+    if start_date is not None:
+        start_jd = jd.date(year=int(str(start_date)[:4]), month=int(str(start_date)[5:7]), day=int(str(start_date)[8:10]))
+        producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] >= start_jd]
+    if end_date is not None:
+        end_jd = jd.date(year=int(str(end_date)[:4]), month=int(str(end_date)[5:7]), day=int(str(end_date)[8:10]))
+        producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] <= end_jd]
+    producer_physical_trades.reset_index(inplace=True, drop=True)
+    return producer_physical_trades
 
 
 def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40) -> pd.DataFrame:
@@ -493,3 +611,7 @@ def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, en
     all_data['DeliveryJDate'] = all_data['DeliveryGDate'].apply(lambda delivery_g_date: jd.date.fromgregorian(date=delivery_g_date))
     all_data.sort_values(by='JDate', inplace=True, ignore_index=True)
     return all_data
+
+
+# Test = get_all_ime_option_trades(option_type='All', only_active=False, start_date=None, end_date=None)
+# Test1 = get_all_ime_futures_trades(only_active=False, start_date='1405-03-23', end_date='')
