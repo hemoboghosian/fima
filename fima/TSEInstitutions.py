@@ -66,7 +66,7 @@ def _get_activity_types():
     return activity_types
 
 
-def get_all_institutions():
+def get_all_institutions() -> pd.DataFrame:
     url = "https://cfi.rbcapi.ir/institutes"
     params = {"offset": 0, "limit": 10000, "lng": "fa", "name": "", "city": "", "province": "", "instituteType": "",
               "instituteKind": "", "activityType": "", "licenseType": "", "status": ""}
