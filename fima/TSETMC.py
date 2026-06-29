@@ -118,6 +118,8 @@ def get_ticker_historical_shareholders(ticker: str, _max_workers: int = 10) -> p
     ticker_historical_shareholders.rename(columns={'shareHolderName': 'Name', 'dEven': 'GDate', 'numberOfShares': 'SharesNo',
                                                     'perOfShares': 'SharePercentage', 'shareHolderShareID': 'ShareHolderShareID'}, inplace=True)
 
+    ticker_historical_shareholders.drop(columns=['ShareHolderShareID'], inplace=True)
+
     ticker_historical_shareholders['Name'] = ticker_historical_shareholders['Name'].apply(convert_ar_characters)
 
     ticker_historical_shareholders['GDate'] = pd.to_datetime(ticker_historical_shareholders['GDate'].astype(str)).dt.date
