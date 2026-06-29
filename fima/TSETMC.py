@@ -447,6 +447,9 @@ def get_index_companies(index: str, thirty_days_history: bool=False) -> Tuple[pd
 
 
 def get_tickers(tse: bool, ifb: bool, details: bool = False) -> pd.DataFrame:
+    if not tse and not ifb:
+        print("At least one of ifb and tse must be True")
+        return pd.DataFrame()
     tickers = pd.DataFrame(columns=['InstrumentCode', 'Ticker', 'Name', 'Market'])
     if tse:
         url = "https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/32097828799138957"
