@@ -442,3 +442,40 @@ def get_index_companies(index: str, thirty_days_history: bool=False) -> Tuple[pd
     else:
         index_companies_past_30_days = pd.DataFrame()
     return index_companies, index_companies_past_30_days
+
+
+def get_tickers(tse: bool, ifb: bool) -> pd.DataFrame:
+    tickers = pd.DataFrame(columns=['InstrumentCode', 'Ticker', 'Name', 'Market'])
+    if tse:
+        url = "https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/32097828799138957"
+        tse_tickers = pd.DataFrame(requests.get(url).json()['indexCompany'])
+        tse_tickers.rename(columns={'insCode': 'InstrumentCode'}, inplace=True)
+        tse_tickers['Ticker'] = tse_tickers['instrument'].apply(lambda instrument: instrument['lVal18AFC'])
+        tse_tickers['Name'] = tse_tickers['instrument'].apply(lambda instrument: instrument['lVal30'])
+        tse_tickers = tse_tickers[['InstrumentCode', 'Ticker', 'Name']]
+        tse_tickers['Market'] = 'TSE'
+        tickers = pd.concat([tickers, tse_tickers], axis=0)
+    if ifb:
+        url = "https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/43685683301327984"
+        ifb_tickers = pd.DataFrame(requests.get(url).json()['indexCompany'])
+        ifb_tickers.rename(columns={'insCode': 'InstrumentCode'}, inplace=True)
+        ifb_tickers['Ticker'] = ifb_tickers['instrument'].apply(lambda instrument: instrument['lVal18AFC'])
+        ifb_tickers['Name'] = ifb_tickers['instrument'].apply(lambda instrument: instrument['lVal30'])
+        ifb_tickers = ifb_tickers[['InstrumentCode', 'Ticker', 'Name']]
+        ifb_tickers['Market'] = 'IFB'
+        tickers = pd.concat([tickers, ifb_tickers], axis=0)
+
+    tickers.set_index('Ticker', inplace=True)
+    tickers.loc[:, ['FiscalYear', 'Auditor', 'Website', 'Capital', 'ActivitySubject']] = None
+    for ticker in tickers.index:
+        try:
+            ticker_info = requests.get(f"https://cdn.tsetmc.com/api/Codal/GetCodalPublisherBySymbol/{ticker}").json()['codalPublisher']
+            tickers.loc[ticker, 'FiscalYear'] = ticker_info['financialYear']
+            tickers.loc[ticker, 'Auditor'] = ticker_info['auditorName']
+            tickers.loc[ticker, 'Website'] = ticker_info['website']
+            tickers.loc[ticker, 'Capital'] = ticker_info['listedCapital']
+            tickers.loc[ticker, 'ActivitySubject'] = ticker_info['activitySubject']
+        except:
+            print(f'There is no info related to {ticker}.')
+            continue
+    return tickers
