@@ -446,7 +446,7 @@ def get_index_companies(index: str, thirty_days_history: bool=False) -> Tuple[pd
     return index_companies, index_companies_past_30_days
 
 
-def get_tickers(tse: bool, ifb: bool) -> pd.DataFrame:
+def get_tickers(tse: bool, ifb: bool, details: bool = False) -> pd.DataFrame:
     tickers = pd.DataFrame(columns=['InstrumentCode', 'Ticker', 'Name', 'Market'])
     if tse:
         url = "https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/32097828799138957"
@@ -467,17 +467,18 @@ def get_tickers(tse: bool, ifb: bool) -> pd.DataFrame:
         ifb_tickers['Market'] = 'IFB'
         tickers = pd.concat([tickers, ifb_tickers], axis=0)
 
-    tickers.set_index('Ticker', inplace=True)
-    tickers.loc[:, ['FiscalYear', 'Auditor', 'Website', 'Capital', 'ActivitySubject']] = None
-    for ticker in tickers.index:
-        try:
-            ticker_info = requests.get(f"https://cdn.tsetmc.com/api/Codal/GetCodalPublisherBySymbol/{ticker}").json()['codalPublisher']
-            tickers.loc[ticker, 'FiscalYear'] = ticker_info['financialYear']
-            tickers.loc[ticker, 'Auditor'] = ticker_info['auditorName']
-            tickers.loc[ticker, 'Website'] = ticker_info['website']
-            tickers.loc[ticker, 'Capital'] = ticker_info['listedCapital']
-            tickers.loc[ticker, 'ActivitySubject'] = ticker_info['activitySubject']
-        except:
-            print(f'There is no info related to {ticker}.')
-            continue
+    if details:
+        tickers.set_index('Ticker', inplace=True)
+        tickers.loc[:, ['FiscalYear', 'Auditor', 'Website', 'Capital', 'ActivitySubject']] = None
+        for ticker in tickers.index:
+            try:
+                ticker_info = requests.get(f"https://cdn.tsetmc.com/api/Codal/GetCodalPublisherBySymbol/{ticker}").json()['codalPublisher']
+                tickers.loc[ticker, 'FiscalYear'] = ticker_info['financialYear']
+                tickers.loc[ticker, 'Auditor'] = ticker_info['auditorName']
+                tickers.loc[ticker, 'Website'] = ticker_info['website']
+                tickers.loc[ticker, 'Capital'] = ticker_info['listedCapital']
+                tickers.loc[ticker, 'ActivitySubject'] = ticker_info['activitySubject']
+            except:
+                print(f'There is no info related to {ticker}.')
+                continue
     return tickers
