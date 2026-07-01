@@ -45,15 +45,9 @@ def _parse_ime_jdate(value):
 
 def _make_ime_retry_session(pool_size: int = 10, max_retries: int = 1, backoff_factor: float = 0.4) -> requests.Session:
     session = requests.Session()
-    retry_kwargs = dict(
-        total=max_retries,
-        connect=max_retries,
-        read=max_retries,
-        status=max_retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=(408, 429, 500, 502, 503, 504),
-        raise_on_status=False,
-    )
+    retry_kwargs = dict(total=max_retries, connect=max_retries, read=max_retries, status=max_retries,
+                        backoff_factor=backoff_factor, status_forcelist=(408, 429, 500, 502, 503, 504),
+                        raise_on_status=False,)
     try:
         retry = Retry(allowed_methods=frozenset(['POST']), **retry_kwargs)
     except TypeError:  # older urllib3 compatibility
@@ -104,22 +98,16 @@ def _clean_ime_physical_records(records) -> pd.DataFrame:
     return all_data
 
 
-def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 60,
-                                _max_workers: int = 6, _timeout=(10, 30), _max_retries: int = 1,
-                                _strict: bool = True, _verbose: bool = False) -> pd.DataFrame:
+def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 30, _max_workers: int = 2,
+                                _timeout=(20, 120), _max_retries: int = 3, _strict: bool = True, _verbose: bool = False,
+                                _rescue_chunk_size: int = 7) -> pd.DataFrame:
     """
-    Faster and safer version of physical trades downloader.
+    Safer IME physical trades downloader.
 
-    Why this fixes the hang:
-    - every request has a timeout, so one bad IME response cannot block forever;
-    - chunks are fetched in parallel because this endpoint is stateless;
-    - retry/backoff handles temporary IME/network errors;
-    - chunk order is preserved before building the final DataFrame.
-
-    Useful tuning:
-    - If IME is unstable: set _chunk_size=60 and _max_workers=3.
-    - If your internet/server is stable: try _chunk_size=180 and _max_workers=6 or 8.
-    - If you want to fail instead of silently skipping bad chunks: set _strict=True.
+    Main idea:
+    - first downloads normal chunks;
+    - if some chunks fail, retries only failed chunks sequentially in smaller chunks;
+    - if _strict=True, it raises only if rescue also fails.
     """
 
     if start_date is None or (_date_key(start_date) < 13850101):
@@ -132,14 +120,19 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
     else:
         end_date = str(end_date).replace('/', '-')
 
+    today = str(jd.date.today())
+    if _date_key(end_date) > _date_key(today):
+        end_date = today
+
     if _date_key(start_date) > _date_key(end_date):
-        return None
+        return pd.DataFrame()
 
     url = 'https://www.ime.co.ir/subsystems/ime/services/home/imedata.asmx/GetAmareMoamelatList'
+
     headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain, */*; q=0.01',
                'Content-Type': 'application/json; charset=utf-8', 'X-Requested-With': 'XMLHttpRequest',
                'Origin': 'https://www.ime.co.ir', 'Referer': 'https://www.ime.co.ir/offer-stat.html',
-               'Connection': 'keep-alive',}
+               'Connection': 'keep-alive'}
 
     chunks = _chunk_jalali_dates(start_date, end_date, _chunk_size)
     if not chunks:
@@ -147,55 +140,93 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
 
     def fetch_one_chunk(index: int, from_date: str, to_date: str):
         payload = {'Language': 8, 'fari': False, 'GregorianFromDate': from_date, 'GregorianToDate': to_date,
-                   'MainCat': 0, 'Cat': 0, 'SubCat': 0, 'Producer': 0,}
+                   'MainCat': 0, 'Cat': 0, 'SubCat': 0, 'Producer': 0}
 
         session = _get_thread_ime_session(pool_size=max(2, _max_workers), max_retries=_max_retries)
+
         try:
             response = session.post(url, headers=headers, json=payload, timeout=_timeout)
             response.raise_for_status()
 
             text = response.text.strip()
             if not text.startswith('{'):
-                return index, [], f'Non-JSON response for {from_date} to {to_date}'
+                return index, [], f'Non-JSON response for {from_date} to {to_date}', from_date, to_date
 
             raw_json = response.json().get('d', '[]')
             records = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
-            if not isinstance(records, list):
-                return index, [], f'Unexpected JSON shape for {from_date} to {to_date}'
 
-            return index, records, None
+            if not isinstance(records, list):
+                return index, [], f'Unexpected JSON shape for {from_date} to {to_date}', from_date, to_date
+
+            return index, records, None, from_date, to_date
 
         except Exception as exc:
-            return index, [], f'{from_date} to {to_date}: {exc}'
+            return index, [], f'{from_date} to {to_date}: {exc}', from_date, to_date
 
     max_workers = max(1, min(int(_max_workers), len(chunks)))
+
     results_by_index = {}
-    failures = []
+    failed_chunks = []
 
     if max_workers == 1:
         for index, (from_date, to_date) in enumerate(chunks):
-            chunk_index, records, error = fetch_one_chunk(index, from_date, to_date)
+            chunk_index, records, error, f, t = fetch_one_chunk(index, from_date, to_date)
             results_by_index[chunk_index] = records
+
             if error:
-                failures.append(error)
+                failed_chunks.append((chunk_index, f, t, error))
                 if _verbose:
                     print(f'❌ {error}')
+            elif _verbose:
+                print(f'✅ {f} to {t}: {len(records)} rows')
+
+            time.sleep(0.3)
+
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(fetch_one_chunk, index, from_date, to_date): (index, from_date, to_date)
-                for index, (from_date, to_date) in enumerate(chunks)
-            }
+            futures = {executor.submit(fetch_one_chunk, index, from_date, to_date): (index, from_date, to_date)
+                       for index, (from_date, to_date) in enumerate(chunks)}
+
             for future in as_completed(futures):
-                chunk_index, records, error = future.result()
+                chunk_index, records, error, f, t = future.result()
                 results_by_index[chunk_index] = records
+
                 if error:
-                    failures.append(error)
+                    failed_chunks.append((chunk_index, f, t, error))
                     if _verbose:
                         print(f'❌ {error}')
+                elif _verbose:
+                    print(f'✅ {f} to {t}: {len(records)} rows')
 
-    if failures and _strict:
-        raise RuntimeError('Some IME physical-trade chunks failed:\n' + '\n'.join(failures[:20]))
+    final_failures = []
+
+    if failed_chunks:
+        if _verbose:
+            print(f'⚠️ Retrying {len(failed_chunks)} failed chunks with smaller {_rescue_chunk_size}-day chunks...')
+
+        for original_index, failed_from, failed_to, first_error in failed_chunks:
+            rescued_records = []
+            rescue_subchunks = _chunk_jalali_dates(failed_from, failed_to, _rescue_chunk_size)
+
+            for sub_index, (sub_from, sub_to) in enumerate(rescue_subchunks):
+                _, records, error, _, _ = fetch_one_chunk(original_index, sub_from, sub_to)
+
+                if error:
+                    final_failures.append(error)
+                    if _verbose:
+                        print(f'❌ Rescue failed: {error}')
+                else:
+                    rescued_records.extend(records)
+                    if _verbose:
+                        print(f'✅ Rescue succeeded: {sub_from} to {sub_to}: {len(records)} rows')
+
+                time.sleep(0.7)
+
+            results_by_index[original_index] = rescued_records
+
+    if final_failures and _strict:
+        raise RuntimeError('Some IME physical-trade chunks failed even after rescue retry:\n'
+                           + '\n'.join(final_failures[:30]))
 
     all_records = []
     for index in range(len(chunks)):
@@ -205,7 +236,7 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
 
 
 def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None, end_date: str = None,
-                               _chunk_size: int = 100, _offset: int = 0) -> pd.DataFrame:
+                               _chunk_size: int = 100, _offset: int = 0, _timeout=(10, 45)) -> pd.DataFrame:
 
     if only_active and start_date == str(jd.date.today()):
         start_date = str(jd.date.today() - jd.timedelta(days=1))
@@ -231,7 +262,7 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
         params = {"f": f, "t": t, "c": contract_filter, "lang": 8, "order": "asc"}
 
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
             response.raise_for_status()
             data = response.json()
             rows = data.get("rows", [])
@@ -261,7 +292,8 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
 
 
 def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = False, start_date: str = None,
-                               end_date: str = None, _chunk_size: int = 100, _offset: int = 0) -> pd.DataFrame:
+                               end_date: str = None, _chunk_size: int = 100, _offset: int = 0,
+                              _timeout=(10, 45)) -> pd.DataFrame:
 
     if only_active and start_date == str(jd.date.today()):
         start_date = str(jd.date.today() - jd.timedelta(days=1))
@@ -294,7 +326,7 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
         params = {"f": f, "t": t, "c": contract_filter, "ot": option_type_filter, "lang": 8, "order": "asc"}
 
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
             response.raise_for_status()
             data = response.json()
             rows = data.get("rows", [])
@@ -359,7 +391,8 @@ def get_producer_physical_trades(producer: str, start_date: str = None, end_date
     return producer_physical_trades
 
 
-def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40) -> pd.DataFrame:
+def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40,
+                               _timeout=(10, 45)) -> pd.DataFrame:
 
     if start_date is None or (int(start_date.replace('-', '')) < 13871201):
         start_date = '1387-12-01'
@@ -381,7 +414,7 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
         params = {"f": f, "t": t, "m": 0, "c": 0, "s": 0, "p": 0, "lang": 8, "order": "asc"}
 
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
             response.raise_for_status()
             data = response.json()
             rows = data.get("rows", [])
@@ -415,7 +448,8 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
     return pd.DataFrame(all_rows)
 
 
-def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30) -> pd.DataFrame:
+def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30,
+                               _timeout=(10, 45)) -> pd.DataFrame:
 
     if start_date is None or (int(start_date.replace('-', '')) < 13940301):
         start_date = '1394-03-01'
@@ -437,7 +471,7 @@ def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_s
         params = {"f": f, "t": t, "c": 1, "ot": 0, "lang": 8, "order": "asc"}
 
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
             response.raise_for_status()
             data = response.json()
             rows = data.get("rows", [])
@@ -492,7 +526,8 @@ def get_producer_export_trades(producer: str, start_date: str = None, end_date: 
         return pd.DataFrame()
 
 
-def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30) -> pd.DataFrame:
+def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30,
+                               _timeout=(10, 45)) -> pd.DataFrame:
 
     if start_date is None or (int(start_date.replace('-', '')) < 13930501):
         start_date = '1393-05-01'
@@ -514,7 +549,7 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
         params = {"f": f, "t": t, "c": 0, "ot": 0, "lang": 8, "order": "asc"}
 
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
             response.raise_for_status()
             data = response.json()
             rows = data.get("rows", [])
@@ -544,7 +579,8 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
     return pd.DataFrame(all_rows)
 
 
-def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, end_date: str = None,
+                                  _timeout=(10, 45)) -> pd.DataFrame:
 
     if start_date is None or (int(start_date.replace('-', '')) < 14011201):
         start_date = '1401-12-01'
@@ -582,7 +618,7 @@ def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, en
         payload = {"fromDate": from_date, "toDate": to_date, "pageNumber": page, "pageSize": page_size,
                    "marketId": market_id, "customFilter": contract_code}
 
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers, timeout=_timeout)
         if response.status_code != 200:
             raise Exception(f"Request failed on page {page}: {response.status_code}")
 
@@ -613,5 +649,5 @@ def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, en
     return all_data
 
 
-# Test = get_all_ime_option_trades(option_type='All', only_active=False, start_date=None, end_date=None)
-# Test1 = get_all_ime_futures_trades(only_active=False, start_date='1405-03-23', end_date='')
+Test = get_all_physical_producer_products()
+
