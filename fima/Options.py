@@ -57,7 +57,7 @@ def ticker_info(ticker: str) -> dict:
     ticker_info_df = pd.DataFrame(columns=['UATicker', 'StrikePrice', 'MaturityDate', 'DaysToMaturity', 'Type'], index=[0])
     ticker_instrument_code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
     ticker_info_url = f"https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/{ticker_instrument_code}"
-    instrument_code_info = requests.get(url=ticker_info_url, timeout=15).json()['instrumentInfo']
+    instrument_code_info = requests.get(url=ticker_info_url, timeout=30).json()['instrumentInfo']
     ticker_info_df.loc[0, 'UATicker'] = instrument_code_info['lVal30'].split('-')[0].split(' ')[1]
     ticker_info_df.loc[0, 'StrikePrice'] = int(instrument_code_info['lVal30'].split('-')[1])
     maturity_date = instrument_code_info['lVal30'].split('-')[2].split('/')
@@ -66,13 +66,13 @@ def ticker_info(ticker: str) -> dict:
     ticker_info_df.loc[0, 'Type'] = 'Call' if instrument_code_info['lVal30'].split('-')[0].split(' ')[0][-1] == 'خ' else 'Put'
 
     ticker_instrument_info_url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceInfo/{ticker_instrument_code}"
-    ticker_instrument_info = requests.get(ticker_instrument_info_url).json()['closingPriceInfo']
+    ticker_instrument_info = requests.get(ticker_instrument_info_url, timeout=30).json()['closingPriceInfo']
     ticker_info_df.loc[0, 'LastPrice'] = ticker_instrument_info['pDrCotVal']
 
     ua_ticker_instrument_code = _find_instrument_code(search_key=ticker_info_df.loc[0, 'UATicker'], trade_type='Ordinary')
     ua_ticker_instrument_info_url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceInfo/{ua_ticker_instrument_code}"
-    ua_ticker_instrument_info = requests.get(ua_ticker_instrument_info_url).json()['closingPriceInfo']
-    ticker_info_df.loc[0, 'UALastPrice'] = ua_ticker_instrument_info['pDrCotVal']
+    ua_ticker_instrument_info = requests.get(ua_ticker_instrument_info_url, timeout=30).json()['closingPriceInfo']
+    ticker_info_df.loc[0, 'LastPrice-UA'] = ua_ticker_instrument_info['pDrCotVal']
 
     return ticker_info_df
 
@@ -203,11 +203,11 @@ def get_greeks(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_win
         print("Zero volatility or expired option.")
         return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
 
-    delta = calculate_delta(s, k, t, sigma, r_f, option_type)
-    gamma = calculate_gamma(s, k, t, sigma, r_f)
-    theta = calculate_theta(s, k, t, sigma, r_f, option_type)
-    vega = calculate_vega(s, k, t, sigma, r_f)
-    rho = calculate_rho(s, k, t, sigma, r_f, option_type)
+    delta = calculate_delta(s=s, k=k, t=t, r_f=r_f, sigma=sigma, option_type=option_type)
+    gamma = calculate_gamma(s=s, k=k, t=t, r_f=r_f, sigma=sigma)
+    theta = calculate_theta(s=s, k=k, t=t, r_f=r_f, sigma=sigma, option_type=option_type)
+    vega = calculate_vega(s=s, k=k, t=t, r_f=r_f, sigma=sigma)
+    rho = calculate_rho(s=s, k=k, t=t, r_f=r_f, sigma=sigma, option_type=option_type)
 
     return pd.Series({'Delta': delta, 'Gamma': gamma, 'Theta': theta, 'Vega': vega, 'Rho': rho})
 
@@ -317,7 +317,7 @@ def download_historical_data(ticker: str, start_date: str = None, end_date: str 
     ticker_instrument_code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
     ticker_historical_data_url = f'https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{ticker_instrument_code}/0'
 
-    response = requests.get(ticker_historical_data_url)
+    response = requests.get(ticker_historical_data_url, timeout=30)
     response.raise_for_status()
 
     data = response.json()
@@ -338,10 +338,10 @@ def download_historical_data(ticker: str, start_date: str = None, end_date: str 
 
     # underlying asset
     ticker_info_url = f"https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/{ticker_instrument_code}"
-    underlying_asset_ticker = requests.get(url=ticker_info_url, timeout=15).json()['instrumentInfo']['lVal30'].split('-')[0].split(' ')[1]
+    underlying_asset_ticker = requests.get(url=ticker_info_url, timeout=30).json()['instrumentInfo']['lVal30'].split('-')[0].split(' ')[1]
     ua_instrument_code = _find_instrument_code(search_key=underlying_asset_ticker, trade_type='Ordinary')
     ua_ticker_historical_data_url = f'https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{ua_instrument_code}/0'
-    response = requests.get(url=ua_ticker_historical_data_url, timeout=15)
+    response = requests.get(url=ua_ticker_historical_data_url, timeout=30)
     response.raise_for_status()
     data = response.json()
     ua_ticker_historical_data = pd.json_normalize(data["closingPriceDaily"])
@@ -379,7 +379,7 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
                              implied_volatility: bool = False) -> pd.DataFrame:
     try:
         url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"
-        response = requests.get(url)
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
 
         data = response.json()
@@ -511,7 +511,7 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
         url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"
 
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
 
         data = response.json()

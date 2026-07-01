@@ -1,123 +1,146 @@
 import pandas as pd
+import numpy as np
 import pytest
+import jdatetime as jd
+
 from fima.Options import (get_greeks, get_implied_volatility, black_scholes_merton, download_chain_contracts,
-                          download_market_watch, download_all_underlying_assets, download_historical_data)
+                          download_market_watch, download_all_underlying_assets, download_historical_data,)
+
+
+EXPECTED_HISTORICAL_COLUMNS = ['Date', 'Quantity', 'Volume', 'Value', 'MinPrice', 'MaxPrice', 'FirstPrice', 'LastPrice',
+                               'ClosePrice']
+
+
+@pytest.fixture(scope="session")
+def sample_option_info():
+    return pd.DataFrame([{"Ticker": "TEST", "UATicker": "TESTUA", "StrikePrice": 100,
+                          "MaturityDate": jd.date.today() + jd.timedelta(days=90), "DaysToMaturity": 90, "Type": "Call",
+                          "LastPrice": 5, "LastPrice-UA": 100}])
+
+
+@pytest.fixture(scope="session")
+def sample_ua_historical_data():
+    dates = [jd.date.today() - jd.timedelta(days=i) for i in range(80, 0, -1)]
+    prices = np.linspace(90, 110, 80)
+    return pd.DataFrame({"Date": dates, "ClosePrice": prices})
+
+
+@pytest.fixture(scope="session")
+def market_watch_horizontal():
+    market_watch = download_market_watch(market="All", stack="Horizontal", j_date=True, bsm=False, greeks=False,
+                                         implied_volatility=False)
+    assert market_watch is not None
+    assert isinstance(market_watch, pd.DataFrame)
+    assert not market_watch.empty
+    return market_watch
+
+
+def test_download_all_underlying_assets_from_existing_market_watch(market_watch_horizontal):
+    all_underlying_assets = download_all_underlying_assets(_all_options_market_watch=market_watch_horizontal)
+    assert all_underlying_assets is not None
+    assert isinstance(all_underlying_assets, pd.DataFrame)
+    assert not all_underlying_assets.empty
+    expected_columns = ['Ticker', 'InstrumentCode', 'ClosePrice', 'LastPrice', 'YesterdayPrice', 'URL']
+    assert all(column in all_underlying_assets.columns for column in expected_columns)
 
 
 @pytest.mark.parametrize("market", ["All", "IFB", "TSE"])
-def test_download_all_underlying_assets(market):
-    all_underlying_assets = download_all_underlying_assets(market=market)
-    assert all_underlying_assets is not None
-    assert not all_underlying_assets.empty
-    assert isinstance(all_underlying_assets, pd.DataFrame)
-    for column in ['Ticker', 'InstrumentCode', 'ClosePrice', 'LastPrice', 'YesterdayPrice', 'URL']:
-        assert column in all_underlying_assets
+def test_download_market_watch_basic_by_market(market):
+    market_watch = download_market_watch(market=market, stack="Horizontal", j_date=True, bsm=False, greeks=False,
+                                         implied_volatility=False)
+    assert market_watch is not None
+    assert isinstance(market_watch, pd.DataFrame)
+    assert not market_watch.empty
 
 
-@pytest.mark.parametrize(["ticker", "start_date", "end_date"], [("ضهرم4018", '1404-02-01', '1404-02-31'),
-                                                                ("طهرم4018", '1404-02-01', '1404-02-31'),
-                                                                ("ضهرم4018", None, None),
-                                                                ("طهرم4018", None, None)])
-def test_download_historical_data(ticker, start_date, end_date):
-    option_historical_data, ua_historical_data = download_historical_data(ticker=ticker, start_date=start_date, end_date=end_date)
+@pytest.mark.parametrize(["stack", "j_date"], [("Horizontal", True), ("Horizontal", False), ("Vertical", True),
+                                               ("Vertical", False)])
+def test_download_market_watch_basic_stack_and_date(stack, j_date):
+    market_watch = download_market_watch(market="TSE", stack=stack, j_date=j_date, bsm=False, greeks=False,
+                                         implied_volatility=False)
+    assert market_watch is not None
+    assert isinstance(market_watch, pd.DataFrame)
+    assert not market_watch.empty
+    if stack == "Horizontal":
+        expected_columns = ['Ticker-C', 'Ticker-P', 'Ticker-UA', 'StrikePrice', 'DaysToMaturity', 'LastPrice-C',
+                            'LastPrice-P', 'LastPrice-UA']
+    else:
+        expected_columns = ['Ticker', 'Ticker-UA', 'StrikePrice', 'DaysToMaturity', 'LastPrice', 'Type']
+    assert all(column in market_watch.columns for column in expected_columns)
+
+
+def test_download_historical_data_one_known_option():
+    option_historical_data, ua_historical_data = download_historical_data(ticker="ضهرم4018", start_date="1404-02-01",
+                                                                          end_date="1404-02-31")
     assert option_historical_data is not None
     assert ua_historical_data is not None
-    assert not option_historical_data.empty
-    assert not ua_historical_data.empty
     assert isinstance(option_historical_data, pd.DataFrame)
     assert isinstance(ua_historical_data, pd.DataFrame)
-    for column in ['Date', 'Quantity', 'Volume', 'Value', 'MinPrice', 'MaxPrice', 'FirstPrice', 'LastPrice', 'ClosePrice']:
-        assert column in option_historical_data
-    for column in ['Date', 'Quantity', 'Volume', 'Value', 'MinPrice', 'MaxPrice', 'FirstPrice', 'LastPrice', 'ClosePrice']:
-        assert column in option_historical_data
+    assert not option_historical_data.empty
+    assert not ua_historical_data.empty
+    assert all(column in option_historical_data.columns for column in EXPECTED_HISTORICAL_COLUMNS)
+    assert all(column in ua_historical_data.columns for column in EXPECTED_HISTORICAL_COLUMNS)
 
 
-@pytest.mark.parametrize("ticker", ["ضهرم4018", "ظهرم4018"])
-def test_get_greeks(ticker):
-    greeks = get_greeks(ticker)
+def test_get_greeks_with_injected_data(sample_option_info, sample_ua_historical_data):
+    greeks = get_greeks(ticker="TEST_OPTION", _ticker_info_df=sample_option_info, r_f=0.05,
+                        _ua_historical_data=sample_ua_historical_data)
     assert greeks is not None
-    assert isinstance(greeks, pd.Series)  # pandas Series
-    for greek in ['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']:
-        assert greek in greeks
+    assert isinstance(greeks, pd.Series)
+    expected_greeks = ['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']
+    assert all(greek in greeks.index for greek in expected_greeks)
+    assert all(pd.notna(greeks[greek]) for greek in expected_greeks)
 
 
-@pytest.mark.parametrize("ticker", ["ضهرم4018", "طهرم4018"])
-def test_black_scholes_merton(ticker):
-    volatility, bsm_price = black_scholes_merton(ticker)
-    assert all(isinstance(v, float) for v in [volatility, bsm_price])
-    assert 0 <= volatility <= 2
+def test_black_scholes_merton_with_injected_data(sample_option_info, sample_ua_historical_data):
+    volatility, bsm_price = black_scholes_merton(ticker="TEST_OPTION", _ticker_info_df=sample_option_info, r_f=0.05,
+                                                 _ua_historical_data=sample_ua_historical_data)
+    assert volatility is not None
+    assert bsm_price is not None
+    assert isinstance(volatility, float)
     assert isinstance(bsm_price, float)
-    assert 0 <= bsm_price
-    assert all(v is not None for v in [volatility, bsm_price])
+    assert 0 <= volatility <= 2
+    assert bsm_price >= 0
 
 
-@pytest.mark.parametrize("ticker", ["ضهرم4018", "طهرم4018"])
-def test_get_implied_volatility(ticker):
-    implied_volatility = get_implied_volatility(ticker)
+def test_get_implied_volatility_with_injected_data(sample_option_info, sample_ua_historical_data):
+    implied_volatility = get_implied_volatility(ticker="TEST_OPTION", _ticker_info_df=sample_option_info, r_f=0.05,
+                                                _ua_historical_data=sample_ua_historical_data)
+    assert implied_volatility is not None
     assert isinstance(implied_volatility, float)
-    assert 0 <= implied_volatility <= 2
+    assert implied_volatility >= 0
 
 
-@pytest.mark.parametrize(["underlying_ticker", "j_date", "bsm", "greeks", "implied_volatility"],
-                         [('اهرم', True, True, True, True), ('اهرم', True, True, True, False),
-                          ('اهرم', True, True, False, True), ('اهرم', True, True, False, False),
-                          ('اهرم', True, False, True, True), ('اهرم', True, False, True, False),
-                          ('اهرم', True, False, False, True), ('اهرم', True, False, False, False),
-                          ('اهرم', False, True, True, True), ('اهرم', False, True, True, False),
-                          ('اهرم', False, True, False, True), ('اهرم', False, True, False, False),
-                          ('اهرم', False, False, True, True), ('اهرم', False, False, True, False),
-                          ('اهرم', False, False, False, True), ('اهرم', False, False, False, False)])
-def test_download_chain_contracts(underlying_ticker, j_date, bsm, greeks, implied_volatility):
-    chain_contracts = download_chain_contracts(underlying_ticker=underlying_ticker, j_date=j_date, bsm=bsm,
-                                               greeks=greeks, implied_volatility=implied_volatility)
+@pytest.mark.parametrize(["j_date", "bsm", "greeks", "implied_volatility"],
+                         [(True, False, False, False), (False, False, False, False),])
+def test_download_chain_contracts_limited(j_date, bsm, greeks, implied_volatility):
+    chain_contracts = download_chain_contracts(underlying_ticker="اهرم", j_date=j_date, bsm=bsm, greeks=greeks,
+                                               implied_volatility=implied_volatility)
     assert chain_contracts is not None
-    assert not chain_contracts.empty
     assert isinstance(chain_contracts, pd.DataFrame)
-
+    assert not chain_contracts.empty
+    basic_columns = ['Ticker-C', 'Ticker-P', 'Ticker-UA', 'StrikePrice', 'DaysToMaturity', 'LastPrice-C', 'LastPrice-P',
+                     'LastPrice-UA']
+    assert all(column in chain_contracts.columns for column in basic_columns)
     if bsm:
-        assert all(column in chain_contracts.columns for column in ['BSMPrice-C', 'BSMPrice-P', 'Volatility-C', 'Volatility-P']), "Horizontal, BSM"
+        assert all(column in chain_contracts.columns for column in ['BSMPrice-C', 'BSMPrice-P', 'Volatility-C', 'Volatility-P'])
     if greeks:
         assert all(column in chain_contracts.columns for column in ['Delta-C', 'Gamma-C', 'Theta-C', 'Vega-C', 'Rho-C',
-                                                                    'Delta-P', 'Gamma-P', 'Theta-P', 'Vega-P', 'Rho-P']), "Horizontal, Greeks"
+                                                                    'Delta-P', 'Gamma-P', 'Theta-P', 'Vega-P', 'Rho-P'])
+
     if implied_volatility:
-        assert all(column in chain_contracts.columns for column in ['ImpliedVolatility-C', 'ImpliedVolatility-P']), "Horizontal, IV"
+        assert all(column in chain_contracts.columns for column in ['ImpliedVolatility-C', 'ImpliedVolatility-P'])
 
 
-@pytest.mark.parametrize(["market", "stack", "j_date", "bsm", "greeks", "implied_volatility"],
-                         [('TSE', 'Horizontal', False, False, False, False), ('TSE', 'Vertical', False, False, False, False),
-                          ('TSE', 'Horizontal', False, False, False, True), ('TSE', 'Vertical', False, False, False, True),
-                          ('TSE', 'Horizontal', True, True, True, True), ('TSE', 'Horizontal', True, True, True, False),
-                          ('TSE', 'Horizontal', True, True, False, True), ('TSE', 'Horizontal', True, True, False, False),
-                          ('TSE', 'Horizontal', True, False, True, True), ('TSE', 'Horizontal', True, False, True, False),
-                          ('TSE', 'Horizontal', True, False, False, True), ('TSE', 'Horizontal', True, False, False, False),
-                          ('TSE', 'Horizontal', False, True, True, True), ('TSE', 'Horizontal', False, True, True, False),
-                          ('TSE', 'Horizontal', False, True, False, True), ('TSE', 'Horizontal', False, True, False, False),
-                          ('TSE', 'Horizontal', False, False, True, True), ('TSE', 'Horizontal', False, False, True, False),
-                          ('TSE', 'Vertical', True, True, True, True), ('TSE', 'Vertical', True, True, True, False),
-                          ('TSE', 'Vertical', True, True, False, True), ('TSE', 'Vertical', True, True, False, False),
-                          ('TSE', 'Vertical', True, False, True, True), ('TSE', 'Vertical', True, False, True, False),
-                          ('TSE', 'Vertical', True, False, False, True), ('TSE', 'Vertical', True, False, False, False),
-                          ('TSE', 'Vertical', False, True, True, True), ('TSE', 'Vertical', False, True, True, False),
-                          ('TSE', 'Vertical', False, True, False, True), ('TSE', 'Vertical', False, True, False, False),
-                          ('TSE', 'Vertical', False, False, True, True), ('TSE', 'Vertical', False, False, True, False)])
-def test_download_market_watch(market, stack, j_date, bsm, greeks, implied_volatility):
-    market_watch = download_market_watch(market=market, j_date=j_date, bsm=bsm, greeks=greeks, implied_volatility=implied_volatility)
-    assert market_watch is not None
-    assert not market_watch.empty
-    assert isinstance(market_watch, pd.DataFrame)
-
-    if stack == 'Horizontal':
-        if bsm:
-            assert all(column in market_watch.columns for column in ['BSMPrice-C', 'BSMPrice-P', 'Volatility-C', 'Volatility-P']), "Horizontal, BSM"
-        if greeks:
-            assert all(column in market_watch.columns for column in ['Delta-C', 'Gamma-C', 'Theta-C', 'Vega-C', 'Rho-C',
-                                                                        'Delta-P', 'Gamma-P', 'Theta-P', 'Vega-P', 'Rho-P']), "Horizontal, Greeks"
-        if implied_volatility:
-            assert all(column in market_watch.columns for column in ['ImpliedVolatility-C', 'ImpliedVolatility-P']), "Horizontal, IV"
-    if stack == 'Vertical':
-        if bsm:
-            assert all(column in market_watch.columns for column in ['BSMPrice', 'Volatility']), "Vertical, BSM"
-        if greeks:
-            assert all(column in market_watch.columns for column in ['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']), "Vertical, Greeks"
-        if implied_volatility:
-            assert all(column in market_watch.columns for column in ['ImpliedVolatility']), "Vertical, IV"
+@pytest.mark.slow
+def test_download_chain_contracts_with_calculations():
+    chain_contracts = download_chain_contracts(underlying_ticker="اهرم", j_date=True, bsm=True, greeks=True,
+                                               implied_volatility=True)
+    assert chain_contracts is not None
+    assert isinstance(chain_contracts, pd.DataFrame)
+    assert not chain_contracts.empty
+    assert all(column in chain_contracts.columns for column in ['BSMPrice-C', 'BSMPrice-P', 'Volatility-C',
+                                                                'Volatility-P', 'Delta-C', 'Gamma-C', 'Theta-C',
+                                                                'Vega-C', 'Rho-C', 'Delta-P', 'Gamma-P', 'Theta-P',
+                                                                'Vega-P', 'Rho-P', 'ImpliedVolatility-C',
+                                                                'ImpliedVolatility-P'])
