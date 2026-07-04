@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from persian import convert_ar_characters
 from concurrent.futures import ThreadPoolExecutor
-from typing import Tuple, List, Literal
+from typing import Tuple
 import time
 
 
@@ -270,7 +270,7 @@ def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=Non
         return None
 
 
-def _find_instrument_code(search_key: str, trade_type: List[Literal['Ordinary', 'Block', 'Jobrani', 'Omde']] = 'Ordinary') -> str:
+def _find_instrument_code(search_key: str, trade_type: str = 'Ordinary') -> str:
     search_key = convert_ar_characters(search_key)
     search_result = pd.DataFrame(requests.get(f'http://cdn.tsetmc.com/api/Instrument/GetInstrumentSearch/{search_key}').json()['instrumentSearch'])
     search_result['lVal18AFC'] = search_result['lVal18AFC'].apply(convert_ar_characters)
@@ -348,7 +348,7 @@ def get_ticker_intraday_trades(ticker: str) -> pd.DataFrame:
 def _get_instrument_codes_tree_map() -> pd.DataFrame:
     sector = 0
     size = 20000
-    based_on: str = 1
+    based_on = 1
 
     url = ("https://cdn.tsetmc.com/api/ClosingPrice/GetMarketMap?"
            "market=AllAll-TseAll-OtcAll-TseDebt-TseEtf-TseDerivative-TseStock-OtcDebt-OtcEtf-OtcBase-OtcDerivative-OtcStock-&"
