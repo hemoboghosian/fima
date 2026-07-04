@@ -53,7 +53,7 @@ def calculate_rho(s, k, t, r_f, sigma, option_type) -> float:
     return None
 
 
-def ticker_info(ticker: str) -> dict:
+def ticker_info(ticker: str) -> pd.DataFrame:
     ticker_info_df = pd.DataFrame(columns=['UATicker', 'StrikePrice', 'MaturityDate', 'DaysToMaturity', 'Type'], index=[0])
     ticker_instrument_code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
     ticker_info_url = f"https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/{ticker_instrument_code}"
@@ -375,7 +375,7 @@ def download_historical_data(ticker: str, start_date: str = None, end_date: str 
     return ticker_historical_data, ua_ticker_historical_data
 
 
-def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bool = False, greeks: bool = False,
+def download_chain_contracts(underlying_ticker: str, j_date: bool = True, bsm: bool = False, greeks: bool = False,
                              implied_volatility: bool = False) -> pd.DataFrame:
     try:
         url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"
