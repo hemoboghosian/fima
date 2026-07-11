@@ -1,0 +1,157 @@
+name: Publish fima to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test and build release artifacts
+    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Verify tag, version, and release branch
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+              raise SystemExit(f"Invalid release tag: {tag!r}. Expected vMAJOR.MINOR.PATCH.")
+
+          pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+          project_section = re.search(r"(?ms)^\[project\]\s*(.*?)(?=^\[|\Z)", pyproject)
+          if project_section is None:
+              raise SystemExit("[project] section not found in pyproject.toml")
+          version_match = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_section.group(1))
+          if version_match is None:
+              raise SystemExit("project.version not found in pyproject.toml")
+          version = version_match.group(1)
+          expected_tag = f"v{version}"
+          if tag != expected_tag:
+              raise SystemExit(f"Tag {tag!r} does not match pyproject version {version!r}.")
+          PY
+          git fetch origin master
+          git merge-base --is-ancestor HEAD origin/master
+
+      - name: Install test and build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable ".[test]" build twine
+
+      - name: Run release-gating tests
+        run: python -m pytest -m "not integration" --strict-markers
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Validate package metadata
+        run: python -m twine check --strict dist/*
+
+      - name: Verify private modules are absent from artifacts
+        run: |
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import tarfile
+          import zipfile
+
+          forbidden_names = {"Funds.py", "Codal.py"}
+          forbidden_parts = {"unreleased"}
+
+          for archive in sorted(Path("dist").iterdir()):
+              if archive.suffix == ".whl":
+                  with zipfile.ZipFile(archive) as package:
+                      names = package.namelist()
+              elif archive.name.endswith(".tar.gz"):
+                  with tarfile.open(archive, "r:gz") as package:
+                      names = package.getnames()
+              else:
+                  continue
+
+              bad = []
+              for name in names:
+                  path = PurePosixPath(name)
+                  if path.name in forbidden_names or forbidden_parts.intersection(path.parts):
+                      bad.append(name)
+
+              if bad:
+                  raise SystemExit(f"Private files found in {archive.name}: {bad}")
+
+              print(f"Verified {archive.name}: no private modules found")
+          PY
+
+      - name: Install and smoke-test the built wheel
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python -m venv .artifact-venv
+          .artifact-venv/bin/python -m pip install --upgrade pip
+          .artifact-venv/bin/python -m pip install dist/*.whl
+          .artifact-venv/bin/python - <<'PY'
+          import os
+          from importlib.metadata import version
+          from fima.IFB import get_risk_free_rate
+          from fima.IME import get_all_ime_physical_trades
+          from fima.Options import ticker_info
+          from fima.TSEInstitutions import get_all_institutions
+          from fima.TSETMC import get_tickers
+
+          installed_version = version("fima")
+          expected_version = os.environ["RELEASE_TAG"].removeprefix("v")
+          assert installed_version == expected_version
+          print("Installed version:", installed_version)
+          print("Public import smoke test passed")
+          PY
+
+      - name: Store verified distribution artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish verified artifacts to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/fima
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download verified distribution artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish distribution artifacts to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

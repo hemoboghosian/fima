@@ -2,6 +2,8 @@ import pytest
 from fima.TSEInstitutions import get_all_institutions
 
 
+pytestmark = pytest.mark.integration
+
 def test_get_all_institutions():
     all_institutions = get_all_institutions()
     assert all_institutions is not None

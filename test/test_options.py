@@ -35,6 +35,7 @@ def market_watch_horizontal():
     return market_watch
 
 
+@pytest.mark.integration
 def test_download_all_underlying_assets_from_existing_market_watch(market_watch_horizontal):
     all_underlying_assets = download_all_underlying_assets(_all_options_market_watch=market_watch_horizontal)
     assert all_underlying_assets is not None
@@ -45,6 +46,7 @@ def test_download_all_underlying_assets_from_existing_market_watch(market_watch_
 
 
 @pytest.mark.parametrize("market", ["All", "IFB", "TSE"])
+@pytest.mark.integration
 def test_download_market_watch_basic_by_market(market):
     market_watch = download_market_watch(market=market, stack="Horizontal", j_date=True, bsm=False, greeks=False,
                                          implied_volatility=False)
@@ -55,6 +57,7 @@ def test_download_market_watch_basic_by_market(market):
 
 @pytest.mark.parametrize(["stack", "j_date"], [("Horizontal", True), ("Horizontal", False), ("Vertical", True),
                                                ("Vertical", False)])
+@pytest.mark.integration
 def test_download_market_watch_basic_stack_and_date(stack, j_date):
     market_watch = download_market_watch(market="TSE", stack=stack, j_date=j_date, bsm=False, greeks=False,
                                          implied_volatility=False)
@@ -69,6 +72,7 @@ def test_download_market_watch_basic_stack_and_date(stack, j_date):
     assert all(column in market_watch.columns for column in expected_columns)
 
 
+@pytest.mark.integration
 def test_download_historical_data_one_known_option():
     option_historical_data, ua_historical_data = download_historical_data(ticker="ضهرم4018", start_date="1404-02-01",
                                                                           end_date="1404-02-31")
@@ -113,6 +117,7 @@ def test_get_implied_volatility_with_injected_data(sample_option_info, sample_ua
 
 @pytest.mark.parametrize(["j_date", "bsm", "greeks", "implied_volatility"],
                          [(True, False, False, False), (False, False, False, False),])
+@pytest.mark.integration
 def test_download_chain_contracts_limited(j_date, bsm, greeks, implied_volatility):
     chain_contracts = download_chain_contracts(underlying_ticker="اهرم", j_date=j_date, bsm=bsm, greeks=greeks,
                                                implied_volatility=implied_volatility)
@@ -132,6 +137,7 @@ def test_download_chain_contracts_limited(j_date, bsm, greeks, implied_volatilit
         assert all(column in chain_contracts.columns for column in ['ImpliedVolatility-C', 'ImpliedVolatility-P'])
 
 
+@pytest.mark.integration
 @pytest.mark.slow
 def test_download_chain_contracts_with_calculations():
     chain_contracts = download_chain_contracts(underlying_ticker="اهرم", j_date=True, bsm=True, greeks=True,

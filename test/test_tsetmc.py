@@ -5,6 +5,8 @@ from fima.TSETMC import (get_share_changes, get_price_adjustments, get_supervisi
                          get_index_companies, get_tickers)
 
 
+pytestmark = pytest.mark.integration
+
 def test_get_share_changes():
     share_changes = get_share_changes()
     assert share_changes is not None

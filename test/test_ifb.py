@@ -6,6 +6,8 @@ from fima.IFB import (get_risk_free_rate, get_all_bonds_without_coupons, get_all
                       get_all_crowdfunding_plans, get_ticker_info, get_all_standard_financing_instruments, get_all_special_financing_instruments)
 
 
+pytestmark = pytest.mark.integration
+
 def test_get_risk_free_rate_range():
     risk_free_rate = get_risk_free_rate()
     assert isinstance(risk_free_rate, float)

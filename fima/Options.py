@@ -375,7 +375,7 @@ def download_historical_data(ticker: str, start_date: str = None, end_date: str 
     return ticker_historical_data, ua_ticker_historical_data
 
 
-def download_chain_contracts(underlying_ticker: str, j_date: bool = True, bsm: bool = False, greeks: bool = False,
+def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bool = False, greeks: bool = False,
                              implied_volatility: bool = False) -> pd.DataFrame:
     try:
         url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"

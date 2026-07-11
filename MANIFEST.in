@@ -1,0 +1,13 @@
+include README.md
+include LICENSE
+
+prune unreleased
+prune test
+prune tests
+prune build
+prune dist
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .pytest_cache
+global-exclude *.egg-info
