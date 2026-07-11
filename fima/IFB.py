@@ -429,7 +429,7 @@ def get_all_bonds_without_coupons(deprecated: bool = True) -> pd.DataFrame:
     df_list = pd.read_html(StringIO(str(table)))
     bonds_without_coupons = df_list[0]
 
-    if ~deprecated:
+    if not deprecated:
         bonds_without_coupons = bonds_without_coupons[bonds_without_coupons['YTM'] != 'سررسید شده'].copy()
 
     bonds_without_coupons.columns = ['Index', 'Ticker', 'LastTradedPrice', 'LastTradedDate', 'MaturityDate', 'YTM', 'SimpleReturn']
@@ -444,10 +444,11 @@ def get_all_bonds_without_coupons(deprecated: bool = True) -> pd.DataFrame:
                                                                                month=int(str_date[5:7]),
                                                                                day=int(str_date[8:])))
 
-    bonds_without_coupons['YTM'] = \
-        bonds_without_coupons['YTM'].apply(lambda str_ytm: float(str_ytm.replace('/', '.').replace('%', '')) / 100)
+    bonds_without_coupons['YTM'] = bonds_without_coupons['YTM'].apply(
+        lambda str_ytm: float(str_ytm.replace('/', '.').replace('%', '')) / 100 if str_ytm != 'سررسید شده' else None)
     bonds_without_coupons['SimpleReturn'] = \
-        bonds_without_coupons['SimpleReturn'].apply(lambda str_ytm: float(str_ytm.replace('/', '.').replace('%', '')) / 100)
+        bonds_without_coupons['SimpleReturn'].apply(
+            lambda str_ytm: float(str_ytm.replace('/', '.').replace('%', '')) / 100 if str_ytm != 'سررسید شده' else None)
 
     bonds_without_coupons.drop('Index', inplace=True, axis=1)
     bonds_without_coupons.reset_index(inplace=True, drop=True)
@@ -475,7 +476,7 @@ def get_all_bonds_with_coupons(deprecated: bool = True) -> pd.DataFrame:
     df_list = pd.read_html(StringIO(str(table)))
     bonds_with_coupons = df_list[0]
 
-    if ~deprecated:
+    if not deprecated:
         bonds_with_coupons = bonds_with_coupons[bonds_with_coupons['YTM'] != 'سررسید شده'].copy()
 
     bonds_with_coupons.columns = ['Index', 'Ticker', 'LastTradedPrice', 'LastTradedDate', 'MaturityDate', 'YTM']

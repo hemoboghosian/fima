@@ -7,6 +7,8 @@ from fima.IME import (get_all_ime_physical_trades, get_all_ime_futures_trades, g
                       get_all_ime_salaf_trades, get_gold_and_silver_cd_trades)
 
 
+pytestmark = pytest.mark.integration
+
 TODAY = jd.date.today()
 TODAY_STR = str(TODAY)
 PHYSICAL_SAFE_KWARGS = {"_chunk_size": 14, "_max_workers": 1, "_timeout": (20, 120), "_max_retries": 3, "_strict": True,
@@ -89,9 +91,14 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
                           ("Put", False, '1404-01-01', '1404-02-01'),
                           ("All", True, str(jd.date.today() - jd.timedelta(days=30)), str(jd.date.today()))])
 def test_get_all_ime_option_trades(option_type, only_active, start_date, end_date):
-    all_ime_option_trades = get_all_ime_option_trades(option_type=option_type, only_active=only_active,
-                                                      start_date=start_date, end_date=end_date, _chunk_size=30,
-                                                      _timeout=(10, 45))
+    all_ime_option_trades = get_all_ime_option_trades(
+        option_type=option_type,
+        only_active=only_active,
+        start_date=start_date,
+        end_date=end_date,
+        _chunk_size=30,
+        _timeout=(10, 45)
+    )
 
     assert isinstance(all_ime_option_trades, pd.DataFrame)
     assert all_ime_option_trades is not None
@@ -101,20 +108,28 @@ def test_get_all_ime_option_trades(option_type, only_active, start_date, end_dat
 
     assert not all_ime_option_trades.empty
 
-    expected_columns = ['ID', 'ContractID', 'ContractCode', 'ContractDescription', 'IsActive', 'TradesVolume',
-                        'TradesValue', 'MaxPrice', 'MinPrice', 'LastPrice', 'FirstPrice', 'OpenInterest',
-                        'ChangeOpenInterest', 'ActiveCustomers', 'ActiveBrokers', 'CBuy', 'CSell',
-                        'InstitutionalBuyVolume', 'InstitutionalBuyValue', 'InstitutionalSellVolume',
-                        'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue', 'RetailSellVolume',
-                        'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice', 'SettlementPricePercent',
-                        'Date', 'GDate', 'DeliveryDate', 'CreateDateTime']
+    expected_columns = [
+        'ID', 'ContractID', 'ContractCode', 'ContractDescription', 'IsActive',
+        'TradesVolume', 'TradesValue', 'MaxPrice', 'MinPrice', 'LastPrice',
+        'FirstPrice', 'OpenInterest', 'ChangeOpenInterest', 'ActiveCustomers',
+        'ActiveBrokers', 'CBuy', 'CSell', 'InstitutionalBuyVolume',
+        'InstitutionalBuyValue', 'InstitutionalSellVolume',
+        'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue',
+        'RetailSellVolume', 'RetailSellValue', 'LastSettlementPrice',
+        'TodaySettlementPrice', 'SettlementPricePercent', 'Date', 'GDate',
+        'DeliveryDate', 'CreateDateTime'
+    ]
 
     assert all(column in all_ime_option_trades.columns for column in expected_columns)
 
     start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
     end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
 
-    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_option_trades['Date'] if pd.notna(date_column))
+    assert all(
+        start_jd <= date_column <= end_jd
+        for date_column in all_ime_option_trades['Date']
+        if pd.notna(date_column)
+    )
 
 
 @pytest.mark.parametrize(["producer", "start_date", "end_date"],
@@ -233,16 +248,16 @@ def test_get_all_ime_salaf_trades(start_date, end_date):
 
 
 @pytest.mark.parametrize(["contract_type", "start_date", "end_date"],
-                         [('gold_bar_cd', '1404-01-01', '1404-01-31'),
-                          ('silver_bar_cd', '1404-01-01', '1404-01-31'),
-                          ('gold_coin_cd', '1404-01-01', '1404-01-31')])
+                         [('gold_bar_cd', '1403-01-01', '1403-01-31'),
+                          ('silver_bar_cd', '1403-01-01', '1403-01-31'),
+                          ('gold_coin_cd', '1403-01-01', '1403-01-31')])
 def test_get_gold_and_silver_cd_trades(contract_type, start_date, end_date):
     gold_and_silver_cd_trades = get_gold_and_silver_cd_trades(contract_type, start_date, end_date)
     assert gold_and_silver_cd_trades is not None
     assert not gold_and_silver_cd_trades.empty
     assert isinstance(gold_and_silver_cd_trades, pd.DataFrame)
     assert all(column in gold_and_silver_cd_trades.columns for column in
-               ['CommodityID', 'ContractCode', 'ContractDescription', 'TradesVolume', 'TradesValue', 'MaxPrice',
+               ['ContractID', 'ContractCode', 'ContractDescription', 'TradesVolume', 'TradesValue', 'MaxPrice',
                 'MinPrice', 'LastPrice', 'FirstPrice', 'OpenInterest', 'OpenInterestChange', 'ActiveCustomers',
                 'ActiveBrokers', 'CBuy', 'CSell', 'InstitutionalBuyVolume', 'InstitutionalBuyValue',
                 'InstitutionalSellVolume', 'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue',

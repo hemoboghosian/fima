@@ -510,7 +510,7 @@ def get_all_export_producer_products() -> pd.DataFrame:
 
 
 def get_producer_export_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-    all_ime_export_trades = get_all_ime_export_trades()
+    all_ime_export_trades = get_all_ime_export_trades(start_date=start_date, end_date=end_date)
     if producer in all_ime_export_trades['ProducerName'].unique():
         producer_export_trades = all_ime_export_trades[all_ime_export_trades['ProducerName'] == producer].copy()
         if start_date is not None:
@@ -580,161 +580,70 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
 
 
 def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, end_date: str = None,
-                                  _timeout=(20, 120)) -> pd.DataFrame:
+                                  _timeout=(10, 45)) -> pd.DataFrame:
 
     if start_date is None or (int(start_date.replace('-', '')) < 14011201):
         start_date = '1401-12-01'
-
     if end_date is None:
         end_date = str(jd.date.today())
 
     if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
-        return pd.DataFrame()
+        return None
 
-    contract_info = \
-        {
-            'gold_bar_cd':
-                {
-                    'contract_code': 'CD1GOB0001',
-                    'commodity_id': 2,
-                    'origin': 'https://gold.ime.co.ir'
-                },
-            'gold_coin_cd':
-                {
-                    'contract_code': 'CD1GOC0001',
-                    'commodity_id': 4,
-                    'origin': 'https://gold.ime.co.ir'
-                },
-            'silver_bar_cd':
-                {
-                    'contract_code': 'CD1SIB0001',
-                    'commodity_id': 21,
-                    'origin': 'https://silver.ime.co.ir'
-                }
-        }
-
-    if contract_type not in contract_info:
-        raise ValueError("contract_type must be one of: gold_bar_cd, gold_coin_cd, silver_bar_cd")
-
-    contract_code = contract_info[contract_type]['contract_code']
-    commodity_id = contract_info[contract_type]['commodity_id']
-    origin = contract_info[contract_type]['origin']
+    market_id = 22
+    page_size = 100
+    contract_codes = {'gold_coin_cd': 'CD1GOC0001',  # گواهی سپرده پیوسته تمام سکه بهار آزادی طرح جدید
+                      'gold_bar_cd': 'CD1GOB0001',   # گواهی سپرده پیوسته شمش طلای +995
+                      'silver_bar_cd': 'CD1SIB0001'  # گواهی سپرده پیوسته شمش نقره 999.9
+                      }
+    contract_code = contract_codes[contract_type]
 
     from_date = str(jd.date.togregorian(jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))))
-
     to_date = str(jd.date.togregorian(jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))))
 
-    url = "https://dataapi.ime.co.ir/api/CDC/CDCTrades"
+    if 'gold' in contract_type:
+        url = "https://dataapi.ime.co.ir/api/CDC/CDCTrades"
+        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json; charset=utf-8",
+                   "Origin": "https://gold.ime.co.ir", "Referer": "https://gold.ime.co.ir/"}
+    elif 'silver' in contract_type:
+        url = "https://dataapi.ime.co.ir/api/CDC/CDCTrades"
+        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json; charset=utf-8",
+                   "Origin": "https://silver.ime.co.ir", "Referer": "https://silver.ime.co.ir/"}
+    else:
+        return None
 
-    headers = \
-        {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "*/*",
-            "Content-Type": "application/json; charset=utf-8",
-            "Origin": origin,
-            "Referer": origin + "/"
-        }
-
-    # If commodity_id is unknown, discover it from unfiltered CDCTrades.
-    if commodity_id is None:
-        discovery_payload = \
-            {
-                "fromDate": from_date,
-                "toDate": to_date,
-                "pageNumber": 1,
-                "pageSize": 500,
-                "marketId": 22
-            }
-
-        discovery_response = requests.post(url, json=discovery_payload, headers=headers, timeout=_timeout)
-        discovery_response.raise_for_status()
-        discovery_data = discovery_response.json()
-        discovery_rows = discovery_data.get("Data", [])
-
-        if not discovery_rows:
-            raise RuntimeError(f"Could not discover CommodityID because unfiltered CDCTrades returned no rows. "
-                               f"contract_type={contract_type}, contract_code={contract_code}, "
-                               f"from_date={from_date}, to_date={to_date}")
-
-        discovery_df = pd.DataFrame(discovery_rows)
-        matched = discovery_df[discovery_df["ContractCode"] == contract_code]
-
-        if matched.empty:
-            available = (discovery_df[["CommodityID", "ContractCode", "ContractDescription"]]
-                         .drop_duplicates().to_string(index=False))
-            raise RuntimeError(f"Could not find CommodityID for contract_code={contract_code}.\n"
-                               f"Available contracts in this date range:\n{available}")
-
-        commodity_id = int(matched["CommodityID"].iloc[0])
-
-    all_rows = []
-    page_number = 1
-    page_size = 90
-    market_id = 22
-
+    all_data = []
+    page = 1
     while True:
-        payload = \
-            {
-                "fromDate": from_date,
-                "toDate": to_date,
-                "pageNumber": page_number,
-                "pageSize": page_size,
-                "marketId": market_id,
-                "customFilter": str(commodity_id)
-            }
+        payload = {"fromDate": from_date, "toDate": to_date, "pageNumber": page, "pageSize": page_size,
+                   "marketId": market_id, "customFilter": contract_code}
 
         response = requests.post(url, json=payload, headers=headers, timeout=_timeout)
-        response.raise_for_status()
+        if response.status_code != 200:
+            raise Exception(f"Request failed on page {page}: {response.status_code}")
 
         data = response.json()
-        rows = data.get("Data", [])
-
-        # print(f"{contract_type} | contract_code={contract_code} | "
-        #       f"commodity_id={commodity_id} | page={page_number} | "
-        #       f"TotalCount={data.get('TotalCount')} | Rows={len(rows)} | "
-        #       f"HasNextPage={data.get('HasNextPage')}")
-
-        all_rows.extend(rows)
+        all_data.extend(data['Data'])
 
         if not data.get("HasNextPage", False):
             break
-
-        page_number += 1
+        page += 1
         time.sleep(0.3)
 
-    if not all_rows:
-        raise RuntimeError(f"No data returned from CDCTrades. "
-                           f"contract_type={contract_type}, contract_code={contract_code}, "
-                           f"commodity_id={commodity_id}, from_date={from_date}, to_date={to_date}")
-
-    all_data = pd.DataFrame(all_rows)
-
-    # Safety filter: keep only requested contract.
-    all_data = all_data[all_data["ContractCode"] == contract_code].copy()
-
-    if all_data.empty:
-        raise RuntimeError(f"CDCTrades returned rows, but none matched contract_code={contract_code}. "
-                           f"commodity_id={commodity_id}")
+    all_data = pd.DataFrame(all_data)
 
     all_data['PersianDate'] = all_data['PersianDate'].apply(
         lambda j_date_str: jd.date(year=int(j_date_str[:4]), month=int(j_date_str[5:7]), day=int(j_date_str[8:])))
-
-    all_data.sort_values(by='PersianDate', inplace=True, ascending=False, ignore_index=True)
-
+    all_data.sort_values('PersianDate', inplace=True, ascending=False, ignore_index=True)
     all_data['DT'] = pd.to_datetime(all_data['DT']).dt.date
     all_data['DeliveryDate'] = pd.to_datetime(all_data['DeliveryDate']).dt.date
-
-    all_data.drop('ROW', inplace=True, axis=1, errors='ignore')
-
+    all_data.drop('ROW', inplace=True, axis=1)
     all_data.rename({'ChangeOpenInterest': 'OpenInterestChange', 'C_Buy': 'CBuy', 'C_Sell': 'CSell',
-                     'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume',
-                     'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Vol_Haghighi_Sell': 'RetailSellVolume',
-                     'Val_Hoghooghi_Buy': 'InstitutionalBuyValue', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
-                     'Val_Haghighi_Buy': 'RetailBuyValue', 'Val_Haghighi_Sell': 'RetailSellValue', 'DT': 'GDate',
-                     'PersianDate': 'JDate', 'DeliveryDate': 'DeliveryGDate'}, inplace=True, axis=1)
-
+               'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume',
+               'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Vol_Haghighi_Sell': 'RetailSellVolume',
+               'Val_Hoghooghi_Buy': 'InstitutionalBuyValue', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
+               'Val_Haghighi_Buy': 'RetailBuyValue', 'Val_Haghighi_Sell': 'RetailSellValue', 'DT': 'GDate',
+               'PersianDate': 'JDate', 'DeliveryDate': 'DeliveryGDate'}, inplace=True, axis=1)
     all_data['DeliveryJDate'] = all_data['DeliveryGDate'].apply(lambda delivery_g_date: jd.date.fromgregorian(date=delivery_g_date))
-
     all_data.sort_values(by='JDate', inplace=True, ignore_index=True)
-
     return all_data
