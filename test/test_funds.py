@@ -66,3 +66,46 @@ def test_get_fund_row_invalid_name_raises():
 
     with pytest.raises(ValueError):
         Funds._get_fund_row("__INVALID_FUND_NAME__", all_funds)
+
+
+def test_get_daily_navs_invalid_fund_name_raises(monkeypatch):
+    fake_funds = pd.DataFrame(
+        [
+            {
+                "Name": "Fund A",
+                "WebsiteAddress": "funda.ir",
+                "FundType": "Test Type",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        Funds,
+        "get_all_funds",
+        lambda _set_website_developers=False: fake_funds,
+    )
+
+    with pytest.raises(ValueError):
+        Funds.get_daily_navs("__INVALID_FUND_NAME__")
+
+
+def test_get_daily_asset_allocation_invalid_fund_name_raises(monkeypatch):
+    fake_funds = pd.DataFrame(
+        [
+            {
+                "Name": "Fund A",
+                "WebsiteAddress": "funda.ir",
+                "FundType": "Test Type",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        Funds,
+        "get_all_funds",
+        lambda _set_website_developers=False: fake_funds,
+    )
+
+    with pytest.raises(ValueError):
+        Funds.get_daily_asset_allocation("__INVALID_FUND_NAME__")
+    

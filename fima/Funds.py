@@ -968,14 +968,15 @@ def _build_nika_nav_url(website: str, start_date: str, end_date: str, page_size:
 # PUBLIC FUNCTIONS
 def get_daily_navs(fund_name: str) -> pd.DataFrame:
     all_funds = get_all_funds(_set_website_developers=False)
-    fund_type = all_funds[all_funds['Name'] == fund_name]['FundType'].values[0]
+    fund_row = _get_fund_row(fund_name, all_funds)
+    fund_type = fund_row['FundType']
     daily_navs = pd.DataFrame()
     if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
         raise ValueError(f"Fund type does not have daily NAVs: {fund_type}")
     elif fund_name == 'صندوق تثبیت بازار سرمایه':
         print(f"The {fund_name} doesn't have daily asset allocations.")
     else:
-        website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
+        website_address = fund_row['WebsiteAddress']
         website_developer = _detect_website_developer(website=website_address)
         if website_developer == 'گروه رایانه تدبیر پرداز':
             if fund_type == 'در سهام-سهامی اهرمی':
@@ -1005,14 +1006,15 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
 
 def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     all_funds = get_all_funds(_set_website_developers=False)
-    fund_type = all_funds[all_funds['Name'] == fund_name]['FundType'].values[0]
+    fund_row = _get_fund_row(fund_name, all_funds)
+    fund_type = fund_row['FundType']
     daily_asset_allocation = pd.DataFrame()
     if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
         print(f"Fund type is {fund_type} and it doesn't have daily asset allocations.")
     elif fund_name == 'صندوق تثبیت بازار سرمایه':
         print(f"The {fund_name} doesn't have daily asset allocations.")
     else:
-        website_address = all_funds[all_funds['Name'] == fund_name]['WebsiteAddress'].values[0]
+        website_address = fund_row['WebsiteAddress']
         website_developer = _detect_website_developer(website=website_address)
         if website_developer == 'گروه رایانه تدبیر پرداز':
             daily_asset_allocation = _get_daily_asset_allocation_tadbirpardaz(fund_name)
