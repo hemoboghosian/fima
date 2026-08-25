@@ -108,4 +108,96 @@ def test_get_daily_asset_allocation_invalid_fund_name_raises(monkeypatch):
 
     with pytest.raises(ValueError):
         Funds.get_daily_asset_allocation("__INVALID_FUND_NAME__")
-    
+
+
+def test_get_daily_asset_allocation_no_public_nav_type_raises(monkeypatch):
+    fake_funds = pd.DataFrame(
+        [
+            {
+                "Name": "Fund A",
+                "WebsiteAddress": "funda.ir",
+                "FundType": "جسورانه",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        Funds,
+        "get_all_funds",
+        lambda _set_website_developers=False: fake_funds,
+    )
+
+    with pytest.raises(ValueError):
+        Funds.get_daily_asset_allocation("Fund A")
+
+
+def test_get_daily_navs_stabilization_fund_raises(monkeypatch):
+    fake_funds = pd.DataFrame(
+        [
+            {
+                "Name": "صندوق تثبیت بازار سرمایه",
+                "WebsiteAddress": "cmsfund.ir",
+                "FundType": "Test Type",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        Funds,
+        "get_all_funds",
+        lambda _set_website_developers=False: fake_funds,
+    )
+
+    with pytest.raises(ValueError):
+        Funds.get_daily_navs("صندوق تثبیت بازار سرمایه")
+
+
+def test_get_daily_asset_allocation_stabilization_fund_raises(monkeypatch):
+    fake_funds = pd.DataFrame(
+        [
+            {
+                "Name": "صندوق تثبیت بازار سرمایه",
+                "WebsiteAddress": "cmsfund.ir",
+                "FundType": "Test Type",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        Funds,
+        "get_all_funds",
+        lambda _set_website_developers=False: fake_funds,
+    )
+
+    with pytest.raises(ValueError):
+        Funds.get_daily_asset_allocation("صندوق تثبیت بازار سرمایه")
+
+
+def test_get_daily_asset_allocation_unknown_developer_raises(monkeypatch):
+    fake_funds = pd.DataFrame(
+        [
+            {
+                "Name": "Fund A",
+                "WebsiteAddress": "unknownfund.ir",
+                "FundType": "Test Type",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        Funds,
+        "get_all_funds",
+        lambda _set_website_developers=False: fake_funds,
+    )
+
+    monkeypatch.setattr(
+        Funds,
+        "_detect_website_developer",
+        lambda website: "Unknown",
+    )
+
+    with pytest.raises(NotImplementedError):
+        Funds.get_daily_asset_allocation("Fund A")
+
+
+

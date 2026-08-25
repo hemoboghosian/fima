@@ -974,7 +974,7 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
     if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
         raise ValueError(f"Fund type does not have daily NAVs: {fund_type}")
     elif fund_name == 'صندوق تثبیت بازار سرمایه':
-        print(f"The {fund_name} doesn't have daily asset allocations.")
+        raise ValueError(f"Fund does not have daily NAVs: {fund_name}")
     else:
         website_address = fund_row['WebsiteAddress']
         website_developer = _detect_website_developer(website=website_address)
@@ -999,8 +999,7 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
         elif website_developer == 'نوآوران':
             daily_navs = _get_daily_navs_noavaran(fund_name)
         else:
-            raise NotImplementedError(
-    f"Website developer is unknown for fund: {fund_name} | website: {website_address}")
+            raise NotImplementedError(f"Website developer is unknown for fund: {fund_name} | website: {website_address}")
     return daily_navs
 
 
@@ -1010,9 +1009,9 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     fund_type = fund_row['FundType']
     daily_asset_allocation = pd.DataFrame()
     if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
-        print(f"Fund type is {fund_type} and it doesn't have daily asset allocations.")
+        raise ValueError(f"Fund type does not have daily asset allocations: {fund_type}")
     elif fund_name == 'صندوق تثبیت بازار سرمایه':
-        print(f"The {fund_name} doesn't have daily asset allocations.")
+        raise ValueError(f"Fund does not have daily asset allocations: {fund_name}")
     else:
         website_address = fund_row['WebsiteAddress']
         website_developer = _detect_website_developer(website=website_address)
@@ -1029,7 +1028,7 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
         elif website_developer == 'نوآوران':
             daily_asset_allocation = _get_daily_asset_allocation_noavaran(fund_name)
         else:
-            print('The website developer is unknown. Please contact me if you see this message.')
+            raise NotImplementedError(f"Website developer is unknown for fund: {fund_name} | website: {website_address}")
     return daily_asset_allocation
 
 
