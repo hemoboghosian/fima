@@ -80,7 +80,7 @@ jobs:
           import tarfile
           import zipfile
 
-          forbidden_names = {"Funds.py", "Codal.py"}
+          forbidden_names = {"Codal.py"}
           forbidden_parts = {"unreleased"}
 
           for archive in sorted(Path("dist").iterdir()):
@@ -120,6 +120,7 @@ jobs:
           from fima.Options import ticker_info
           from fima.TSEInstitutions import get_all_institutions
           from fima.TSETMC import get_tickers
+          from fima import get_all_funds, get_daily_navs, get_daily_asset_allocation
 
           installed_version = version("fima")
           expected_version = os.environ["RELEASE_TAG"].removeprefix("v")
