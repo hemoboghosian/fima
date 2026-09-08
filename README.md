@@ -34,6 +34,7 @@ py -c "from importlib.metadata import version; print(version('fima'))"
 - `fima.IME`: داده‌های بورس کالای ایران
 - `fima.TSETMC`: داده‌های نمادها، شاخص‌ها، معاملات و سهامداران
 - `fima.TSEInstitutions`: فهرست نهادهای مالی
+- `fima.Funds`: اطلاعات صندوق‌های سرمایه‌گذاری، NAV روزانه و ترکیب روزانه دارایی‌ها
 
 برای جلوگیری از واردشدن نام‌های کمکی، از import صریح استفاده کنید و از `import *` استفاده نکنید.
 
@@ -125,6 +126,19 @@ from fima.TSEInstitutions import get_all_institutions
 institutions = get_all_institutions()
 ```
 
+### صندوق‌های سرمایه‌گذاری
+
+```python
+from fima import get_all_funds, get_daily_navs, get_daily_asset_allocation
+
+all_funds = get_all_funds()
+
+navs = get_daily_navs("نام صندوق")
+asset_allocation = get_daily_asset_allocation("نام صندوق")
+```
+
+توابع این ماژول به منابع آنلاین اطلاعات صندوق‌ها وابسته هستند. نام صندوق باید با نام موجود در خروجی `get_all_funds()` مطابقت داشته باشد. درخواست نامعتبر یا درخواست داده‌ای که برای صندوق در دسترس نیست می‌تواند `ValueError` ایجاد کند و ارائه‌دهنده‌ای که هنوز پشتیبانی نمی‌شود می‌تواند `NotImplementedError` ایجاد کند.
+
 ## API عمومی
 
 ### `fima.Options`
@@ -195,6 +209,12 @@ institutions = get_all_institutions()
 ### `fima.TSEInstitutions`
 
 - `get_all_institutions`
+
+### `fima.Funds`
+
+- `get_all_funds`
+- `get_daily_navs`
+- `get_daily_asset_allocation`
 
 پارامترهایی که با `_` شروع می‌شوند برای کنترل داخلی و آزمون هستند و بخشی از API پایدار عمومی محسوب نمی‌شوند.
 

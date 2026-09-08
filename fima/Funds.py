@@ -967,6 +967,25 @@ def _build_nika_nav_url(website: str, start_date: str, end_date: str, page_size:
 
 # PUBLIC FUNCTIONS
 def get_daily_navs(fund_name: str) -> pd.DataFrame:
+    """Return daily NAV data for a fund.
+
+    Parameters
+    ----------
+    fund_name : str
+        Exact fund name as returned by get_all_funds().
+
+    Returns
+    -------
+    pandas.DataFrame
+        Daily NAV data for the requested fund.
+
+    Raises
+    ------
+    ValueError
+        If the fund name is invalid or daily NAV data is not available.
+    NotImplementedError
+        If the fund website provider is not supported.
+    """
     all_funds = get_all_funds(_set_website_developers=False)
     fund_row = _get_fund_row(fund_name, all_funds)
     fund_type = fund_row['FundType']
@@ -1004,6 +1023,25 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
 
 
 def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
+    """Return daily asset-allocation data for a fund.
+
+    Parameters
+    ----------
+    fund_name : str
+        Exact fund name as returned by get_all_funds().
+
+    Returns
+    -------
+    pandas.DataFrame
+        Daily asset-allocation data for the requested fund.
+
+    Raises
+    ------
+    ValueError
+        If the fund name is invalid or asset-allocation data is not available.
+    NotImplementedError
+        If the fund website provider is not supported.
+    """
     all_funds = get_all_funds(_set_website_developers=False)
     fund_row = _get_fund_row(fund_name, all_funds)
     fund_type = fund_row['FundType']
@@ -1033,6 +1071,18 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
 
 
 def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
+    """Return available investment-fund information from Fipiran.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Fund metadata and current fund information.
+
+    Notes
+    -----
+    This function uses a live external data source, so network or provider
+    availability can affect the result.
+    """
     url = "https://www.fipiran.ir/services/fund/fundcompare"
     all_funds = pd.DataFrame(requests.get(url, timeout=30, verify=False).json()['items'])
     # all_funds.drop(['rankOf12Month', 'rankOf24Month', 'rankOf36Month', 'rankOf48Month', 'rankOf60Month',
