@@ -18,3 +18,4 @@ from .TSETMC import (get_ticker_historical_trades_client_type, get_index_compani
                      get_ticker_historical_market_caps, get_tickers, get_ticker_historical_data, get_index_historical_data,
                      get_indexes_status, get_supervision_lists, get_ticker_intraday_trades, get_share_changes,
                      get_price_adjustments, get_index_last_intraday_data)
+from .Funds import get_all_funds, get_daily_navs, get_daily_asset_allocation
