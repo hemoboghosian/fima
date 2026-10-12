@@ -361,11 +361,16 @@ def _detect_rayan_hamafza_by_nav_api(website: str) -> bool:
     return False
 
 
+def _mabna_nav_params(size: int):
+    return {"start_date": "1997-11-10T08:13:36.377Z",
+            "end_date": dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "page": 1, "size": size}
+
+
 def _detect_mabna_by_nav_api(website: str) -> bool:
     for base_url in _build_base_urls(website):
-        url = (f"{base_url}/api/v2/public/reports/navps?start_date=1997-11-10T08%3A13%3A36.377Z&"
-               f"end_date=2026-01-11T08%3A13%3A36.377Z&page=1&size=5")
-        data = _safe_get_json(url, timeout=30)
+        url = f"{base_url}/api/v2/public/reports/navps"
+        data = _safe_get_json(url, timeout=30, params=_mabna_nav_params(5))
         if _is_valid_mabna_nav_response(data):
             return True
     return False
@@ -668,9 +673,8 @@ def _get_daily_asset_allocation_mabna(fund_name: str) -> pd.DataFrame:
 
 def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
-    url = (f"https://{website}/api/v2/public/reports/navps?start_date=1997-11-10T08%3A13%3A36.377Z&"
-           f"end_date=2026-01-11T08%3A13%3A36.377Z&page=1&size=1000000")
-    response = _request("GET", url)
+    url = f"https://{website}/api/v2/public/reports/navps"
+    response = _request("GET", url, params=_mabna_nav_params(1000000))
     navs = pd.DataFrame(_records(response, "data"))
     navs['date_time'] = navs['date_time'].apply(lambda dt: pd.to_datetime(dt))
     navs['date_time'] = navs['date_time'].apply(_gregorian_to_jalali)
