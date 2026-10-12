@@ -572,29 +572,28 @@ def _get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 
 # Rayan hamafza
 def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
-    fund_id = 1
-    fund_website = _get_fund_website_address(fund_name)
-    url = f"https://{fund_website}/api/data/DailyAssetStructure/{fund_id}"
-    response = _request("GET", url)
-    response.raise_for_status()
-    json_data = _decode_json(response)
-    daily_asset_allocation = pd.DataFrame(json_data["data"])
-    daily_asset_allocation.drop('FundId', inplace=True, axis=1)
-    daily_asset_allocation.columns = \
-        daily_asset_allocation.columns.map(lambda column: column.replace("Today", "")
-                                           .replace("Percent", "s Weight").replace("Amount", "s"))
-    daily_asset_allocation.columns = \
-        daily_asset_allocation.columns.map(lambda column: column.replace("Cashs", "Cash").
-                                           replace("TopFiveStocks", "Upper5%Stocks").replace("Ccds", "CCDs")
-                                           .replace('Deposits', 'Bank'))
-    daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(_jalali_str_to_date)
-
-    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Upper5%Stocks', 'Bonds', 'Cash', 'Bank',
-                                                     'FundUnits', 'CCDs', 'OtherAssets', 'Stocks Weight',
-                                                     'Upper5%Stocks Weight', 'Bonds Weight', 'Cash Weight',
-                                                     'Bank Weight', 'FundUnits Weight', 'CCDs Weight',
-                                                     'OtherAssets Weight']]
-    return daily_asset_allocation
+    website = _get_fund_website_address(fund_name)
+    assets = [("Stock", "Stocks"), ("TopFiveStock", "Upper5%Stocks"), ("Bond", "Bonds"),
+              ("Cash", "Cash"), ("Deposit", "Bank"), ("FundUnit", "FundUnits"),
+              ("Ccd", "CCDs"), ("OtherAsset", "OtherAssets")]
+    mapping = {"Date": "Date"}
+    mapping.update({f"{source}TodayAmount": target for source, target in assets})
+    mapping.update({f"{source}TodayPercent": f"{target} Weight" for source, target in assets})
+    for base_url in _build_base_urls(website):
+        for path in ("/api/v1/public/dailyAssetStructure/1", "/api/data/DailyAssetStructure/1"):
+            data = _safe_get_json(base_url + path)
+            records = data.get("data") if isinstance(data, dict) else data
+            if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
+                continue
+            # The new API uses lower camel case; the legacy API uses upper camel case.
+            records = [{key[0].upper() + key[1:]: value for key, value in row.items() if key}
+                       for row in records]
+            if not all(set(mapping).issubset(row) for row in records):
+                continue
+            result = pd.DataFrame(records).rename(columns=mapping)[list(mapping.values())].copy()
+            result["Date"] = result["Date"].apply(_jalali_str_to_date)
+            return result
+    raise ValueError(f"Could not find valid Rayan Hamafza asset allocation API for {fund_name} | {website}")
 
 
 def _get_rayan_hamafza_nav_records(website: str):
