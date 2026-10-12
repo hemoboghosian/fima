@@ -1124,7 +1124,9 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
     Returns
     -------
     pandas.DataFrame
-        Fund metadata and current information, including market makers.
+        Fund metadata and current information, including market-maker funds
+        and non-market-maker fund compartments, but not the individual
+        instruments covered by market makers.
         WebsiteAddress is the host of the first available website, or None.
         Missing allocation weights are zero, as with null weights.
 
@@ -1150,6 +1152,22 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
         raise ValueError(f"Fipiran fund catalog: {exc}") from exc
     _require_columns(all_funds, ["name", "fundType", "typeOfInvest", "fundSize",
                                 "initiationDate", "date"], "Fipiran fund catalog")
+    market_makers = all_funds["fundType"].eq(11)
+    if market_makers.any():
+        _require_columns(all_funds, ["groupId"], "Fipiran fund catalog")
+        groups = all_funds.loc[market_makers, "groupId"]
+        valid_groups = groups.map(
+            lambda value: isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value >= 0 and value % 1 == 0)
+        if not valid_groups.all():
+            raise ValueError("Fipiran market-maker groupId must be a non-negative integer")
+        # Fipiran's market-maker listing keeps parent groups 0 and 1.
+        # Other market-maker groups are instruments, not investment funds.
+        # Non-market-maker groups can be genuine fund compartments.
+        all_funds = all_funds.loc[
+            ~market_makers | all_funds["groupId"].isin([0, 1])].reset_index(drop=True)
+        if all_funds.empty:
+            raise ValueError("Fipiran fund catalog contains no fund-level records")
     for column, default in {"websiteAddress": None, "guarantor": None,
                             "dividendIntervalPeriod": 0}.items():
         if column not in all_funds:
