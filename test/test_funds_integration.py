@@ -78,6 +78,11 @@ def test_get_all_funds_live(all_funds):
     for column in required_columns:
         assert column in all_funds.columns
 
+    market_makers = all_funds[all_funds["FundType"] == "اختصاصی بازارگردانی"]
+    if not market_makers.empty:
+        assert "GroupId" in market_makers.columns
+        assert market_makers["GroupId"].isin([0, 1]).all()
+
 
 def test_rayan_nav_records_live():
     records = Funds._get_rayan_hamafza_nav_records(
