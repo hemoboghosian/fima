@@ -9,6 +9,14 @@ from urllib.parse import urlparse
 import re
 from email.utils import parsedate_to_datetime
 
+__all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation"]
+
+
+def __dir__():
+    """Present the public Funds API to runtime module discovery."""
+    return sorted(__all__)
+
+
 PIKAD_URL_PREFIXES = {'servatfund.ir': 'servatsiteapi', 'goharnafis.ir': 'goharsiteapi',
                       'padashetemadfund.ir': 'farazsiteapi', 'edbifund.ir': 'andookhtehsiteapi',
                       'ganjinehzarinshahr.ir': 'ganjinehsiteapi', 'mellimesmfund.ir': 'multicoppersiteapi',
