@@ -1,4 +1,3 @@
-import warnings
 import requests
 import pandas as pd
 import jdatetime as jd
@@ -8,12 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 import re
-from functools import lru_cache
-import warnings
-from urllib3.exceptions import InsecureRequestWarning
-
-
-warnings.simplefilter("ignore", InsecureRequestWarning)
+from email.utils import parsedate_to_datetime
 
 PIKAD_URL_PREFIXES = {'servatfund.ir': 'servatsiteapi', 'goharnafis.ir': 'goharsiteapi',
                       'padashetemadfund.ir': 'farazsiteapi', 'edbifund.ir': 'andookhtehsiteapi',
@@ -38,48 +32,95 @@ NO_PUBLIC_NAV_FUND_TYPES = {"جسورانه", "اختصاصی بازارگردا
 
 
 # GENERAL HELPER FUNCTIONS
-def _safe_get_json(url: str, timeout: int = 30, params: dict = None):
+def _retry_delay(response):
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(0, float(retry_after))
+        except ValueError:
+            try:
+                when = parsedate_to_datetime(retry_after)
+                return max(0, (when - dt.datetime.now(dt.timezone.utc)).total_seconds())
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return 0.5
+
+
+def _request(method: str, url: str, timeout=30, **kwargs):
+    """Verified, finite requests; retry a transient GET status at most once."""
+    for attempt in range(2):
+        try:
+            response = getattr(requests, method.lower())(
+                url, timeout=timeout, verify=True, allow_redirects=True, **kwargs)
+        except requests.RequestException as exc:
+            raise type(exc)(f"Funds {method} {url}: {exc}",
+                            request=exc.request, response=exc.response) from exc
+        if method == "GET" and attempt == 0 and response.status_code in (429, 500, 502, 503, 504):
+            delay = _retry_delay(response)
+            # Surface a long Retry-After instead of ignoring it or sleeping indefinitely.
+            if delay <= 2:
+                response.close()
+                time.sleep(delay)
+                continue
+        response.raise_for_status()
+        return response
+
+
+def _decode_json(response):
     try:
-        response = requests.get(url, params=params, timeout=timeout, verify=False, headers={"User-Agent": "Mozilla/5.0"})
-        if response.status_code != 200:
-            return None
-        text = response.text.strip()
-        if not text:
-            return None
         return response.json()
-    except Exception:
+    except requests.exceptions.JSONDecodeError as exc:
+        raise ValueError(f"Funds provider returned empty or invalid JSON: {response.url}") from exc
+
+
+def _records(response, key=None):
+    data = _decode_json(response)
+    if key is not None:
+        if not isinstance(data, dict) or data.get("status", 200) != 200:
+            raise ValueError(f"Invalid Funds provider response: {response.url}")
+        data = data.get(key)
+    if not isinstance(data, list) or not data or not all(isinstance(row, dict) for row in data):
+        raise ValueError(f"Missing or empty Funds provider records ({key}): {response.url}")
+    return data
+
+
+def _safe_get_json(url: str, timeout: int = 30, params: dict = None):
+    """Probe optional endpoints without hiding transport or service failures."""
+    try:
+        response = _request("GET", url, params=params, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+    except requests.HTTPError as exc:
+        if exc.response.status_code not in (404, 405):
+            raise
+        return None
+    try:
+        return _decode_json(response)
+    except ValueError:
         return None
 
 
 def _safe_get_text(url: str, timeout: int = 30):
     try:
-        response = requests.get(url, timeout=timeout, verify=False, headers={"User-Agent": "Mozilla/5.0"},
-                                allow_redirects=True)
-        if response.status_code != 200:
-            return None
-        text = response.text.strip()
-        if not text:
-            return None
-        return text
-    except Exception:
+        response = _request("GET", url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+    except requests.HTTPError as exc:
+        if exc.response.status_code not in (404, 405):
+            raise
         return None
+    return response.text.strip() or None
 
 
 def _safe_post_json(url: str, payload: dict, headers: dict = None, timeout: int = 12):
+    default_headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*",
+                       "Content-Type": "application/json"}
+    default_headers.update(headers or {})
     try:
-        if headers is None:
-            headers = {}
-        default_headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/plain, */*",
-                           "Content-Type": "application/json"}
-        default_headers.update(headers)
-        response = requests.post(url, json=payload, headers=default_headers, timeout=timeout, verify=False)
-        if response.status_code != 200:
-            return None
-        text = response.text.strip()
-        if not text:
-            return None
-        return response.json()
-    except Exception:
+        response = _request("POST", url, json=payload, headers=default_headers, timeout=timeout)
+    except requests.HTTPError as exc:
+        if exc.response.status_code not in (404, 405):
+            raise
+        return None
+    try:
+        return _decode_json(response)
+    except ValueError:
         return None
 
 
@@ -127,6 +168,14 @@ def _build_base_urls(website: str) -> list:
     return base_urls
 
 
+def _catalog_website(address):
+    if isinstance(address, list):
+        address = next((value for value in address if isinstance(value, str) and value.strip()), None)
+    if address is None or isinstance(address, str) or pd.isna(address):
+        return _normalize_website_host(address)
+    raise ValueError("Fipiran websiteAddress must be a string, list, or null")
+
+
 def _jalali_str_to_date(date_str: str) -> jd.date:
     date_str = str(date_str).strip().replace("-", "/")
     if "/" in date_str:
@@ -151,9 +200,10 @@ def _require_columns(df: pd.DataFrame, required_columns: list, source_name: str)
 # FIPIRAN FUNCTIONS
 def _get_fund_types() -> pd.DataFrame:
     url = "https://www.fipiran.ir/services/fund/fundtype"
-    fund_types = pd.DataFrame(requests.get(url, timeout=30, verify=False).json()['items'])
-    fund_types.columns = ['FundTypeID', 'FundTypeName', 'IsActive']
-    return fund_types
+    fund_types = pd.DataFrame(_records(_request("GET", url), "items"))
+    _require_columns(fund_types, ["fundType", "name", "isActive"], "Fipiran fund types")
+    return fund_types[["fundType", "name", "isActive"]].rename(
+        columns={"fundType": "FundTypeID", "name": "FundTypeName", "isActive": "IsActive"})
 
 
 def _get_fund_website_address(fund_name: str, all_funds: pd.DataFrame = None) -> str:
@@ -372,7 +422,6 @@ def _detect_noavaran_by_nav_api(website: str) -> bool:
 
 
 def _detect_website_developer(website: str) -> str:
-    warnings.filterwarnings('ignore')
     host = _normalize_website_host(website)
     if host is None:
         return "No Address"
@@ -394,7 +443,6 @@ def _detect_website_developer(website: str) -> str:
         return "سامانه هوشمند نیکا سرمایه"
     if _detect_noavaran_by_nav_api(host):
         return "نوآوران"
-    print(website, "Unknown")
     return "Unknown"
 
 
@@ -403,9 +451,9 @@ def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     fund_id = 1
     website = _get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
-    response = requests.get(url, timeout=30, verify=False)
+    response = _request("GET", url)
     response.raise_for_status()
-    data = response.json()
+    data = _decode_json(response)
     df = pd.json_normalize(data, sep='_')
     subscription = pd.DataFrame(df[df['name'] == 'صدور'].loc[0, 'List'])
     subscription['x'] = pd.to_datetime(subscription['x'], format='%m/%d/%Y').dt.date
@@ -430,9 +478,9 @@ def _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataF
     fund_id = 1
     website = _get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
-    response = requests.get(url, timeout=30, verify=False)
+    response = _request("GET", url)
     response.raise_for_status()
-    data = response.json()
+    data = _decode_json(response)
     df = pd.json_normalize(data, sep='_')
     subscription = pd.DataFrame(df[df['name'] == 'صدور'].loc[0, 'List'])
     subscription['x'] = pd.to_datetime(subscription['x'], format='%m/%d/%Y').dt.date
@@ -469,9 +517,9 @@ def _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataF
 def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId=1"
-    response = requests.get(url, timeout=30, verify=False)
+    response = _request("GET", url)
     response.raise_for_status()
-    data = response.json()
+    data = _decode_json(response)
     df = pd.json_normalize(data, sep='_')
     total_nav = pd.DataFrame(df[df['name'] == ''].loc[0, 'List'])
     total_nav['x'] = pd.to_datetime(total_nav['x'], format='%m/%d/%Y').dt.date
@@ -492,7 +540,7 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     headers = []
     while True:
         # Request the page
-        response = requests.get(base_url, params=params, timeout=30, verify=False)
+        response = _request("GET", base_url, params=params)
         soup = BeautifulSoup(response.text, "html.parser")
         # Extract headers (only once)
         if not headers:
@@ -550,9 +598,9 @@ def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     fund_id = 1
     fund_website = _get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/data/DailyAssetStructure/{fund_id}"
-    response = requests.get(url, timeout=30, verify=False)
+    response = _request("GET", url)
     response.raise_for_status()
-    json_data = response.json()
+    json_data = _decode_json(response)
     daily_asset_allocation = pd.DataFrame(json_data["data"])
     daily_asset_allocation.drop('FundId', inplace=True, axis=1)
     daily_asset_allocation.columns = \
@@ -620,8 +668,8 @@ def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
 def _get_daily_asset_allocation_mabna(fund_name: str) -> pd.DataFrame:
     fund_website = _get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/v1/overall/allassetsdaily.json"
-    response = requests.get(url, timeout=30, verify=False)
-    data = response.json()[0]
+    response = _request("GET", url)
+    data = _records(response)[0]
     records = []
     for item in data['values']:
         row = {'تاریخ': item['date']}
@@ -650,8 +698,8 @@ def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     url = (f"https://{website}/api/v2/public/reports/navps?start_date=1997-11-10T08%3A13%3A36.377Z&"
            f"end_date=2026-01-11T08%3A13%3A36.377Z&page=1&size=1000000")
-    response = requests.get(url, timeout=30, verify=False)
-    navs = pd.DataFrame(response.json()['data'])
+    response = _request("GET", url)
+    navs = pd.DataFrame(_records(response, "data"))
     navs['date_time'] = navs['date_time'].apply(lambda dt: pd.to_datetime(dt))
     navs['date_time'] = navs['date_time'].apply(_gregorian_to_jalali)
     navs = navs.iloc[:, [0, 2, 3, 12, 5]].copy()
@@ -663,8 +711,8 @@ def _get_leveraged_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     portfolio_id = 1
     website = _get_fund_website_address(fund_name)
     url = f"https://{website}/api/v2/public/fund/chart?portfolio_id={portfolio_id}"
-    response = requests.get(url, timeout=30, verify=False)
-    navs = pd.DataFrame(response.json()['data'])
+    response = _request("GET", url)
+    navs = pd.DataFrame(_records(response, "data"))
     navs['date_time'] = pd.to_datetime(navs['date_time']).dt.date
     navs['date_time'] = navs['date_time'].apply(_gregorian_to_jalali)
     navs.rename(columns={'date_time': 'JDate', 'total_unit_count': 'TotalUnits',
@@ -690,9 +738,9 @@ def _get_daily_asset_allocation_pikad(fund_name: str) -> pd.DataFrame:
                "Referer": f"https://{fund_website}", "Origin": f"https://{fund_website}",}
     payload = {"ReportFilter": {"StartDate": start_date, "EndDate": end_date},
                "OptionalFilter": {"take": take, "page": page, "sort": [{"field": "Date", "dir": "desc"}]}}
-    response = requests.post(url, headers=headers, json=payload, timeout=30, verify=False)
+    response = _request("POST", url, headers=headers, json=payload)
     response.raise_for_status()
-    daily_asset_allocation = pd.DataFrame(response.json()['Result'])
+    daily_asset_allocation = pd.DataFrame(_records(response, "Result"))
     daily_asset_allocation.drop(['Id', 'Date', 'Created', 'Total'], inplace=True, axis=1)
     daily_asset_allocation.rename(
         {'JalaliDate': 'Date', 'BankAndCashValue': 'CashAndBank', 'BankAndCashPercent': 'CashAndBank Weight',
@@ -726,8 +774,8 @@ def _get_daily_navs_pikad(fund_name: str) -> pd.DataFrame:
                                 "PageSize": page_size},
                "OptionalFilter": {"take": page_size, "skip": 1, "page": 1, "sort": [{"field": "Date", "dir": "asc"}]},
                "BranchId": 0, "PartyId": 0}
-    response = requests.post(url, headers=headers, json=payload, timeout=30, verify=False)
-    navs = pd.DataFrame(response.json()['Result'])
+    response = _request("POST", url, headers=headers, json=payload)
+    navs = pd.DataFrame(_records(response, "Result"))
     navs = navs.iloc[:, 1:6]
     navs['Date'] = pd.to_datetime(navs['Date']).dt.date
     navs['Date'] = navs['Date'].apply(_gregorian_to_jalali)
@@ -742,8 +790,8 @@ def _get_daily_asset_allocation_rahkar(fund_name: str) -> pd.DataFrame:
     mutual_fund_id = 1
     fund_website = _get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/app/asset/daily-asset-list?MutualFundCompanyID={mutual_fund_id}"
-    response = requests.get(url, timeout=30, verify=False)
-    daily_asset_allocation = pd.DataFrame(response.json())
+    response = _request("GET", url)
+    daily_asset_allocation = pd.DataFrame(_records(response))
     daily_asset_allocation.drop(['rowNum', 'totalRows'], inplace=True, axis=1)
     daily_asset_allocation.rename(
         {'date': 'Date', 'bankDepositKalaAsset': 'CCDs', 'bankDepositKalaAssetPersent': 'CCDs Weight',
@@ -765,8 +813,8 @@ def _get_daily_navs_rahkar(fund_name: str) -> pd.DataFrame:
     mutual_fund_id = 1
     fund_website = _get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/app/nav/nav-list?MutualFundCompanyID={mutual_fund_id}"
-    response = requests.get(url, timeout=30, verify=False)
-    navs = pd.DataFrame(response.json())
+    response = _request("GET", url)
+    navs = pd.DataFrame(_records(response))
     navs['date'] = navs['date'].apply(_jalali_str_to_date)
     navs = navs.iloc[:, :5].copy()
     navs.columns = ['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']
@@ -861,7 +909,7 @@ def _get_daily_navs_nika(fund_name: str) -> pd.DataFrame:
                               page_size=1000000)
     if url is None:
         raise ValueError(f"Could not build Nika NAV URL for {fund_name} | {fund_website}")
-    data = _safe_get_json(url, timeout=30)
+    data = _decode_json(_request("GET", url))
     if not _is_valid_nika_nav_response(data):
         raise ValueError(f"Nika NAV response schema is invalid for {fund_name} | {fund_website}")
     navs = pd.DataFrame(data["items"])
@@ -906,7 +954,7 @@ def _autoset_website_developers(all_funds: pd.DataFrame, max_workers: int = 10) 
             index = future_to_index[future]
             try:
                 result = future.result()
-            except:
+            except (requests.RequestException, ValueError):
                 result = "Error"
             results[index] = result
     all_funds["WebsiteDeveloper"] = all_funds.index.map(results)
@@ -935,7 +983,6 @@ def _extract_nika_config_from_html(html: str):
     return None
 
 
-@lru_cache(maxsize=1000)
 def _get_nika_config_by_host(host: str):
     host = _normalize_website_host(host)
     if host is None:
@@ -966,6 +1013,17 @@ def _build_nika_nav_url(website: str, start_date: str, end_date: str, page_size:
 
 
 # PUBLIC FUNCTIONS
+def _provider_result(parser, fund_name, website):
+    try:
+        result = parser(fund_name)
+    except (KeyError, IndexError) as exc:
+        raise ValueError(f"Invalid provider response for fund {fund_name} | website: {website}; "
+                         f"missing or unexpected fields: {exc}") from exc
+    if result.empty:
+        raise ValueError(f"No provider data for fund {fund_name} | website: {website}")
+    return result
+
+
 def get_daily_navs(fund_name: str) -> pd.DataFrame:
     """Return daily NAV data for a fund.
 
@@ -982,9 +1040,12 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
     Raises
     ------
     ValueError
-        If the fund name is invalid or daily NAV data is not available.
+        If the fund name is invalid, data is unavailable, or the provider
+        response is empty or malformed.
     NotImplementedError
         If the fund website provider is not supported.
+    requests.RequestException
+        For connection, timeout, certificate, or HTTP errors from a provider.
     """
     all_funds = get_all_funds(_set_website_developers=False)
     fund_row = _get_fund_row(fund_name, all_funds)
@@ -999,24 +1060,24 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
         website_developer = _detect_website_developer(website=website_address)
         if website_developer == 'گروه رایانه تدبیر پرداز':
             if fund_type == 'در سهام-سهامی اهرمی':
-                daily_navs = _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name)
+                daily_navs = _provider_result(_get_leveraged_daily_navs_per_share_tadbirpardaz, fund_name, website_address)
             else:
-                daily_navs = _get_daily_navs_tadbirpardaz(fund_name)
+                daily_navs = _provider_result(_get_daily_navs_tadbirpardaz, fund_name, website_address)
         elif website_developer == 'شرکت رایان هم افزا':
-            daily_navs = _get_daily_navs_rayan_hamafza(fund_name)
+            daily_navs = _provider_result(_get_daily_navs_rayan_hamafza, fund_name, website_address)
         elif website_developer == 'پردازش اطلاعات مالی مبنا':
             if fund_type == 'در سهام-سهامی اهرمی':
-                daily_navs = _get_leveraged_daily_navs_mabna(fund_name)
+                daily_navs = _provider_result(_get_leveraged_daily_navs_mabna, fund_name, website_address)
             else:
-                daily_navs = _get_daily_navs_mabna(fund_name)
+                daily_navs = _provider_result(_get_daily_navs_mabna, fund_name, website_address)
         elif website_developer == 'پیکاد':
-            daily_navs = _get_daily_navs_pikad(fund_name)
+            daily_navs = _provider_result(_get_daily_navs_pikad, fund_name, website_address)
         elif website_developer == 'راهکار حامی پرداز':
-            daily_navs = _get_daily_navs_rahkar(fund_name)
+            daily_navs = _provider_result(_get_daily_navs_rahkar, fund_name, website_address)
         elif website_developer == 'سامانه هوشمند نیکا سرمایه':
-            daily_navs = _get_daily_navs_nika(fund_name)
+            daily_navs = _provider_result(_get_daily_navs_nika, fund_name, website_address)
         elif website_developer == 'نوآوران':
-            daily_navs = _get_daily_navs_noavaran(fund_name)
+            daily_navs = _provider_result(_get_daily_navs_noavaran, fund_name, website_address)
         else:
             raise NotImplementedError(f"Website developer is unknown for fund: {fund_name} | website: {website_address}")
     return daily_navs
@@ -1038,9 +1099,12 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     Raises
     ------
     ValueError
-        If the fund name is invalid or asset-allocation data is not available.
+        If the fund name is invalid, data is unavailable, or the provider
+        response is empty or malformed.
     NotImplementedError
         If the fund website provider is not supported.
+    requests.RequestException
+        For connection, timeout, certificate, or HTTP errors from a provider.
     """
     all_funds = get_all_funds(_set_website_developers=False)
     fund_row = _get_fund_row(fund_name, all_funds)
@@ -1054,17 +1118,17 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
         website_address = fund_row['WebsiteAddress']
         website_developer = _detect_website_developer(website=website_address)
         if website_developer == 'گروه رایانه تدبیر پرداز':
-            daily_asset_allocation = _get_daily_asset_allocation_tadbirpardaz(fund_name)
+            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_tadbirpardaz, fund_name, website_address)
         elif website_developer == 'شرکت رایان هم افزا':
-            daily_asset_allocation = _get_daily_asset_allocation_rayan_hamafza(fund_name)
+            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_rayan_hamafza, fund_name, website_address)
         elif website_developer == 'پردازش اطلاعات مالی مبنا':
-            daily_asset_allocation = _get_daily_asset_allocation_mabna(fund_name)
+            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_mabna, fund_name, website_address)
         elif website_developer == 'پیکاد':
-            daily_asset_allocation = _get_daily_asset_allocation_pikad(fund_name)
+            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_pikad, fund_name, website_address)
         elif website_developer == 'راهکار حامی پرداز':
-            daily_asset_allocation = _get_daily_asset_allocation_rahkar(fund_name)
+            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_rahkar, fund_name, website_address)
         elif website_developer == 'نوآوران':
-            daily_asset_allocation = _get_daily_asset_allocation_noavaran(fund_name)
+            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_noavaran, fund_name, website_address)
         else:
             raise NotImplementedError(f"Website developer is unknown for fund: {fund_name} | website: {website_address}")
     return daily_asset_allocation
@@ -1073,18 +1137,45 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
 def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
     """Return available investment-fund information from Fipiran.
 
+    Parameters
+    ----------
+    _set_website_developers : bool, default False
+        Probe fund websites to add WebsiteDeveloper. Failed requests are
+        marked Error in this optional metadata column.
+
     Returns
     -------
     pandas.DataFrame
-        Fund metadata and current fund information.
+        Fund metadata and current information, including market makers.
+        WebsiteAddress is the host of the first available website, or None.
+        Missing allocation weights are zero, as with null weights.
+
+    Raises
+    ------
+    requests.RequestException
+        For connection, timeout, certificate, or HTTP errors from Fipiran.
+    ValueError
+        If the catalog or fund-type response is empty or malformed.
 
     Notes
     -----
     This function uses a live external data source, so network or provider
     availability can affect the result.
+    HTTPS certificates are verified. A migrated fund website or invalid
+    certificate may prevent retrieval even when other funds remain reachable.
     """
     url = "https://www.fipiran.ir/services/fund/fundcompare"
-    all_funds = pd.DataFrame(requests.get(url, timeout=30, verify=False).json()['items'])
+    response = _request("POST", url, json={"regNos": [], "showMarketMakers": True})
+    try:
+        all_funds = pd.DataFrame(_records(response, "items"))
+    except ValueError as exc:
+        raise ValueError(f"Fipiran fund catalog: {exc}") from exc
+    _require_columns(all_funds, ["name", "fundType", "typeOfInvest", "fundSize",
+                                "initiationDate", "date"], "Fipiran fund catalog")
+    for column, default in {"websiteAddress": None, "guarantor": None,
+                            "dividendIntervalPeriod": 0}.items():
+        if column not in all_funds:
+            all_funds[column] = default
     # all_funds.drop(['rankOf12Month', 'rankOf24Month', 'rankOf36Month', 'rankOf48Month', 'rankOf60Month',
     #                'rankLastUpdate', 'guaranteedEarningRate', 'articlesOfAssociationLink', 'prosoectusLink',
     #                'fundPublisher', 'fundWatch'], inplace=True, axis=1)
@@ -1115,13 +1206,15 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
         lambda g: jd.date.fromgregorian(date=g) if isinstance(g, dt.date) and not pd.isna(g) else None)
     weight_columns = ['Upper5%Stocks Weight', 'Stocks Weight', 'Bonds Weight', 'Others Weight', 'Cash Weight',
                      'Bank CDs Weight', 'FundUnits Weight', 'Commodities Weight']
-    all_funds.loc[:, weight_columns] = all_funds.loc[:, weight_columns].fillna(0)
+    for column in weight_columns:
+        if column not in all_funds:
+            all_funds[column] = 0
+        all_funds[column] = all_funds[column].fillna(0)
     all_funds['LiquidityGuarantor'] = all_funds['LiquidityGuarantor'].replace('----', '-')
     all_funds['DividendFrequency (Month)'] = all_funds['DividendFrequency (Month)'].fillna(0)
     all_funds['DividendFrequency (Month)'] = all_funds['DividendFrequency (Month)'].astype('int')
     all_funds['DividendFrequency (Month)'] = all_funds['DividendFrequency (Month)'].replace(0, '-')
-    all_funds['WebsiteAddress'] = all_funds['WebsiteAddress'].apply(
-        lambda website_address: website_address[0] if len(website_address) == 1 else None)
+    all_funds['WebsiteAddress'] = all_funds['WebsiteAddress'].apply(_catalog_website)
     all_funds.loc[all_funds['Name'] == 'صندوق تثبیت بازار سرمایه', 'WebsiteAddress'] = 'cmsfund.ir/'
     if _set_website_developers:
         all_funds = _autoset_website_developers(all_funds.copy())
