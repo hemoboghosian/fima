@@ -112,9 +112,12 @@ jobs:
           python -m venv .artifact-venv
           .artifact-venv/bin/python -m pip install --upgrade pip
           .artifact-venv/bin/python -m pip install dist/*.whl
-          .artifact-venv/bin/python - <<'PY'
+          .artifact-venv/bin/python -I - <<'PY'
           import os
+          import sys
           from importlib.metadata import version
+          from pathlib import Path
+          import fima
           from fima.IFB import get_risk_free_rate
           from fima.IME import get_all_ime_physical_trades
           from fima.Options import ticker_info
@@ -125,6 +128,7 @@ jobs:
           installed_version = version("fima")
           expected_version = os.environ["RELEASE_TAG"].removeprefix("v")
           assert installed_version == expected_version
+          assert Path(fima.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
           print("Installed version:", installed_version)
           print("Public import smoke test passed")
           PY
