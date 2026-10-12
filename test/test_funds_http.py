@@ -1,12 +1,13 @@
-import importlib
 import json
-import warnings
+import subprocess
+import sys
 import datetime as dt
 
 import jdatetime as jd
 import pytest
 import requests
 
+import fima
 import fima.Funds as Funds
 
 
@@ -202,13 +203,25 @@ def test_nika_does_not_cache_failed_discovery(monkeypatch):
     assert Funds._get_nika_config_by_host("retry-config.example")["fundId"] == "8"
 
 
-def test_funds_reload_does_not_request_or_change_warning_filters(monkeypatch):
-    def unexpected(*args, **kwargs):
-        pytest.fail("HTTP during import")
-    monkeypatch.setattr(Funds.requests, "get", unexpected)
-    monkeypatch.setattr(Funds.requests, "post", unexpected)
-    with warnings.catch_warnings():
-        warnings.resetwarnings()
-        before = warnings.filters[:]
-        importlib.reload(Funds)
-        assert warnings.filters == before
+def test_funds_reload_does_not_request_or_change_warning_filters():
+    public_functions = {name: getattr(Funds, name) for name in Funds.__all__}
+    # Reload in a child process so later tests retain the package's public aliases.
+    subprocess.run([sys.executable, "-c", """
+import importlib
+import warnings
+import fima.Funds as Funds
+
+def unexpected(*args, **kwargs):
+    raise AssertionError("HTTP during import")
+
+Funds.requests.get = unexpected
+Funds.requests.post = unexpected
+with warnings.catch_warnings():
+    warnings.resetwarnings()
+    before = warnings.filters[:]
+    importlib.reload(Funds)
+    assert warnings.filters == before
+"""], check=True, timeout=30)
+    for name, function in public_functions.items():
+        assert getattr(Funds, name) is function
+        assert getattr(fima, name) is function
