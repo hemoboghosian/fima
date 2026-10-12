@@ -143,3 +143,10 @@ def test_get_daily_asset_allocation_noavaran_live(all_funds):
 
     for column in expected_columns:
         assert column in df.columns
+
+
+def test_pikad_nav_parser_live(monkeypatch):
+    # Resolve the known fund locally so Fipiran downtime does not mask this API check.
+    monkeypatch.setattr(Funds, "_get_fund_website_address", lambda _: "servatfund.ir")
+    df = Funds._get_daily_navs_pikad("ثروت آفرین تمدن")
+    _assert_nav_dataframe(df)

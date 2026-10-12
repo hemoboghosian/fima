@@ -447,88 +447,51 @@ def _detect_website_developer(website: str) -> str:
 
 
 # Tadbirpardaz
+def _tadbir_chart(data, series):
+    if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+        raise ValueError("Invalid Tadbir chart response")
+    result = None
+    for name, column in series.items():
+        matches = [item for item in data if item.get("name") == name]
+        if len(matches) != 1:
+            raise ValueError(f"Tadbir chart requires exactly one series: {name!r}")
+        points = matches[0].get("List")
+        if not isinstance(points, list) or not points or not all(
+                isinstance(point, dict) and point.get("x") is not None and point.get("y") is not None
+                for point in points):
+            raise ValueError(f"Tadbir chart has empty or invalid points: {name!r}")
+        frame = pd.DataFrame(points)[["x", "y"]].rename(columns={"x": "GDate", "y": column})
+        frame["GDate"] = pd.to_datetime(frame["GDate"], format="%m/%d/%Y").dt.date
+        frame[column] = pd.to_numeric(frame[column])
+        if frame["GDate"].duplicated().any():
+            raise ValueError(f"Tadbir chart has duplicate dates: {name!r}")
+        result = frame if result is None else result.merge(frame, on="GDate", how="inner", validate="one_to_one")
+    if result.empty:
+        raise ValueError("Tadbir chart series have no shared reporting dates")
+    result = result.sort_values("GDate", ascending=False, ignore_index=True)
+    result["JDate"] = result["GDate"].apply(_gregorian_to_jalali)
+    return result.drop(columns="GDate")
+
+
 def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
-    fund_id = 1
     website = _get_fund_website_address(fund_name)
-    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
-    response = _request("GET", url)
-    response.raise_for_status()
-    data = _decode_json(response)
-    df = pd.json_normalize(data, sep='_')
-    subscription = pd.DataFrame(df[df['name'] == 'صدور'].loc[0, 'List'])
-    subscription['x'] = pd.to_datetime(subscription['x'], format='%m/%d/%Y').dt.date
-    subscription.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    statistical = pd.DataFrame(df[df['name'] == 'آماری'].loc[1, 'List'])
-    statistical['x'] = pd.to_datetime(statistical['x'], format='%m/%d/%Y').dt.date
-    statistical.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    redemption = pd.DataFrame(df[df['name'] == 'ابطال'].loc[2, 'List'])
-    redemption['x'] = pd.to_datetime(redemption['x'], format='%m/%d/%Y').dt.date
-    redemption.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    navs = pd.DataFrame()
-    navs['GDate'] = subscription['x']
-    navs['Subscription'] = subscription['y']
-    navs['Statistical'] = statistical['y']
-    navs['Redemption'] = redemption['y']
-    navs['JDate'] = navs['GDate'].apply(_gregorian_to_jalali)
-    navs.drop('GDate', axis=1, inplace=True)
-    return navs
+    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId=1"
+    return _tadbir_chart(_decode_json(_request("GET", url)), {
+        "صدور": "Subscription", "آماری": "Statistical", "ابطال": "Redemption"})
 
 
 def _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
-    fund_id = 1
     website = _get_fund_website_address(fund_name)
-    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={fund_id}"
-    response = _request("GET", url)
-    response.raise_for_status()
-    data = _decode_json(response)
-    df = pd.json_normalize(data, sep='_')
-    subscription = pd.DataFrame(df[df['name'] == 'صدور'].loc[0, 'List'])
-    subscription['x'] = pd.to_datetime(subscription['x'], format='%m/%d/%Y').dt.date
-    subscription.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    statistical = pd.DataFrame(df[df['name'] == 'آماری'].loc[1, 'List'])
-    statistical['x'] = pd.to_datetime(statistical['x'], format='%m/%d/%Y').dt.date
-    statistical.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    redemption = pd.DataFrame(df[df['name'] == 'ابطال'].loc[2, 'List'])
-    redemption['x'] = pd.to_datetime(redemption['x'], format='%m/%d/%Y').dt.date
-    redemption.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    preffered_subscription = pd.DataFrame(df[df['name'] == 'صدور ممتاز'].loc[3, 'List'])
-    preffered_subscription['x'] = pd.to_datetime(preffered_subscription['x'], format='%m/%d/%Y').dt.date
-    preffered_subscription.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    preffered_redemption = pd.DataFrame(df[df['name'] == 'ابطال ممتاز'].loc[4, 'List'])
-    preffered_redemption['x'] = pd.to_datetime(preffered_redemption['x'], format='%m/%d/%Y').dt.date
-    preffered_redemption.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    common = pd.DataFrame(df[df['name'] == 'عادی'].loc[5, 'List'])
-    common['x'] = pd.to_datetime(common['x'], format='%m/%d/%Y').dt.date
-    common.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-
-    navs = pd.DataFrame()
-    navs['GDate'] = subscription['x']
-    navs['Subscription'] = subscription['y']
-    navs['Statistical'] = statistical['y']
-    navs['Redemption'] = redemption['y']
-    navs['Common'] = common['y']
-    navs['SpecialSubscription'] = preffered_subscription['y']
-    navs['SpecialRedemption'] = preffered_redemption['y']
-    navs['JDate'] = navs['GDate'].apply(_gregorian_to_jalali)
-    navs.drop('GDate', axis=1, inplace=True)
-    return navs
+    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId=1"
+    return _tadbir_chart(_decode_json(_request("GET", url)), {
+        "صدور": "Subscription", "آماری": "Statistical", "ابطال": "Redemption", "عادی": "Common",
+        "صدور ممتاز": "SpecialSubscription", "ابطال ممتاز": "SpecialRedemption"})
 
 
 def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId=1"
-    response = _request("GET", url)
-    response.raise_for_status()
-    data = _decode_json(response)
-    df = pd.json_normalize(data, sep='_')
-    total_nav = pd.DataFrame(df[df['name'] == ''].loc[0, 'List'])
-    total_nav['x'] = pd.to_datetime(total_nav['x'], format='%m/%d/%Y').dt.date
-    total_nav.sort_values('x', ascending=False, inplace=True, ignore_index=True)
-    total_nav.columns = ['GDate', 'TotalNAV', 'Unknown']
-    total_nav.drop('Unknown', axis=1, inplace=True)
-    total_nav['JDate'] = total_nav['GDate'].apply(_gregorian_to_jalali)
-    total_nav.drop('GDate', axis=1, inplace=True)
-    return total_nav
+    return _tadbir_chart(_decode_json(_request("GET", url)), {"": "TotalNAV"})
 
 
 def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
@@ -538,7 +501,8 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     params = {"basketId": fund_id, "page": 1}
     all_rows = []
     headers = []
-    while True:
+    seen_pages = set()
+    while params["page"] <= 10000:
         # Request the page
         response = _request("GET", base_url, params=params)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -546,9 +510,15 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
         if not headers:
             headers = [th.get_text(strip=True) for th in soup.select("thead th")]
         # Extract data rows
-        for tr in soup.select("tbody tr"):
-            row = [td.get_text(strip=True).replace("\u200c", "") for td in tr.find_all("td")]
-            all_rows.append(row)
+        rows = [tuple(td.get_text(strip=True).replace("\u200c", "") for td in tr.find_all("td"))
+                for tr in soup.select("tbody tr")]
+        if not headers or not rows or any(len(row) != len(headers) for row in rows):
+            raise ValueError(f"Tadbir asset report is empty or malformed: {base_url}")
+        page_rows = tuple(rows)
+        if page_rows in seen_pages:
+            raise ValueError(f"Tadbir asset report repeats a page: {base_url}")
+        seen_pages.add(page_rows)
+        all_rows.extend(rows)
         # Check if there is a next page
         next_page_link = soup.select_one("tfoot .pager a[title='Next page']")
         if next_page_link:
@@ -557,6 +527,8 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
             time.sleep(0.3)  # be polite
         else:
             break
+    else:
+        raise ValueError(f"Tadbir asset report exceeded the page limit: {base_url}")
 
     daily_asset_allocation = pd.DataFrame(all_rows, columns=headers)
 
@@ -776,7 +748,8 @@ def _get_daily_navs_pikad(fund_name: str) -> pd.DataFrame:
                "BranchId": 0, "PartyId": 0}
     response = _request("POST", url, headers=headers, json=payload)
     navs = pd.DataFrame(_records(response, "Result"))
-    navs = navs.iloc[:, 1:6]
+    _require_columns(navs, ["Date", "SubscriptionNAV", "RedemptionNAV", "StaticalNAV", "NetAssetValue"], "Pikad NAV")
+    navs = navs[["Date", "SubscriptionNAV", "RedemptionNAV", "StaticalNAV", "NetAssetValue"]].copy()
     navs['Date'] = pd.to_datetime(navs['Date']).dt.date
     navs['Date'] = navs['Date'].apply(_gregorian_to_jalali)
     navs.rename({'Date': 'JDate', 'SubscriptionNAV': 'Subscription', 'RedemptionNAV': 'Redemption',
@@ -1016,7 +989,9 @@ def _build_nika_nav_url(website: str, start_date: str, end_date: str, page_size:
 def _provider_result(parser, fund_name, website):
     try:
         result = parser(fund_name)
-    except (KeyError, IndexError) as exc:
+    except requests.RequestException:
+        raise
+    except (KeyError, IndexError, ValueError) as exc:
         raise ValueError(f"Invalid provider response for fund {fund_name} | website: {website}; "
                          f"missing or unexpected fields: {exc}") from exc
     if result.empty:
