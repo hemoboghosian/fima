@@ -150,3 +150,22 @@ def test_pikad_nav_parser_live(monkeypatch):
     monkeypatch.setattr(Funds, "_get_fund_website_address", lambda _: "servatfund.ir")
     df = Funds._get_daily_navs_pikad("ثروت آفرین تمدن")
     _assert_nav_dataframe(df)
+
+
+@pytest.fixture
+def current_rayan_fund(monkeypatch):
+    # This identity was verified in Fipiran; provider HTTP responses remain live.
+    name = "مشترک عقیق"
+    metadata = pd.DataFrame([{"Name": name, "WebsiteAddress": "aghighfund.com", "FundType": "در سهام"}])
+    monkeypatch.setattr(Funds, "get_all_funds", lambda **kwargs: metadata.copy())
+    return name
+
+
+def test_get_daily_navs_current_rayan_live(current_rayan_fund):
+    _assert_nav_dataframe(Funds.get_daily_navs(current_rayan_fund))
+
+
+def test_get_daily_asset_allocation_current_rayan_live(current_rayan_fund):
+    df = Funds.get_daily_asset_allocation(current_rayan_fund)
+    _assert_asset_allocation_dataframe(df)
+    assert {"Stocks", "Upper5%Stocks", "Bonds", "Cash", "Bank", "FundUnits", "CCDs", "OtherAssets"}.issubset(df.columns)
