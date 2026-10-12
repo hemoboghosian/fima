@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.1
+
+### Fixed
+
+- Funds catalog filtering excludes market-maker instrument rows while retaining
+  market-maker funds and other funds' legitimate compartments.
+- `fima.Funds` wildcard imports and runtime discovery expose the three public
+  functions through `__all__` and `__dir__`.
+- Funds reload regression checks run in an isolated process so deterministic
+  public-alias tests pass regardless of test order.
+
+### Compatibility and provider limitations
+
+- Explicit imports, top-level aliases, and public signatures remain compatible,
+  including the existing `_set_website_developers` keyword. Private helpers
+  remain accessible explicitly; static IDE completion can vary.
+- During release preparation, emacofund.ir NAV requests failed certificate
+  hostname verification independently of fima. This external provider/environment
+  problem prevents access to that site's data; HTTPS verification remains enabled.
+
 ## 0.5.0
 
 ### Added
