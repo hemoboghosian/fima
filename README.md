@@ -118,6 +118,62 @@ tickers = get_tickers(tse=True, ifb=True, details=False)
 history = get_ticker_historical_data(ticker="فملی")
 ```
 
+#### Optional reference-price-based backward adjustment
+
+```python
+from fima.TSETMC import get_ticker_historical_data, adjust_historical_prices
+
+history = get_ticker_historical_data(
+    ticker_instrument_code="35425587644337450", adjust_prices=True,
+)
+prices = history[["ClosePrice", "LastPrice", "AdjustmentFactor",
+                  "AdjustedClosePrice", "AdjustedLastPrice"]]
+
+# For an earlier anchor, filter RAW history first, then adjust the subset.
+import jdatetime as jd
+
+raw = get_ticker_historical_data(ticker="فملی")
+as_of = adjust_historical_prices(raw.loc[raw.index <= jd.date(1403, 12, 29)])
+```
+
+`adjust_prices` is keyword-only and defaults to `False`; existing positional
+arguments, raw columns and Jalali index remain compatible. `ClosePrice` is the
+official closing price (`pClosing`); `LastPrice` is the last traded price
+(`pDrCotVal`). `YesterdayPrice` (`priceYesterday`) is the exchange reference,
+which can differ from the previous observation's official close.
+
+For ascending actual dates, define `q[t] = YesterdayPrice[t] / ClosePrice[t-1]`.
+`AdjustmentFactor[t]` multiplies all subsequent ratios through the latest
+supplied date; its terminal value is intentionally 1. The helper appends
+`AdjustedClosePrice`, `AdjustedLastPrice`, `AdjustedFirstPrice`,
+`AdjustedMinPrice` and `AdjustedMaxPrice`, each raw price times that factor.
+It preserves every raw field, row, index label and output order, including
+zero-trade rows; volume, value, counts, shares and market capitalization are
+unchanged. Values retain float64 precision without rounding. Apply `.round(0)`
+to selected adjusted price columns afterward if whole-rial presentation is needed.
+
+The pure helper performs no HTTP calls. Supply one instrument per call, with
+the six raw price/reference columns and Gregorian `GDate`, Jalali `JDate`, a
+`DatetimeIndex`, or fima's `JDate` index. Dates must be unambiguous and unique;
+identifier columns, when supplied, must identify one known instrument.
+Missing columns, duplicate dates, mixed instruments, nonfinite arithmetic and
+invalid prices raise `ValueError`. Close prices and references used in ratios
+must be finite and positive; the oldest reference is unused. A reference of
+1000 is valid. Zero non-closing prices are allowed only on explicit
+`TransactionNo == 0` rows. Empty histories with the required schema return
+empty added columns; a single row has factor 1.
+
+Downloads anchor at the latest returned observation, with no date filtering.
+To exclude later actions, filter **raw** observations before calling the helper;
+filtering already adjusted output retains its original anchor. Later reference
+changes can revise earlier adjusted levels. All supplied observations are linked
+across gaps, halts and reopening dates. A filtered or incomplete history cannot
+establish session completeness or the reason for a mismatch. This is TSETMC
+reference-price-based backward-adjusted history, not a validated investor
+total-return series or a guarantee of exact rights/cash-subscription treatment.
+
+Source verification and comparison evidence: [TSETMC adjustment notes](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-adjustment.md).
+
 ### نهادهای مالی
 
 ```python
@@ -221,6 +277,7 @@ asset_allocation = get_daily_asset_allocation("نام صندوق")
 - `get_ticker_historical_trades_client_type`
 - `get_ticker_historical_market_caps`
 - `get_ticker_historical_data`
+- `adjust_historical_prices`
 - `get_ticker_intraday_trades`
 - `get_indexes_status`
 - `get_index_historical_data`
