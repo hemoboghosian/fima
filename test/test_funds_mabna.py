@@ -21,10 +21,10 @@ def current_mabna(monkeypatch):
     def get(url, **kwargs):
         params = kwargs.get("params") or {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
         calls.append((url, params))
-        # Keep the existing parser's positions; this test characterizes query bounds,
-        # not an unverified upstream record-key contract.
-        record = {"date_time": "2026-10-11T00:00:00"}
-        record.update({f"field_{i}": i * 10 for i in range(1, 13)})
+        # Current provider fields are verified; query-bound assertions remain exact.
+        record = {"date_time": "2026-10-11T00:00:00", "purchase_price": 20,
+                  "redemption_price": 30, "statistical_value": 120,
+                  "total_net_asset_value_with_buy_commission_and_discount": 50}
         rows = [record] if params["end_date"] >= "2026-10-11" else []
         return response({"data": rows}, url=url)
 
@@ -32,14 +32,17 @@ def current_mabna(monkeypatch):
     return calls
 
 
-def assert_query(call, size):
+def assert_query(call, size, portfolio=False):
     url, params = call
     assert url == "https://fund.example/api/v2/public/reports/navps"
-    assert params == {
+    expected = {
         "start_date": "1997-11-10T08:13:36.377Z",
         "end_date": "2026-10-12T12:30:45.123Z",
         "page": 1, "size": size,
     }
+    if portfolio:
+        expected["portfolio_id"] = 1
+    assert params == expected
 
 
 def test_mabna_discovery_includes_recent_history(current_mabna):
@@ -50,4 +53,4 @@ def test_mabna_discovery_includes_recent_history(current_mabna):
 def test_mabna_history_includes_recent_dates(current_mabna):
     result = Funds._get_daily_navs_mabna("A")
     assert result["JDate"].tolist() == [jd.date(1405, 7, 19)]
-    assert_query(current_mabna[0], 1000000)
+    assert_query(current_mabna[0], 1000000, portfolio=True)
