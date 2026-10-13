@@ -119,8 +119,11 @@ def test_oldest_reference_is_unused_but_later_missing_reference_rejected():
         TSETMC.adjust_historical_prices(raw)
 
 
-@pytest.mark.parametrize('column', ['LastPrice', 'FirstPrice', 'MinPrice', 'MaxPrice'])
-@pytest.mark.parametrize('bad', [0, -1, np.nan, np.inf])
+@pytest.mark.parametrize(('column', 'bad'), [
+    (column, bad) for column in ['LastPrice', 'FirstPrice', 'MinPrice', 'MaxPrice']
+    for bad in [0, -1, np.nan, np.inf]
+    if (column, bad) != ('FirstPrice', 0)  # Zero opening is a supported provider value.
+])
 def test_invalid_traded_prices(column, bad):
     raw = history().astype({column: float})
     raw.loc['row-1', column] = bad
@@ -164,8 +167,8 @@ def test_nonfinite_cumulative_factor_rejected():
 def test_zero_price_requires_explicit_zero_transaction_count(count):
     raw = history().astype({'TransactionNo': 'Int64'})
     raw.loc['row-1', 'TransactionNo'] = count
-    raw.loc['row-1', 'FirstPrice'] = 0
-    with pytest.raises(ValueError, match='FirstPrice'):
+    raw.loc['row-1', 'MinPrice'] = 0
+    with pytest.raises(ValueError, match='MinPrice'):
         TSETMC.adjust_historical_prices(raw)
 
 
@@ -241,3 +244,61 @@ def test_download_rejects_mixed_instrument_payload(monkeypatch):
     monkeypatch.setattr(TSETMC.requests, 'get', lambda *a, **k: Mock(json=lambda: {'closingPriceDaily': records}))
     with pytest.raises(ValueError, match='instrument'):
         TSETMC.get_ticker_historical_data(ticker_instrument_code='123', adjust_prices=True)
+
+
+@pytest.mark.parametrize('descending', [False, True])
+def test_zero_opening_on_traded_observation_preserves_ratios(descending):
+    raw = history()
+    raw.loc['row-1', 'FirstPrice'] = 0
+    if descending:
+        raw = raw.iloc[::-1]
+    adjusted = TSETMC.adjust_historical_prices(raw)
+    expected = [1, .5, .4] if descending else [.4, .5, 1]
+    np.testing.assert_allclose(adjusted.AdjustmentFactor, expected)
+    assert adjusted.loc['row-1', 'AdjustedFirstPrice'] == 0
+    assert adjusted.loc['row-1', 'TransactionNo'] == 1
+    np.testing.assert_allclose(adjusted.AdjustedClosePrice, raw.ClosePrice * expected)
+    assert_frame_equal(adjusted[raw.columns], raw)
+
+
+def test_mocked_official_traded_row_with_zero_opening(monkeypatch):
+    # Official Shasta daily record observed on 2026-10-13, not a live CI request.
+    record = {
+        'priceChange': 22.0, 'priceMin': 1244.0, 'priceMax': 1285.0,
+        'priceYesterday': 1251.0, 'priceFirst': 0.0, 'last': False,
+        'id': 0, 'insCode': '2400322364771558', 'dEven': 20231009,
+        'hEven': 123000, 'pClosing': 1267.0, 'iClose': False,
+        'yClose': True, 'pDrCotVal': 1273.0, 'zTotTran': 5605.0,
+        'qTotTran5J': 361020673.0, 'qTotCap': 457514177348.0,
+    }
+    get = Mock(return_value=Mock(json=lambda: {'closingPriceDaily': [record]}))
+    monkeypatch.setattr(TSETMC.requests, 'get', get)
+    monkeypatch.setattr(TSETMC, '_find_instrument_code', lambda ticker: '2400322364771558')
+    raw = TSETMC.get_ticker_historical_data(ticker='شستا')
+    adjusted = TSETMC.get_ticker_historical_data(ticker='شستا', adjust_prices=True)
+    assert_frame_equal(adjusted[raw.columns], raw)
+    assert adjusted.AdjustmentFactor.iloc[0] == 1
+    assert adjusted.FirstPrice.iloc[0] == adjusted.AdjustedFirstPrice.iloc[0] == 0
+    assert adjusted.ClosePrice.iloc[0] == adjusted.AdjustedClosePrice.iloc[0] == 1267
+    assert adjusted.LastPrice.iloc[0] == adjusted.AdjustedLastPrice.iloc[0] == 1273
+    assert adjusted.TransactionNo.iloc[0] == 5605
+    assert get.call_count == 2
+
+
+@pytest.mark.parametrize('transaction_count', [None, pd.NA, 0, 1])
+def test_zero_opening_does_not_require_transaction_count(transaction_count):
+    raw = history().astype({'TransactionNo': 'Int64'})
+    raw.loc['row-1', 'TransactionNo'] = transaction_count
+    raw.loc['row-1', 'FirstPrice'] = 0
+    adjusted = TSETMC.adjust_historical_prices(raw)
+    assert adjusted.loc['row-1', 'AdjustedFirstPrice'] == 0
+    np.testing.assert_allclose(adjusted.AdjustmentFactor, [.4, .5, 1])
+    without_counts = TSETMC.adjust_historical_prices(raw.drop(columns='TransactionNo'))
+    np.testing.assert_allclose(without_counts.AdjustmentFactor, adjusted.AdjustmentFactor)
+
+
+def test_negative_opening_on_zero_trade_row_is_rejected():
+    raw = history()
+    raw.loc['row-1', ['TransactionNo', 'FirstPrice']] = [0, -1]
+    with pytest.raises(ValueError, match='FirstPrice'):
+        TSETMC.adjust_historical_prices(raw)

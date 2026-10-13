@@ -73,6 +73,27 @@ availability or exact-match guarantees.
 
 ## Supporting events and limitations
 
+### Zero opening fields on traded observations
+
+During the 2026-10-13 investigation of Issue #36, the official daily history
+for Shasta, InsCode 2400322364771558, returned a 2023-10-09 record with
+`priceFirst=0`, 5,605 transactions, closing price 1,267, last trade 1,273,
+minimum 1,244 and maximum 1,285. The legacy official history for the same
+instrument/date supplied opening price 1,244; a subsequent daily response also
+supplied 1,244. Responses varied in row coverage as well. These observations
+show that a zero opening field is not evidence of zero trades or a genuine
+zero execution price. The exact cause of the source discrepancy is unverified.
+
+Fima preserves the supplied zero in both `FirstPrice` and `AdjustedFirstPrice`
+without fetching or inferring a replacement. It does not use the opening price
+in adjustment ratios, so this source value must not reject the entire chain.
+Negative, missing and nonfinite opening values still fail validation. Closing
+and used reference prices remain finite and positive; zero last/minimum/maximum
+prices still require an explicit zero transaction count. The captured Shasta
+record is covered by a mocked deterministic regression. Foolad's reported error
+was reproduced in a ticker call, but subsequent responses passed; the offending
+Foolad record was not captured, so its exact date is not established.
+
 The official
 [event endpoint](https://cdn.tsetmc.com/api/ClosingPrice/GetPriceAdjustList/35425587644337450)
 returned 24 entries with null `corporateTypeCode`. Its two separate entries on
