@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- TSETMC adjustment accepts an official zero opening field on traded rows,
+  preserving raw/adjusted zero without imputing a price. Closing/reference
+  ratio validation and checks for other price fields remain enforced.
+- The README's TSETMC explanation is in Persian, with API identifiers and
+  formulas preserved and the zero-opening behavior documented.
+
 ## 0.6.0
 
 ### Added

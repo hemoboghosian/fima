@@ -70,9 +70,12 @@ def test_get_ticker_historical_data(ticker):
         assert column in ticker_historical_data.columns
 
 
-def test_get_adjusted_historical_data_by_instrument_code():
+@pytest.mark.parametrize('instrument_code', [
+    '35425587644337450', '46348559193224090', '2400322364771558',
+])
+def test_get_adjusted_historical_data_by_instrument_code(instrument_code):
     history = get_ticker_historical_data(
-        ticker_instrument_code='35425587644337450', adjust_prices=True)
+        ticker_instrument_code=instrument_code, adjust_prices=True)
     assert not history.empty
     assert history.index.is_unique
     assert history.loc[max(history.index), 'AdjustmentFactor'] == 1

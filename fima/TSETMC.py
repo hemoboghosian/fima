@@ -275,8 +275,11 @@ def adjust_historical_prices(data: pd.DataFrame) -> pd.DataFrame:
 
     Raise ValueError for missing columns/dates, duplicate dates, instrument
     mixing, invalid prices/references or nonfinite arithmetic. Prices must be
-    positive and finite, except zero non-closing prices on rows explicitly
-    marked TransactionNo == 0. Positive reference prices of 1000 are valid.
+    positive and finite, except FirstPrice may be zero even on traded rows:
+    TSETMC can supply a zero opening field while reporting positive trade
+    prices. Preserve that zero in AdjustedFirstPrice without imputing a price.
+    Other zero non-closing prices require TransactionNo == 0. Positive
+    reference prices of 1000 are valid.
     No network requests are made. This is not a validated total-return series.
     """
     prices = ['ClosePrice', 'LastPrice', 'FirstPrice', 'MinPrice', 'MaxPrice']
@@ -326,10 +329,14 @@ def adjust_historical_prices(data: pd.DataFrame) -> pd.DataFrame:
         values = pd.to_numeric(data[column], errors='coerce').to_numpy(dtype=float, na_value=np.nan)
         checked = values[order][1:] if column == 'YesterdayPrice' else values
         valid = np.isfinite(checked) & (checked > 0)
-        if column in prices and column != 'ClosePrice':
+        if column == 'FirstPrice':
+            valid |= values == 0
+        elif column in prices and column != 'ClosePrice':
             valid |= zero_trade & (values == 0)
         if not valid.all():
-            raise ValueError(f'{column} must contain finite positive prices; zero non-closing prices require TransactionNo == 0.')
+            requirement = 'nonnegative' if column == 'FirstPrice' else 'positive'
+            raise ValueError(f'{column} must contain finite {requirement} prices; '
+                             'zero LastPrice/MinPrice/MaxPrice require TransactionNo == 0.')
         numeric[column] = values
 
     with np.errstate(over='ignore', under='ignore', invalid='ignore', divide='ignore'):
