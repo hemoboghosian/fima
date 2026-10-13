@@ -1,5 +1,6 @@
 import jdatetime as jd
 import pandas as pd
+import numpy as np
 import requests
 from persian import convert_ar_characters
 from concurrent.futures import ThreadPoolExecutor
@@ -248,13 +249,131 @@ def _get_static_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     return paper_types, industrial_groups
 
 
-def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=None) -> pd.DataFrame:
+def adjust_historical_prices(data: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with TSETMC reference-price-based backward-adjusted prices.
+
+    Supply one instrument's raw history, including ClosePrice, YesterdayPrice,
+    LastPrice, FirstPrice, MinPrice and MaxPrice. Dates must be in GDate
+    (Gregorian), JDate (Jalali), a DatetimeIndex, or the JDate index returned by
+    get_ticker_historical_data. Identifier columns, when present, must describe
+    one known instrument; histories from different instruments must be processed
+    separately, even when their tickers match.
+
+    Calculation uses ascending actual dates and every supplied observation,
+    including zero-trade rows. Each ratio is the current YesterdayPrice divided
+    by the preceding ClosePrice. A row's AdjustmentFactor is the product of all
+    subsequent ratios. The latest supplied date has factor 1; filtering BEFORE
+    calling this function changes that endpoint. Later actions can revise older
+    adjusted levels. The oldest reference is unused, since no preceding close
+    is available. Gaps are linked as observed, not certified as complete sessions
+    or classified as corporate actions.
+
+    Append AdjustmentFactor and AdjustedClosePrice, AdjustedLastPrice,
+    AdjustedFirstPrice, AdjustedMinPrice and AdjustedMaxPrice as float64 values
+    without rounding. Preserve the index, row order and all raw columns. Empty
+    histories return empty added columns; a single row has factor 1.
+
+    Raise ValueError for missing columns/dates, duplicate dates, instrument
+    mixing, invalid prices/references or nonfinite arithmetic. Prices must be
+    positive and finite, except zero non-closing prices on rows explicitly
+    marked TransactionNo == 0. Positive reference prices of 1000 are valid.
+    No network requests are made. This is not a validated total-return series.
+    """
+    prices = ['ClosePrice', 'LastPrice', 'FirstPrice', 'MinPrice', 'MaxPrice']
+    if not data.columns.is_unique:
+        raise ValueError('Historical data must have unique column names.')
+    missing = [column for column in prices + ['YesterdayPrice'] if column not in data]
+    if missing:
+        raise ValueError(f'Missing historical price columns: {missing}')
+    result = data.copy()
+    if data.empty:
+        for column in ['AdjustmentFactor'] + ['Adjusted' + price for price in prices]:
+            result[column] = np.array([], dtype=float)
+        return result
+
+    identifiers = [column for column in ['InstrumentCode', 'insCode'] if column in data]
+    if not identifiers and 'Ticker' in data:
+        identifiers = ['Ticker']
+    for column in identifiers:
+        values = data[column]
+        if values.isna().any() or values.astype(str).str.strip().eq('').any() or values.nunique() != 1:
+            raise ValueError(f'Historical data must contain one known instrument ({column}).')
+
+    try:
+        if 'GDate' in data:
+            dates = pd.to_datetime(data['GDate'].astype(str), errors='raise', format='mixed')
+        elif 'JDate' in data or data.index.name == 'JDate':
+            source = data['JDate'] if 'JDate' in data else data.index
+            dates = pd.to_datetime([
+                (value if isinstance(value, jd.date) else jd.date(*map(int, str(value).split('-')))).togregorian()
+                for value in source
+            ])
+        elif isinstance(data.index, pd.DatetimeIndex):
+            dates = data.index
+        else:
+            raise ValueError('Supply GDate, JDate, a DatetimeIndex or a JDate index.')
+        dates = pd.DatetimeIndex(dates).normalize()
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f'Invalid historical dates: {exc}') from exc
+    if dates.isna().any() or dates.has_duplicates:
+        raise ValueError('Historical dates must be present and unique per instrument.')
+    order = np.argsort(dates.asi8, kind='stable')
+
+    numeric = {}
+    zero_trade = (data['TransactionNo'].eq(0).fillna(False).to_numpy(dtype=bool)
+                  if 'TransactionNo' in data else np.zeros(len(data), dtype=bool))
+    for column in prices + ['YesterdayPrice']:
+        values = pd.to_numeric(data[column], errors='coerce').to_numpy(dtype=float, na_value=np.nan)
+        checked = values[order][1:] if column == 'YesterdayPrice' else values
+        valid = np.isfinite(checked) & (checked > 0)
+        if column in prices and column != 'ClosePrice':
+            valid |= zero_trade & (values == 0)
+        if not valid.all():
+            raise ValueError(f'{column} must contain finite positive prices; zero non-closing prices require TransactionNo == 0.')
+        numeric[column] = values
+
+    with np.errstate(over='ignore', under='ignore', invalid='ignore', divide='ignore'):
+        subsequent = np.ones(len(data), dtype=float)
+        subsequent[:-1] = numeric['YesterdayPrice'][order][1:] / numeric['ClosePrice'][order][:-1]
+        chronological_factors = np.cumprod(subsequent[::-1])[::-1]
+        factors = np.empty(len(data), dtype=float)
+        factors[order] = chronological_factors
+        if not (np.isfinite(factors) & (factors > 0)).all():
+            raise ValueError('Adjustment factors must remain finite and positive.')
+        result['AdjustmentFactor'] = factors
+        for column in prices:
+            adjusted = numeric[column] * factors
+            if not np.isfinite(adjusted).all() or ((numeric[column] > 0) & (adjusted == 0)).any():
+                raise ValueError(f'Adjusted{column} must remain finite and positive for positive prices.')
+            result['Adjusted' + column] = adjusted
+    return result
+
+
+def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=None, *,
+                               adjust_prices: bool=False) -> pd.DataFrame:
+    """Download official TSETMC daily history with a Jalali date index.
+
+    ticker is resolved only when ticker_instrument_code is None. ClosePrice is
+    pClosing (official close); LastPrice is pDrCotVal (last trade), and
+    YesterdayPrice is priceYesterday (exchange reference). With adjust_prices
+    False, return raw columns. True appends floating-point adjusted prices via
+    adjust_historical_prices, anchored at the latest returned observation.
+    All raw observations and non-price fields remain unchanged. No date filter
+    is applied. Provider/network errors propagate; invalid adjustment inputs
+    raise ValueError. An unresolved ticker retains the legacy None result.
+    """
     if ticker_instrument_code is None:
         ticker_instrument_code  = _find_instrument_code(ticker)
     if ticker_instrument_code != '':
         url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{ticker_instrument_code}/0"
         ticker_historical_data = pd.DataFrame(requests.get(url, timeout=15).json()['closingPriceDaily'])
-        ticker_historical_data.drop(['iClose', 'id', 'hEven', 'insCode', 'yClose', 'last'], axis=1, inplace=True)
+        if ticker_historical_data.empty:
+            ticker_historical_data = pd.DataFrame(columns=[
+                'PriceChange', 'MinPrice', 'MaxPrice', 'YesterdayPrice', 'FirstPrice',
+                'ClosePrice', 'LastPrice', 'TransactionNo', 'Volume', 'Value',
+            ], index=pd.Index([], name='JDate'))
+            return adjust_historical_prices(ticker_historical_data) if adjust_prices else ticker_historical_data
+        ticker_historical_data.drop(['iClose', 'id', 'hEven', 'yClose', 'last'], axis=1, inplace=True)
         ticker_historical_data.rename(columns={'priceChange': 'PriceChange', 'priceMin': 'MinPrice', 'priceMax': 'MaxPrice',
                                                'priceYesterday': 'YesterdayPrice', 'priceFirst': 'FirstPrice',
                                                'dEven': 'GDate', 'pClosing': 'ClosePrice',
@@ -264,6 +383,9 @@ def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=Non
         ticker_historical_data['JDate'] = ticker_historical_data['GDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
         ticker_historical_data.drop('GDate', axis=1, inplace=True)
         ticker_historical_data.set_index('JDate', inplace=True)
+        if adjust_prices:
+            ticker_historical_data = adjust_historical_prices(ticker_historical_data)
+        ticker_historical_data.drop('insCode', axis=1, inplace=True)
         return ticker_historical_data
     else:
         print('Could not find ticker instrument code to download the historical data.')

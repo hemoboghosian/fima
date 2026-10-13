@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Optional TSETMC reference-price-based backward adjustment via keyword-only
+  `get_ticker_historical_data(..., adjust_prices=True)` and the pure
+  `adjust_historical_prices` helper. Raw prices, row order, zero-trade records
+  and non-price fields are preserved; adjusted prices keep floating precision
+  and anchor at the latest supplied observation.
+- Deterministic adjustment/validation tests and a separate live smoke test.
+  Invalid references, duplicate dates and instrument mixing raise `ValueError`.
+  Empty provider histories return a dataframe with the historical schema.
+
 ## 0.5.2
 
 ### Fixed

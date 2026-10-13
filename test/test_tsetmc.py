@@ -70,6 +70,18 @@ def test_get_ticker_historical_data(ticker):
         assert column in ticker_historical_data.columns
 
 
+def test_get_adjusted_historical_data_by_instrument_code():
+    history = get_ticker_historical_data(
+        ticker_instrument_code='35425587644337450', adjust_prices=True)
+    assert not history.empty
+    assert history.index.is_unique
+    assert history.loc[max(history.index), 'AdjustmentFactor'] == 1
+    assert (history['AdjustmentFactor'] > 0).all()
+    for column in ['ClosePrice', 'LastPrice', 'FirstPrice', 'MinPrice', 'MaxPrice']:
+        assert 'Adjusted' + column in history
+    assert (history['TransactionNo'] == 0).any()
+
+
 @pytest.mark.parametrize("ticker", ['فملی', 'شستا'])
 def test_get_ticker_intraday_trades(ticker):
     ticker_intraday_trades = get_ticker_intraday_trades(ticker=ticker)
