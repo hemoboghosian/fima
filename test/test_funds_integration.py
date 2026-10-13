@@ -174,3 +174,33 @@ def test_get_daily_asset_allocation_current_rayan_live(current_rayan_fund):
     df = Funds.get_daily_asset_allocation(current_rayan_fund)
     _assert_asset_allocation_dataframe(df)
     assert {"Stocks", "Upper5%Stocks", "Bonds", "Cash", "Bank", "FundUnits", "CCDs", "OtherAssets"}.issubset(df.columns)
+
+
+@pytest.mark.parametrize("host,name,kind,allocation", [
+    ("agahgardan.com", "اختصاصی بازارگردانی آگاه", "اختصاصی بازارگردانی", False),
+    ("tak.fund", "اختصاصی بازارگردانی تاک دانا", "اختصاصی بازارگردانی", False),
+    ("narenj.fund", "سهامی اهرمی نارنج", "در سهام-سهامی اهرمی", False),
+    ("kianfunds10.ir", "سهامی اهرمی شاخصی کیان", "در سهام-سهامی اهرمی", False),
+    ("daya.charismafunds.ir", "مزه - صندوق س صنایع دایا3-بخشی", "در سهام-بخشی", False),
+    ("gostareh.fundz.ir", "صندوق س.بخشی گستره فیروزه3 (نمک)", "در سهام-بخشی", False),
+    ("kianfunds10.ir", "سهامی اهرمی شاخصی کیان", "در سهام-سهامی اهرمی", True),
+    ("daya.charismafunds.ir", "مزه - صندوق س صنایع دایا3-بخشی", "در سهام-بخشی", True),
+    ("mizandaric.ir", "اختصاصی بازارگردانی میزان داریک", "اختصاصی بازارگردانی", True),
+])
+def test_specialized_fund_histories_live(monkeypatch, host, name, kind, allocation):
+    # These identities were verified in Fipiran. Isolate provider checks from
+    # catalog outages; test_get_all_funds_live still checks the live catalog.
+    metadata = pd.DataFrame([{"Name": name, "WebsiteAddress": host, "FundType": kind}])
+    monkeypatch.setattr(Funds, "get_all_funds", lambda **kwargs: metadata.copy())
+    download = Funds.get_daily_asset_allocation if allocation else Funds.get_daily_navs
+    result = download(name)
+    assert isinstance(result, pd.DataFrame) and not result.empty
+    column = "Date" if allocation else "JDate"
+    assert result[column].map(lambda value: isinstance(value, jd.date)).all()
+    if host in {"agahgardan.com", "tak.fund"}:
+        # The provider's current aggregate summary independently corroborates
+        # the aggregate history rather than the unrelated /nav/1 basket.
+        summary = Funds._safe_get_json(f"https://{host}/api/v1/public/mixNavInfo/1")
+        dated = result[result["JDate"] == Funds._jalali_str_to_date(summary["jalaliDate"])]
+        assert len(dated) == 1
+        assert dated.iloc[0]["TotalNAV"] == int(summary["nav"].replace(",", ""))

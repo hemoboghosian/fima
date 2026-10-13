@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 import re
 from email.utils import parsedate_to_datetime
+from contextvars import ContextVar
 
 __all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation"]
 
@@ -36,7 +37,97 @@ NIKA_MANUAL_CONFIGS = \
     }
 
 
-NO_PUBLIC_NAV_FUND_TYPES = {"جسورانه", "اختصاصی بازارگردانی", "زمین و ساختمان", "خصوصی", "پروژه‌ای"}
+NO_PUBLIC_NAV_FUND_TYPES = {"جسورانه", "زمین و ساختمان", "خصوصی", "پروژه‌ای"}
+_fund_request_context = ContextVar("fund_request_context", default=None)
+
+
+def _fund_label(name):
+    name = str(name).translate(str.maketrans({"ي": "ی", "ك": "ک"})).strip()
+    name = re.sub(r"^صندوق\s+(?:سرمایه[\s\u200c]*گذاری\s+|س\.?\s+)", "", name)
+    name = re.sub(r"^صندوق\s+", "", name)
+    # Aghigh's verified provider name changed from مشترک to قابل معامله.
+    name = re.sub(r"^(?:مشترک|قابل\s+معامله)\s+", "", name)
+    name = re.sub(r"^(?:در\s+اوراق\s+بهادار\s+)?با\s*درآمد\s+ثابت\s+", "", name)
+    name = re.sub(r"^اختصاصی\s+(?=بازار\s*گردانی)", "", name)
+    return re.sub(r"\s|\u200c", "", name)
+
+
+def _select_fund_id(items, id_key, name_key, provider):
+    context = _fund_request_context.get()
+    row = context["row"]
+    name = _fund_label(row["Name"])
+    ticker = row.get("Ticker")
+    matches = set()
+    for item in items:
+        if not isinstance(item, dict) or name_key not in item or id_key not in item:
+            raise ValueError(f"Invalid {provider} fund identity response")
+        label = str(item[name_key])
+        base_name = re.sub(r"\([^()]*\)\s*$", "", label)
+        tickers = re.findall(r"\(([^()]*)\)", label)
+        if (_fund_label(label) == name or _fund_label(base_name) == name
+                or isinstance(ticker, str) and ticker.strip()
+                and (_fund_label(ticker) == _fund_label(label)
+                     or any(_fund_label(ticker) == _fund_label(t) for t in tickers))):
+            matches.add(str(item[id_key]))
+    if len(matches) != 1:
+        raise NotImplementedError(f"Cannot resolve {provider} identity for fund {row['Name']}; "
+                                  "the website may expose only underlying baskets")
+    value = next(iter(matches))
+    if not re.fullmatch(r"[1-9]\d*", value):
+        raise ValueError(f"Invalid {provider} fund identity: {value!r}")
+    return int(value)
+
+
+def _rayan_fund_id(website):
+    context = _fund_request_context.get()
+    if context is None:
+        return 1
+    if "rayan_id" not in context:
+        data = _safe_get_json(f"https://{website}/api/v1/public/fundItems")
+        if data is None and context["row"]["FundType"] != "اختصاصی بازارگردانی":
+            context["rayan_id"] = 1  # Legacy single-fund sites have no fundItems API.
+        else:
+            if not isinstance(data, list) or not data:
+                raise NotImplementedError(f"No Rayan identity for fund {context['row']['Name']}")
+            context["rayan_id"] = _select_fund_id(data, "fundId", "fundName", "Rayan")
+    return context["rayan_id"]
+
+
+def _tadbir_basket_id(website):
+    context = _fund_request_context.get()
+    if context is None:
+        return 1
+    if "tadbir_id" not in context:
+        soup = BeautifulSoup(_request("GET", f"https://{website}").text, "html.parser")
+        selectors = soup.select("select#basketId")
+        if not selectors:
+            context["tadbir_id"] = 1
+        else:
+            # Some pages repeat selectors, with the parent only in the report selector.
+            options = {(option.get("value"), option.get_text(strip=True))
+                       for selector in selectors for option in selector.select("option")}
+            items = [{"id": value, "name": name} for value, name in options]
+            try:
+                context["tadbir_id"] = _select_fund_id(items, "id", "name", "Tadbir")
+            except NotImplementedError as exc:
+                raise ValueError(f"Tadbir fund identity is missing or ambiguous for {context['row']['Name']}") from exc
+    return context["tadbir_id"]
+
+
+def _mabna_portfolio_id(website):
+    context = _fund_request_context.get()
+    if context is None:
+        return 1
+    if "mabna_id" not in context:
+        data = _safe_get_json(f"https://{website}/api/v2/public/fund/portfolios")
+        if data is None and context["row"]["FundType"] != "اختصاصی بازارگردانی":
+            context["mabna_id"] = 1
+        else:
+            items = data.get("data") if isinstance(data, dict) else None
+            if not isinstance(items, list) or not items:
+                raise ValueError("Invalid Mabna portfolio identity response")
+            context["mabna_id"] = _select_fund_id(items, "id", "name", "Mabna")
+    return context["mabna_id"]
 
 
 # GENERAL HELPER FUNCTIONS
@@ -56,9 +147,11 @@ def _retry_delay(response):
 
 def _request(method: str, url: str, timeout=30, **kwargs):
     """Verified, finite requests; retry a transient GET status at most once."""
+    context = _fund_request_context.get()
+    client = context.get("session", requests) if context is not None else requests
     for attempt in range(2):
         try:
-            response = getattr(requests, method.lower())(
+            response = getattr(client, method.lower())(
                 url, timeout=timeout, verify=True, allow_redirects=True, **kwargs)
         except requests.RequestException as exc:
             raise type(exc)(f"Funds {method} {url}: {exc}",
@@ -476,6 +569,9 @@ def _tadbir_chart(data, series):
         frame = pd.DataFrame(points)[["x", "y"]].rename(columns={"x": "GDate", "y": column})
         frame["GDate"] = pd.to_datetime(frame["GDate"], format="%m/%d/%Y").dt.date
         frame[column] = pd.to_numeric(frame[column])
+        # Current Jahesh and Bidar charts repeat identical date/value points.
+        # Removing exact repeats is lossless; conflicting prices still fail.
+        frame = frame.drop_duplicates(subset=["GDate", column])
         if frame["GDate"].duplicated().any():
             raise ValueError(f"Tadbir chart has duplicate dates: {name!r}")
         result = frame if result is None else result.merge(frame, on="GDate", how="inner", validate="one_to_one")
@@ -488,28 +584,34 @@ def _tadbir_chart(data, series):
 
 def _get_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
-    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId=1"
+    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={_tadbir_basket_id(website)}"
     return _tadbir_chart(_decode_json(_request("GET", url)), {
         "صدور": "Subscription", "آماری": "Statistical", "ابطال": "Redemption"})
 
 
 def _get_leveraged_daily_navs_per_share_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
-    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId=1"
-    return _tadbir_chart(_decode_json(_request("GET", url)), {
-        "صدور": "Subscription", "آماری": "Statistical", "ابطال": "Redemption", "عادی": "Common",
-        "صدور ممتاز": "SpecialSubscription", "ابطال ممتاز": "SpecialRedemption"})
+    url = f"https://{website}/Chart/TotalNAV?type=getnavtotal&basketId={_tadbir_basket_id(website)}"
+    data = _decode_json(_request("GET", url))
+    legacy = isinstance(data, list) and any(isinstance(item, dict) and item.get("name") == "عادی" for item in data)
+    mapping = {"صدور": "Subscription", "آماری": "Statistical", "ابطال": "Redemption"}
+    if legacy:
+        mapping["عادی"] = "Common"
+    mapping.update({"صدور ممتاز": "SpecialSubscription", "ابطال ممتاز": "SpecialRedemption"})
+    if not legacy:
+        mapping["آماری ممتاز"] = "SpecialStatistical"
+    return _tadbir_chart(data, mapping)
 
 
 def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
-    url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId=1"
+    url = f"https://{website}/Chart/CombinationOfFundAssets?type=getnavtotal&basketId={_tadbir_basket_id(website)}"
     return _tadbir_chart(_decode_json(_request("GET", url)), {"": "TotalNAV"})
 
 
 def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
-    fund_id = 1
     website = _get_fund_website_address(fund_name)
+    fund_id = _tadbir_basket_id(website)
     base_url = f"https://{website}/Reports/FundDailyAssetDistribution"
     params = {"basketId": fund_id, "page": 1}
     all_rows = []
@@ -554,18 +656,27 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
                'سایر دارایی‌ها به کل دارایی': 'OtherAssets Weight', 'صندوق سرمایه گذاری': 'FundUnits',
                'صندوق سرمایه گذاری به کل دارایی': 'FundUnits Weight'}, inplace=True, axis=1)
 
+    optional_assets = {"گواهی سپرده کالایی": "CCDs", "اختیار معامله": "Options",
+                       "پروژه در جریان ساخت": "ConstructionProjects", "دارایی‌های ثابت": "FixedAssets"}
+    extra_values = []
+    for source, target in optional_assets.items():
+        if source in daily_asset_allocation:
+            _require_columns(daily_asset_allocation, [f"{source} به کل دارایی"], "Tadbir asset report")
+            daily_asset_allocation.rename(columns={source: target, f"{source} به کل دارایی": f"{target} Weight"}, inplace=True)
+            extra_values.append(target)
+
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(lambda date_str: str(int(date_str.replace('/', ''))))
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(_jalali_str_to_date)
-    for ValueColumn in ['Upper5%Stocks', 'OtherStocks', 'Bonds', 'CDs', 'CashAndBank', 'OtherAssets', 'FundUnits']:
+    for ValueColumn in ['Upper5%Stocks', 'OtherStocks', 'Bonds', 'CDs', 'CashAndBank', 'OtherAssets', 'FundUnits'] + extra_values:
         daily_asset_allocation.loc[:, ValueColumn] = daily_asset_allocation[ValueColumn].str.replace(',', '').astype(int)
     for PercentageColumn in ['Upper5%Stocks Weight', 'OtherStocks Weight', 'Bonds Weight', 'CDs Weight',
-                             'CashAndBank Weight', 'OtherAssets Weight', 'FundUnits Weight']:
+                              'CashAndBank Weight', 'OtherAssets Weight', 'FundUnits Weight'] + [f"{name} Weight" for name in extra_values]:
         daily_asset_allocation.loc[:, PercentageColumn] = daily_asset_allocation[PercentageColumn].str.replace(' %', '').astype(float)
 
     daily_asset_allocation = daily_asset_allocation[['Date', 'OtherStocks', 'Upper5%Stocks', 'Bonds', 'CDs', 'CashAndBank',
                                                      'FundUnits', 'OtherAssets', 'OtherStocks Weight', 'Upper5%Stocks Weight',
                                                      'Bonds Weight', 'CDs Weight', 'CashAndBank Weight', 'FundUnits Weight',
-                                                     'OtherAssets Weight']]
+                                                      'OtherAssets Weight'] + extra_values + [f"{name} Weight" for name in extra_values]]
 
     return daily_asset_allocation
 
@@ -581,6 +692,7 @@ def _get_daily_navs_tadbirpardaz(fund_name: str) -> pd.DataFrame:
 # Rayan hamafza
 def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
+    fund_id = _rayan_fund_id(website)
     assets = [("Stock", "Stocks"), ("TopFiveStock", "Upper5%Stocks"), ("Bond", "Bonds"),
               ("Cash", "Cash"), ("Deposit", "Bank"), ("FundUnit", "FundUnits"),
               ("Ccd", "CCDs"), ("OtherAsset", "OtherAssets")]
@@ -588,7 +700,7 @@ def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     mapping.update({f"{source}TodayAmount": target for source, target in assets})
     mapping.update({f"{source}TodayPercent": f"{target} Weight" for source, target in assets})
     for base_url in _build_base_urls(website):
-        for path in ("/api/v1/public/dailyAssetStructure/1", "/api/data/DailyAssetStructure/1"):
+        for path in (f"/api/v1/public/dailyAssetStructure/{fund_id}", f"/api/data/DailyAssetStructure/{fund_id}"):
             data = _safe_get_json(base_url + path)
             records = data.get("data") if isinstance(data, dict) else data
             if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
@@ -604,9 +716,9 @@ def _get_daily_asset_allocation_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     raise ValueError(f"Could not find valid Rayan Hamafza asset allocation API for {fund_name} | {website}")
 
 
-def _get_rayan_hamafza_nav_records(website: str):
+def _get_rayan_hamafza_nav_records(website: str, fund_id=1):
     for base_url in _build_base_urls(website):
-        candidate_urls = [f"{base_url}/api/v1/public/nav/1", f"{base_url}/api/data/NAV/1",]
+        candidate_urls = [f"{base_url}/api/v1/public/nav/{fund_id}", f"{base_url}/api/data/NAV/{fund_id}",]
         for url in candidate_urls:
             data = _safe_get_json(url, timeout=30)
             if not _is_valid_rayan_hamafza_nav_response(data):
@@ -620,7 +732,26 @@ def _get_rayan_hamafza_nav_records(website: str):
 
 def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
-    records = _get_rayan_hamafza_nav_records(website)
+    context = _fund_request_context.get()
+    if context is not None and context["row"]["FundType"] == "اختصاصی بازارگردانی":
+        data = _safe_get_json(f"https://{website}/api/v1/public/navMulti?size=-1")
+        if data is not None:
+            if not isinstance(data, list) or not data or not all(isinstance(row, dict) for row in data):
+                raise ValueError("Invalid Rayan aggregate NAV records")
+            navs = pd.DataFrame(data)
+            required = ["jalaliDate", "purchaseNAVPerShare", "sellNAVPerShare",
+                        "statisticNav", "fundCapital", "totalAssetsValue"]
+            _require_columns(navs, required, "Rayan aggregate NAV")
+            if navs[required].isna().any().any():
+                raise ValueError("Missing Rayan aggregate NAV values")
+            result = pd.DataFrame({"JDate": navs["jalaliDate"].map(_jalali_str_to_date)})
+            units = pd.to_numeric(navs["fundCapital"])
+            for source, target in [("purchaseNAVPerShare", "Subscription"),
+                                   ("sellNAVPerShare", "Redemption"), ("statisticNav", "Statistical")]:
+                result[target] = pd.to_numeric(navs[source]) * units
+            result["TotalNAV"] = pd.to_numeric(navs["totalAssetsValue"])
+            return result
+    records = _get_rayan_hamafza_nav_records(website, _rayan_fund_id(website))
     navs = pd.DataFrame(records)
     # Normalize both Rayan formats to one column naming system.
     navs.rename({
@@ -649,50 +780,117 @@ def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
 
 
 # Mabna
+def _mabna_report_records(url, params):
+    rows = []
+    seen = set()
+    total = None
+    for page in range(1, 10001):
+        data = _safe_get_json(url, params={**params, "page": page})
+        if data is None and page == 1:
+            return None
+        records = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
+            raise ValueError(f"Missing or empty Mabna report records: {url}")
+        dates = tuple(row.get("date_time", row.get("date")) for row in records)
+        if any(not isinstance(date, str) for date in dates):
+            raise ValueError(f"Invalid Mabna report dates: {url}")
+        if len(set(dates)) != len(dates) or seen.intersection(dates):
+            raise ValueError(f"Mabna report repeats dates or a page: {url}")
+        seen.update(dates)
+        rows.extend(records)
+        count = data.get("total_count")
+        if count is None:
+            return rows  # Legacy reports have no pagination metadata.
+        if not isinstance(count, int) or isinstance(count, bool) or count < len(rows):
+            raise ValueError(f"Invalid Mabna report total_count: {url}")
+        if total is not None and count != total:
+            raise ValueError(f"Mabna report total_count changed during pagination: {url}")
+        total = count
+        if len(rows) == total:
+            return rows
+    raise ValueError(f"Mabna report exceeded the page limit: {url}")
+
+
+def _mabna_asset_frame(records, current):
+    names = {
+        "سپرده بانکی": "Bank", "وجه نقد": "Cash", "اوراق بهادار": "Bonds",
+        "سرمایه‌گذاری در اوراق بهادار با درآمد ثابت": "Bonds", "سهام": "Stocks",
+        "سرمایه گذاری در سهام": "Stocks", "گواهی سپرده کالایی": "CCDs",
+        "صندوق های سرمایه گذاری": "FundUnits", "سایر دارایی‌ها": "OtherAssets",
+        "پنج سهم با بیشترین وزن": "Upper5%Stocks", "پنج ورقه بهادار با بیشترین وزن": "Upper5%Bonds",
+    }
+    mapping = {_fund_label(name): column for name, column in names.items()}
+    rows = []
+    for item in records:
+        if not isinstance(item, dict) or "date" not in item:
+            raise ValueError("Invalid Mabna asset report date")
+        assets = item.get("items", {}).get("assets") if current and isinstance(item.get("items"), dict) else item.get("assets")
+        if not isinstance(assets, list) or not assets:
+            raise ValueError("Invalid Mabna asset report assets")
+        date = _gregorian_to_jalali(pd.to_datetime(item["date"]).date()) if current else _jalali_str_to_date(item["date"])
+        row = {"Date": date}
+        for asset in assets:
+            if not isinstance(asset, dict) or not {"asset_name", "value", "percentage"}.issubset(asset):
+                raise ValueError("Invalid Mabna asset report fields")
+            name = asset["asset_name"]
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Invalid Mabna asset name")
+            column = mapping.get(_fund_label(name), name.strip())
+            if column in row:
+                raise ValueError(f"Duplicate Mabna asset name: {name}")
+            row[column] = pd.to_numeric(asset["value"])
+            row[f"{column} Weight"] = pd.to_numeric(asset["percentage"])
+            if pd.isna(row[column]) or pd.isna(row[f"{column} Weight"]):
+                raise ValueError(f"Missing Mabna asset values: {name}")
+        rows.append(row)
+    result = pd.DataFrame(rows)
+    columns = ["Date", "Stocks", "Upper5%Stocks", "Bonds", "Cash", "Bank", "OtherAssets",
+               "Stocks Weight", "Upper5%Stocks Weight", "Bonds Weight", "Cash Weight", "Bank Weight", "OtherAssets Weight"]
+    _require_columns(result, columns, "Mabna asset report")
+    if result[columns].isna().any().any():
+        raise ValueError("Missing Mabna asset report values")
+    extras = [column for column in result if column not in columns]
+    result[extras] = result[extras].fillna(0)
+    return result[columns + extras]
+
+
 def _get_daily_asset_allocation_mabna(fund_name: str) -> pd.DataFrame:
     fund_website = _get_fund_website_address(fund_name)
+    url = f"https://{fund_website}/api/v2/public/reports/daily-assets"
+    data = _mabna_report_records(url, {"portfolio_id": _mabna_portfolio_id(fund_website), "size": 1000000})
+    if data is not None:
+        return _mabna_asset_frame(data, current=True)
     url = f"https://{fund_website}/api/v1/overall/allassetsdaily.json"
     response = _request("GET", url)
     data = _records(response)[0]
-    records = []
-    for item in data['values']:
-        row = {'تاریخ': item['date']}
-        for asset in item['assets']:
-            name = asset['asset_name']
-            row[name] = asset['value']
-            row[f"{name} - نسبت"] = asset['percentage']
-        records.append(row)
-    daily_asset_allocation = pd.DataFrame(records)
-    daily_asset_allocation.rename({'تاریخ': 'Date', 'سپرده بانکی': 'Bank', 'سپرده بانکی - نسبت': 'Bank Weight',
-                                   'وجه نقد': 'Cash', 'وجه نقد - نسبت': 'Cash Weight',
-                                   'سرمایه‌گذاری در اوراق بهادار با درآمد ثابت': 'Bonds',
-                                   'سرمایه‌گذاری در اوراق بهادار با درآمد ثابت - نسبت': 'Bonds Weight',
-                                   ' سرمایه گذاری در سهام ': 'Stocks', ' سرمایه گذاری در سهام  - نسبت': 'Stocks Weight',
-                                   'سایر دارایی‌ها': 'OtherAssets', 'سایر دارایی‌ها - نسبت': 'OtherAssets Weight',
-                                   ' پنج سهم با بیشترین وزن ': 'Upper5%Stocks',
-                                   ' پنج سهم با بیشترین وزن  - نسبت': 'Upper5%Stocks Weight'}, inplace=True, axis=1)
-    daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(_jalali_str_to_date)
-    daily_asset_allocation = daily_asset_allocation[['Date', 'Stocks', 'Upper5%Stocks', 'Bonds', 'Cash', 'Bank',
-                                                     'OtherAssets', 'Stocks Weight', 'Upper5%Stocks Weight',
-                                                     'Bonds Weight', 'Cash Weight', 'Bank Weight', 'OtherAssets Weight']]
-    return daily_asset_allocation
+    if not isinstance(data.get("values"), list) or not data["values"]:
+        raise ValueError("Invalid legacy Mabna asset records")
+    return _mabna_asset_frame(data["values"], current=False)
 
 
 def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     url = f"https://{website}/api/v2/public/reports/navps"
-    response = _request("GET", url, params=_mabna_nav_params(1000000))
-    navs = pd.DataFrame(_records(response, "data"))
-    navs['date_time'] = navs['date_time'].apply(lambda dt: pd.to_datetime(dt))
-    navs['date_time'] = navs['date_time'].apply(_gregorian_to_jalali)
-    navs = navs.iloc[:, [0, 2, 3, 12, 5]].copy()
-    navs.columns = ['JDate', 'Subscription', 'Redemption', 'Statistical', 'TotalNAV']
+    params = {**_mabna_nav_params(1000000), "portfolio_id": _mabna_portfolio_id(website)}
+    records = _mabna_report_records(url, params)
+    if records is None:
+        raise ValueError(f"No Mabna NAV report: {url}")
+    mapping = {"date_time": "JDate", "purchase_price": "Subscription", "redemption_price": "Redemption",
+               "statistical_value": "Statistical", "total_net_asset_value_with_buy_commission_and_discount": "TotalNAV"}
+    navs = pd.DataFrame(records)
+    _require_columns(navs, list(mapping), "Mabna NAV")
+    if navs[list(mapping)].isna().any().any():
+        raise ValueError("Missing Mabna NAV values")
+    navs = navs[list(mapping)].rename(columns=mapping).copy()
+    navs["JDate"] = pd.to_datetime(navs["JDate"]).map(lambda date: _gregorian_to_jalali(date.date()))
+    for column in ["Subscription", "Redemption", "Statistical", "TotalNAV"]:
+        navs[column] = pd.to_numeric(navs[column])
     return navs
 
 
 def _get_leveraged_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
-    portfolio_id = 1
     website = _get_fund_website_address(fund_name)
+    portfolio_id = _mabna_portfolio_id(website)
     url = f"https://{website}/api/v2/public/fund/chart?portfolio_id={portfolio_id}"
     response = _request("GET", url)
     navs = pd.DataFrame(_records(response, "data"))
@@ -915,6 +1113,9 @@ def _get_daily_navs_nika(fund_name: str) -> pd.DataFrame:
 
 def _get_fund_row(fund_name: str, all_funds: pd.DataFrame = None) -> pd.Series:
     if all_funds is None:
+        context = _fund_request_context.get()
+        if context is not None and context["row"]["Name"] == fund_name:
+            return context["row"]
         all_funds = get_all_funds(_set_website_developers=False)
     matches = all_funds[all_funds["Name"] == fund_name]
     if matches.empty:
@@ -997,6 +1198,52 @@ def _build_nika_nav_url(website: str, start_date: str, end_date: str, page_size:
 
 
 # PUBLIC FUNCTIONS
+def _get_fund_history(fund_name, allocation):
+    all_funds = get_all_funds(_set_website_developers=False)
+    row = _get_fund_row(fund_name, all_funds)
+    kind = "daily asset allocations" if allocation else "daily NAVs"
+    if row["FundType"] in NO_PUBLIC_NAV_FUND_TYPES:
+        raise ValueError(f"Fund type does not have {kind}: {row['FundType']}")
+    if fund_name == "صندوق تثبیت بازار سرمایه":
+        raise ValueError(f"Fund does not have {kind}: {fund_name}")
+    website = row["WebsiteAddress"]
+    session = requests.Session()
+    token = _fund_request_context.set({"row": row, "session": session})
+    try:
+        developer = _detect_website_developer(website=website)
+        if allocation:
+            parsers = {
+                "گروه رایانه تدبیر پرداز": _get_daily_asset_allocation_tadbirpardaz,
+                "شرکت رایان هم افزا": _get_daily_asset_allocation_rayan_hamafza,
+                "پردازش اطلاعات مالی مبنا": _get_daily_asset_allocation_mabna,
+                "پیکاد": _get_daily_asset_allocation_pikad,
+                "راهکار حامی پرداز": _get_daily_asset_allocation_rahkar,
+                "نوآوران": _get_daily_asset_allocation_noavaran,
+            }
+        else:
+            leveraged = row["FundType"] == "در سهام-سهامی اهرمی"
+            parsers = {
+                "گروه رایانه تدبیر پرداز": (_get_leveraged_daily_navs_per_share_tadbirpardaz
+                                             if leveraged else _get_daily_navs_tadbirpardaz),
+                "شرکت رایان هم افزا": _get_daily_navs_rayan_hamafza,
+                "پردازش اطلاعات مالی مبنا": (_get_leveraged_daily_navs_mabna
+                                             if leveraged else _get_daily_navs_mabna),
+                "پیکاد": _get_daily_navs_pikad,
+                "راهکار حامی پرداز": _get_daily_navs_rahkar,
+                "سامانه هوشمند نیکا سرمایه": _get_daily_navs_nika,
+                "نوآوران": _get_daily_navs_noavaran,
+            }
+        parser = parsers.get(developer)
+        if parser is None:
+            raise NotImplementedError(f"Provider {developer} does not support {kind} for fund: {fund_name} | website: {website}")
+        return _provider_result(parser, fund_name, website)
+    finally:
+        try:
+            session.close()
+        finally:
+            _fund_request_context.reset(token)
+
+
 def _provider_result(parser, fund_name, website):
     try:
         result = parser(fund_name)
@@ -1022,6 +1269,9 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
     -------
     pandas.DataFrame
         Daily NAV data for the requested fund.
+        Leveraged Tadbir charts contain ordinary and preferred per-unit NAV
+        columns; current charts use SpecialStatistical, while legacy charts
+        retain Common. Other provider-specific columns and units are preserved.
 
     Raises
     ------
@@ -1029,44 +1279,13 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
         If the fund name is invalid, data is unavailable, or the provider
         response is empty or malformed.
     NotImplementedError
-        If the fund website provider is not supported.
+        If the provider is unsupported or its published identity list cannot
+        resolve the requested fund. Market-maker Rayan NAV uses aggregate
+        history rather than an underlying basket.
     requests.RequestException
         For connection, timeout, certificate, or HTTP errors from a provider.
     """
-    all_funds = get_all_funds(_set_website_developers=False)
-    fund_row = _get_fund_row(fund_name, all_funds)
-    fund_type = fund_row['FundType']
-    daily_navs = pd.DataFrame()
-    if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
-        raise ValueError(f"Fund type does not have daily NAVs: {fund_type}")
-    elif fund_name == 'صندوق تثبیت بازار سرمایه':
-        raise ValueError(f"Fund does not have daily NAVs: {fund_name}")
-    else:
-        website_address = fund_row['WebsiteAddress']
-        website_developer = _detect_website_developer(website=website_address)
-        if website_developer == 'گروه رایانه تدبیر پرداز':
-            if fund_type == 'در سهام-سهامی اهرمی':
-                daily_navs = _provider_result(_get_leveraged_daily_navs_per_share_tadbirpardaz, fund_name, website_address)
-            else:
-                daily_navs = _provider_result(_get_daily_navs_tadbirpardaz, fund_name, website_address)
-        elif website_developer == 'شرکت رایان هم افزا':
-            daily_navs = _provider_result(_get_daily_navs_rayan_hamafza, fund_name, website_address)
-        elif website_developer == 'پردازش اطلاعات مالی مبنا':
-            if fund_type == 'در سهام-سهامی اهرمی':
-                daily_navs = _provider_result(_get_leveraged_daily_navs_mabna, fund_name, website_address)
-            else:
-                daily_navs = _provider_result(_get_daily_navs_mabna, fund_name, website_address)
-        elif website_developer == 'پیکاد':
-            daily_navs = _provider_result(_get_daily_navs_pikad, fund_name, website_address)
-        elif website_developer == 'راهکار حامی پرداز':
-            daily_navs = _provider_result(_get_daily_navs_rahkar, fund_name, website_address)
-        elif website_developer == 'سامانه هوشمند نیکا سرمایه':
-            daily_navs = _provider_result(_get_daily_navs_nika, fund_name, website_address)
-        elif website_developer == 'نوآوران':
-            daily_navs = _provider_result(_get_daily_navs_noavaran, fund_name, website_address)
-        else:
-            raise NotImplementedError(f"Website developer is unknown for fund: {fund_name} | website: {website_address}")
-    return daily_navs
+    return _get_fund_history(fund_name, allocation=False)
 
 
 def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
@@ -1081,6 +1300,8 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     -------
     pandas.DataFrame
         Daily asset-allocation data for the requested fund.
+        Existing provider units are preserved. Current Mabna reports also
+        retain additional named asset amounts and their Weight columns.
 
     Raises
     ------
@@ -1088,36 +1309,13 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
         If the fund name is invalid, data is unavailable, or the provider
         response is empty or malformed.
     NotImplementedError
-        If the fund website provider is not supported.
+        If the provider or requested fund identity is unsupported. A site
+        exposing only market-maker baskets does not supply aggregate daily
+        allocation for the parent fund.
     requests.RequestException
         For connection, timeout, certificate, or HTTP errors from a provider.
     """
-    all_funds = get_all_funds(_set_website_developers=False)
-    fund_row = _get_fund_row(fund_name, all_funds)
-    fund_type = fund_row['FundType']
-    daily_asset_allocation = pd.DataFrame()
-    if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
-        raise ValueError(f"Fund type does not have daily asset allocations: {fund_type}")
-    elif fund_name == 'صندوق تثبیت بازار سرمایه':
-        raise ValueError(f"Fund does not have daily asset allocations: {fund_name}")
-    else:
-        website_address = fund_row['WebsiteAddress']
-        website_developer = _detect_website_developer(website=website_address)
-        if website_developer == 'گروه رایانه تدبیر پرداز':
-            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_tadbirpardaz, fund_name, website_address)
-        elif website_developer == 'شرکت رایان هم افزا':
-            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_rayan_hamafza, fund_name, website_address)
-        elif website_developer == 'پردازش اطلاعات مالی مبنا':
-            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_mabna, fund_name, website_address)
-        elif website_developer == 'پیکاد':
-            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_pikad, fund_name, website_address)
-        elif website_developer == 'راهکار حامی پرداز':
-            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_rahkar, fund_name, website_address)
-        elif website_developer == 'نوآوران':
-            daily_asset_allocation = _provider_result(_get_daily_asset_allocation_noavaran, fund_name, website_address)
-        else:
-            raise NotImplementedError(f"Website developer is unknown for fund: {fund_name} | website: {website_address}")
-    return daily_asset_allocation
+    return _get_fund_history(fund_name, allocation=True)
 
 
 def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:

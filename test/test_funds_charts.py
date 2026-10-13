@@ -53,7 +53,9 @@ def test_tadbir_rejects_incomplete_or_ambiguous_chart(monkeypatch, chart, bad):
     elif bad == "missing_point":
         del chart[0]["List"][0]["y"]
     elif bad == "duplicate_date":
-        chart[0]["List"].append(copy.deepcopy(chart[0]["List"][0]))
+        conflicting = copy.deepcopy(chart[0]["List"][0])
+        conflicting["y"] += 1
+        chart[0]["List"].append(conflicting)
     else:
         chart.append(copy.deepcopy(chart[0]))
     mock_chart(monkeypatch, chart)

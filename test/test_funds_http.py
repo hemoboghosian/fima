@@ -166,7 +166,7 @@ def test_public_provider_schema_error_has_fund_and_website(monkeypatch):
     monkeypatch.setattr(Funds, "get_all_funds", lambda **k: pd.DataFrame([
         {"Name": "Fund A", "WebsiteAddress": "servatfund.ir", "FundType": "Equity"}]))
     monkeypatch.setattr(Funds, "_detect_website_developer", lambda **k: "پیکاد")
-    monkeypatch.setattr(Funds.requests, "post", lambda url, **k: response({"Result": [{"unexpected": 1}]}, url=url))
+    monkeypatch.setattr(Funds.requests.Session, "post", lambda self, url, **k: response({"Result": [{"unexpected": 1}]}, url=url))
     with pytest.raises(ValueError, match="Fund A.*servatfund.ir"):
         Funds.get_daily_navs("Fund A")
 
