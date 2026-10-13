@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.2
+
+### Fixed
+
+- Funds history downloads include market-maker funds with supported public data
+  instead of rejecting their category. Rayan market-maker NAVs use the published
+  aggregate history rather than an unrelated instrument basket.
+- Multi-fund websites resolve the requested fund or compartment using published
+  names and tickers instead of assuming basket or portfolio 1.
+- Tadbir NAV parsing supports current leveraged-fund series and removes exact
+  duplicate chart points while continuing to reject conflicting prices.
+  Allocation histories retain additional holdings when the provider supplies them.
+- Mabna downloads support current portfolio-specific NAV and allocation reports,
+  named response fields, and complete pagination while retaining legacy support.
+- Each public history download reuses its catalog lookup and HTTP session.
+
+### Compatibility and provider limitations
+
+- Existing public imports, function signatures, core columns, and provider-specific
+  units remain compatible. Additional provider series and holdings appear only
+  when supplied. Ambiguous identities and conflicting data raise useful errors.
+- Provider availability and valid HTTPS certificates remain necessary. The known
+  emacofund.ir certificate hostname mismatch is external; TLS verification remains
+  enabled. No guarantee is made that every catalog fund exposes downloadable data.
+- Aggregate Rayan market-maker allocation, conflicting Tadbir chart prices, and
+  renamed fund identities require separate investigation in Issues #26, #27,
+  and #28. Nika allocation and unverified Rahkar providers remain unsupported.
+
 ## 0.5.1
 
 ### Fixed
