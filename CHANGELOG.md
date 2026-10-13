@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 ### Added
 
@@ -12,6 +12,21 @@
 - Deterministic adjustment/validation tests and a separate live smoke test.
   Invalid references, duplicate dates and instrument mixing raise `ValueError`.
   Empty provider histories return a dataframe with the historical schema.
+
+### Compatibility and provider limitations
+
+- Adjustment is opt-in. Existing positional arguments, raw price/reference
+  columns, Jalali index, row order and non-price fields remain compatible.
+  The pure helper and download option are available from both `fima.TSETMC`
+  and the top-level `fima` package.
+- The endpoint is the latest supplied observation. Later reference changes
+  can revise earlier adjusted levels; filter raw history before adjustment
+  to choose an earlier anchor. The result is not a validated total-return
+  series or a guarantee of exact rights/cash-subscription treatment.
+- Official chart and pinned-library comparisons were verified for one
+  instrument with aligned dates/endpoints. Event classifications and archive
+  completeness remain uncertain; broader validation is tracked in Issue #33.
+  Provider availability and valid HTTPS certificates remain necessary.
 
 ## 0.5.2
 
