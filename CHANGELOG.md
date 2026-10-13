@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
 ### Fixed
 
@@ -9,6 +9,16 @@
   ratio validation and checks for other price fields remain enforced.
 - The README's TSETMC explanation is in Persian, with API identifiers and
   formulas preserved and the zero-opening behavior documented.
+
+### Compatibility and provider limitations
+
+- Existing imports, signatures, default raw output, adjustment factors and
+  non-price fields remain compatible. Negative/missing/nonfinite opening
+  prices and invalid closing/reference ratio inputs still raise `ValueError`.
+- Official responses can disagree on opening fields and row coverage; a zero
+  opening is preserved without fetching or guessing a replacement. Further
+  source investigation is tracked in Issue #38, and economic/event validation
+  remains in Issue #33. HTTPS verification stays enabled.
 
 ## 0.6.0
 
