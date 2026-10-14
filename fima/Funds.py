@@ -12,7 +12,7 @@ from contextvars import ContextVar
 from numbers import Integral, Real
 
 __all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation",
-           "get_tsetmc_funds", "get_tsetmc_fund_details"]
+           "get_tsetmc_funds", "get_tsetmc_fund_details", "get_tsetmc_fund_types"]
 
 
 def __dir__():
@@ -41,6 +41,15 @@ NIKA_MANUAL_CONFIGS = \
 
 NO_PUBLIC_NAV_FUND_TYPES = {"جسورانه", "زمین و ساختمان", "خصوصی", "پروژه‌ای"}
 _fund_request_context = ContextVar("fund_request_context", default=None)
+
+# Labels/selectors verified against TSETMC's public fund menu.
+_TSETMC_FUND_TYPES = (
+    (6, "سهامی", "equity"), (7, "مختلط", "mixed"),
+    (4, "درآمد ثابت", "fixed_income"), (11, "بازارگردانی", "market_maker"),
+    (12, "جسورانه", "venture_capital"), (14, "زمین و ساختمان", "real_estate"),
+    (13, "پروژه", "project"), (5, "کالایی", "commodity"),
+    (16, "خصوصی", "private"), (17, "صندوق", "fund"),
+)
 
 
 def _fund_label(name):
@@ -205,13 +214,48 @@ def _tsetmc_fund_record(record, url):
     return record
 
 
-def get_tsetmc_funds(fund_type: int) -> pd.DataFrame:
+def _tsetmc_name(value):
+    value = value.translate(str.maketrans({"ي": "ی", "ك": "ک"})).casefold()
+    return re.sub(r"[\s\u200c]+", "", value)
+
+
+def get_tsetmc_fund_types() -> pd.DataFrame:
+    """List supported Persian/English group names and TSETMC numeric selectors.
+
+    Return a fresh table with FundTypeID, FundTypeName and EnglishName.
+    The mapping comes from the verified public menu; this performs no HTTP.
+    It describes supported names, not current service availability or counts.
+    Advanced numeric selector 0 is not listed: its all-groups API can fail.
+    """
+    return pd.DataFrame(_TSETMC_FUND_TYPES, columns=["FundTypeID", "FundTypeName", "EnglishName"])
+
+
+def _tsetmc_fund_type(value):
+    if isinstance(value, str):
+        aliases = {label: code for code, persian, english in _TSETMC_FUND_TYPES
+                   for label in (persian, english)}
+        aliases.update({"در سهام": 6, "سهام": 6, "stock": 6,
+                        "پروژه‌ای": 13, "بر پایه گواهی سپرده کالایی": 5})
+        normalize = lambda label: _tsetmc_name(label).replace("_", "")
+        names = {normalize(label): code for label, code in aliases.items()}
+        if normalize(value) in names:
+            return names[normalize(value)]
+    try:
+        return _tsetmc_fund_identifier(value, "fund_type", minimum=0)
+    except ValueError as exc:
+        raise ValueError("Invalid fund_type; choose a name from get_tsetmc_fund_types() "
+                         "or supply a nonnegative numeric selector") from exc
+
+
+def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
     """Return a TSETMC fund-group snapshot with the provider's original columns.
 
-    ``fund_type`` is the TSETMC group selector (e.g. 6: equity, 7: mixed),
-    not Fipiran's type ID or the returned ``fundType`` field. Accept a
-    nonnegative integer, integer-valued number or ASCII digit string.
-    Selectors are passed to the provider; availability is not guaranteed.
+    ``fund_type`` accepts a Persian/English group name (e.g. "سهامی",
+    "مختلط", "equity", "mixed"); see get_tsetmc_fund_types() for options.
+    Arabic/Persian letter variants, spacing and English case are normalized.
+    Existing nonnegative integer, integer-valued number and ASCII digit-string
+    selectors remain supported. These are not Fipiran type IDs or the returned
+    ``fundType`` field. Provider availability is not guaranteed.
 
     Return a DataFrame in provider order, without renaming columns, parsing
     dates or flattening nested fields. Normal pandas dtype inference applies.
@@ -222,7 +266,7 @@ def get_tsetmc_funds(fund_type: int) -> pd.DataFrame:
     HTTPS certificates are verified; requests have a finite timeout and at
     most one retry for a short transient GET status, as in other Funds APIs.
     """
-    fund_type = _tsetmc_fund_identifier(fund_type, "fund_type", minimum=0)
+    fund_type = _tsetmc_fund_type(fund_type)
     url = f"https://cdn.tsetmc.com/api/Fund/GetFunds/{fund_type}"
     data = _decode_json(_request("GET", url))
     records = data.get("funds") if isinstance(data, dict) else None
@@ -231,23 +275,60 @@ def get_tsetmc_funds(fund_type: int) -> pd.DataFrame:
     return pd.DataFrame([_tsetmc_fund_record(record, url) for record in records])
 
 
-def get_tsetmc_fund_details(reg_no: int) -> dict:
-    """Return the complete, unwrapped TSETMC ``fund`` object for a registration.
+def _resolve_tsetmc_fund_name(fund_name, fund_type):
+    codes = [_tsetmc_fund_type(fund_type)] if fund_type is not None else [
+        code for code, _, _ in _TSETMC_FUND_TYPES]
+    matches = set()
+    wanted = _tsetmc_name(fund_name)
+    for code in codes:
+        for record in get_tsetmc_funds(code).to_dict("records"):
+            name = record["mfName"]
+            if isinstance(name, str) and _tsetmc_name(name) == wanted:
+                matches.add(_tsetmc_fund_identifier(record["regNo"], "TSETMC regNo"))
+    if not matches:
+        raise ValueError(f"No TSETMC fund matches {fund_name!r}; "
+                         "choose its full name from get_tsetmc_funds(fund_type)")
+    if len(matches) != 1:
+        raise ValueError(f"Multiple TSETMC funds match {fund_name!r}; specify fund_type "
+                         "or use reg_no from get_tsetmc_funds(fund_type)")
+    return matches.pop()
 
-    ``reg_no`` is a positive registration number from ``get_tsetmc_funds``
-    or the TSETMC Fund page URL, not an instrument code. Accept an integer,
-    integer-valued number (the source uses floats) or ASCII digit string.
+
+def get_tsetmc_fund_details(fund_name=None, *, fund_type=None, reg_no=None) -> dict:
+    """Return the complete TSETMC ``fund`` object selected by name or registration.
+
+    Supply a full ``fund_name`` positionally or by keyword. Resolve it against
+    official catalogs using exact equality after Arabic/Persian letter, English
+    case and whitespace normalization; no substring or fuzzy matching. Optional
+    ``fund_type`` restricts lookup to one named/numeric group. Otherwise all ten
+    known individual groups are checked, without relying on selector 0; a failed
+    group is propagated rather than silently assuming uniqueness. Repeated
+    matches for one registration are accepted; multiple registrations fail.
+
+    Legacy positional numbers/digit strings and ``reg_no=`` remain supported
+    and bypass catalog lookup. Registration numbers are positive whole numbers
+    from TSETMC, not instrument codes. Do not combine registration selection
+    with a fund name or type; conflicting selectors fail before HTTP.
 
     All fields, including ``stats`` and ``fundProfits``, retain their JSON
     structure and order. Histories are not sorted, filled or date-converted;
     detail and list snapshots may have different dates and coverage.
 
-    Raises ValueError for invalid identifiers, JSON, missing/malformed fund
-    records or a mismatched registration; requests.RequestException subclasses
+    Raises ValueError for invalid/conflicting selectors, missing/ambiguous names,
+    invalid JSON, malformed records or mismatched registration; requests.RequestException subclasses
     for transport and HTTP failures, including provider not-found HTTP errors.
     Uses the same verified, finite, bounded-retry transport as other Funds APIs.
     """
-    reg_no = _tsetmc_fund_identifier(reg_no, "reg_no")
+    if reg_no is not None:
+        if fund_name is not None or fund_type is not None:
+            raise ValueError("Supply either fund_name (with optional fund_type) or reg_no")
+        reg_no = _tsetmc_fund_identifier(reg_no, "reg_no")
+    elif isinstance(fund_name, str) and any(character.isalpha() for character in fund_name):
+        reg_no = _resolve_tsetmc_fund_name(fund_name, fund_type)
+    else:
+        if fund_type is not None:
+            raise ValueError("fund_type requires a fund_name; do not combine it with reg_no")
+        reg_no = _tsetmc_fund_identifier(fund_name, "reg_no or fund_name")
     url = f"https://cdn.tsetmc.com/api/Fund/GetFundInDetail/{reg_no}"
     data = _decode_json(_request("GET", url))
     record = _tsetmc_fund_record(data.get("fund") if isinstance(data, dict) else None, url)

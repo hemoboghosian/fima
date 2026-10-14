@@ -8,6 +8,11 @@
   as a DataFrame with original provider columns and row order.
 - `get_tsetmc_fund_details(reg_no)` returns the complete fund object, including
   nested histories. Both functions are exported from `fima` and `fima.Funds`.
+- TSETMC group selection accepts Persian/English names. The offline
+  `get_tsetmc_fund_types()` table makes available names discoverable.
+- Fund details can be selected by full fund name, with optional named/numeric
+  group restriction. Resolution uses official catalogs, rejects ambiguous or
+  missing names and preserves numeric positional and `reg_no=` calls.
 - Persian examples document TSETMC identifiers, raw fields, error handling
   and snapshot/history limitations. Existing Funds APIs remain unchanged.
 
