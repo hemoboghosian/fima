@@ -9,8 +9,10 @@ from urllib.parse import urlparse
 import re
 from email.utils import parsedate_to_datetime
 from contextvars import ContextVar
+from numbers import Integral, Real
 
-__all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation"]
+__all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation",
+           "get_tsetmc_funds", "get_tsetmc_fund_details"]
 
 
 def __dir__():
@@ -172,6 +174,86 @@ def _decode_json(response):
         return response.json()
     except requests.exceptions.JSONDecodeError as exc:
         raise ValueError(f"Funds provider returned empty or invalid JSON: {response.url}") from exc
+
+
+def _tsetmc_fund_identifier(value, parameter, minimum=1):
+    """Accept URL identifiers, including integer-valued JSON registration numbers."""
+    if isinstance(value, bool):
+        number = None
+    elif isinstance(value, Integral):
+        number = int(value)
+    elif isinstance(value, Real):
+        try:
+            number = int(value)
+        except (ValueError, OverflowError):
+            number = None
+        if number != value:
+            number = None
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        number = int(value)
+    else:
+        number = None
+    if number is None or number < minimum:
+        raise ValueError(f"{parameter} must be a whole-number identifier >= {minimum}")
+    return number
+
+
+def _tsetmc_fund_record(record, url):
+    if not isinstance(record, dict) or not {"regNo", "mfName"}.issubset(record):
+        raise ValueError(f"Invalid TSETMC fund record: {url}")
+    _tsetmc_fund_identifier(record["regNo"], f"TSETMC regNo at {url}")
+    return record
+
+
+def get_tsetmc_funds(fund_type: int) -> pd.DataFrame:
+    """Return a TSETMC fund-group snapshot with the provider's original columns.
+
+    ``fund_type`` is the TSETMC group selector (e.g. 6: equity, 7: mixed),
+    not Fipiran's type ID or the returned ``fundType`` field. Accept a
+    nonnegative integer, integer-valued number or ASCII digit string.
+    Selectors are passed to the provider; availability is not guaranteed.
+
+    Return a DataFrame in provider order, without renaming columns, parsing
+    dates or flattening nested fields. Normal pandas dtype inference applies.
+    An explicit empty ``funds`` array returns an empty DataFrame without columns.
+
+    Raises ValueError for invalid identifiers, JSON or record/envelope schema;
+    requests.RequestException subclasses for transport and HTTP failures.
+    HTTPS certificates are verified; requests have a finite timeout and at
+    most one retry for a short transient GET status, as in other Funds APIs.
+    """
+    fund_type = _tsetmc_fund_identifier(fund_type, "fund_type", minimum=0)
+    url = f"https://cdn.tsetmc.com/api/Fund/GetFunds/{fund_type}"
+    data = _decode_json(_request("GET", url))
+    records = data.get("funds") if isinstance(data, dict) else None
+    if not isinstance(records, list):
+        raise ValueError(f"Invalid TSETMC funds response: {url}")
+    return pd.DataFrame([_tsetmc_fund_record(record, url) for record in records])
+
+
+def get_tsetmc_fund_details(reg_no: int) -> dict:
+    """Return the complete, unwrapped TSETMC ``fund`` object for a registration.
+
+    ``reg_no`` is a positive registration number from ``get_tsetmc_funds``
+    or the TSETMC Fund page URL, not an instrument code. Accept an integer,
+    integer-valued number (the source uses floats) or ASCII digit string.
+
+    All fields, including ``stats`` and ``fundProfits``, retain their JSON
+    structure and order. Histories are not sorted, filled or date-converted;
+    detail and list snapshots may have different dates and coverage.
+
+    Raises ValueError for invalid identifiers, JSON, missing/malformed fund
+    records or a mismatched registration; requests.RequestException subclasses
+    for transport and HTTP failures, including provider not-found HTTP errors.
+    Uses the same verified, finite, bounded-retry transport as other Funds APIs.
+    """
+    reg_no = _tsetmc_fund_identifier(reg_no, "reg_no")
+    url = f"https://cdn.tsetmc.com/api/Fund/GetFundInDetail/{reg_no}"
+    data = _decode_json(_request("GET", url))
+    record = _tsetmc_fund_record(data.get("fund") if isinstance(data, dict) else None, url)
+    if _tsetmc_fund_identifier(record["regNo"], f"TSETMC regNo at {url}") != reg_no:
+        raise ValueError(f"TSETMC fund registration does not match reg_no: {url}")
+    return record
 
 
 def _records(response, key=None):

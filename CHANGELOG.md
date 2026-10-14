@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `get_tsetmc_funds(fund_type)` returns the public TSETMC fund-group snapshot
+  as a DataFrame with original provider columns and row order.
+- `get_tsetmc_fund_details(reg_no)` returns the complete fund object, including
+  nested histories. Both functions are exported from `fima` and `fima.Funds`.
+- Persian examples document TSETMC identifiers, raw fields, error handling
+  and snapshot/history limitations. Existing Funds APIs remain unchanged.
+
+### Provider limitations
+
+- Fund-list and detail dates can disagree, and history order/coverage is not
+  guaranteed. The provider returned HTTP 500 for selector 0 and a nonexistent
+  registration during investigation; a valid empty list is preserved while
+  transport, HTTP and malformed-response errors remain visible.
+  Further source investigation is tracked separately in Issue #42.
+
 ## 0.6.1
 
 ### Fixed
