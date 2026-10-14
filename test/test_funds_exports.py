@@ -4,7 +4,8 @@ import fima
 import fima.Funds as Funds
 
 
-PUBLIC_NAMES = {"get_all_funds", "get_daily_navs", "get_daily_asset_allocation"}
+PUBLIC_NAMES = {"get_all_funds", "get_daily_navs", "get_daily_asset_allocation",
+                "get_tsetmc_funds", "get_tsetmc_fund_details"}
 
 
 def test_wildcard_imports_only_public_funds_functions():
