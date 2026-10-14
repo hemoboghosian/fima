@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 ### Added
 
 - `get_tsetmc_funds(fund_type)` returns the public TSETMC fund-group snapshot
   as a DataFrame with original provider columns and row order.
-- `get_tsetmc_fund_details(reg_no)` returns the complete fund object, including
+- `get_tsetmc_fund_details(...)` returns the complete fund object, including
   nested histories. Both functions are exported from `fima` and `fima.Funds`.
 - TSETMC group selection accepts Persian/English names. The offline
   `get_tsetmc_fund_types()` table makes available names discoverable.
@@ -23,6 +23,16 @@
   registration during investigation; a valid empty list is preserved while
   transport, HTTP and malformed-response errors remain visible.
   Further source investigation is tracked separately in Issue #42.
+
+### Compatibility
+
+- Existing Fipiran/site-based Funds APIs remain unchanged. Numeric TSETMC group
+  selectors, positional registration numbers and `reg_no=` remain supported.
+- Name lookup checks exact normalized names and rejects ambiguity. Without a
+  supplied group it checks all ten known individual catalogs and propagates
+  any failed group; supplying `fund_type` narrows the lookup.
+- Provider columns, dates, nested values and row order are preserved. No fuzzy
+  selection, data imputation, Fipiran identity mapping or TLS bypass is added.
 
 ## 0.6.1
 
