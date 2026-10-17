@@ -35,6 +35,7 @@ py -c "from importlib.metadata import version; print(version('fima'))"
 - `fima.TSETMC`: داده‌های نمادها، شاخص‌ها، معاملات و سهامداران
 - `fima.TSEInstitutions`: فهرست نهادهای مالی
 - `fima.Funds`: اطلاعات صندوق‌های سرمایه‌گذاری، NAV روزانه و ترکیب روزانه دارایی‌ها
+- `fima.TGJU`: کشف نمادها، نمای آخرین قیمت‌ها، تاریخچهٔ روزانه و مشخصات بازارهای عمومی TGJU
 
 برای جلوگیری از واردشدن نام‌های کمکی، از import صریح استفاده کنید و از `import *` استفاده نکنید.
 
@@ -260,6 +261,35 @@ selected_details = get_tsetmc_fund_details(
 
 شواهد بررسی منبع و محدودیت‌ها: [یادداشت‌های دادهٔ صندوق‌های TSETMC](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-funds.md).
 
+### داده‌های عمومی طلا، ارز و بازارهای جهانی TGJU
+
+```python
+from fima import (
+    get_tgju_categories,
+    get_tgju_instruments,
+    get_tgju_market,
+    get_tgju_history,
+    get_tgju_instrument_details,
+)
+
+categories = get_tgju_categories()
+instruments = get_tgju_instruments("ارز", search="دلار")
+fx = get_tgju_market("ارز")
+gold = get_tgju_market("طلا")
+usd = get_tgju_history("دلار", "ارز", start_date="2026-10-01")
+gold18 = get_tgju_history(
+    "طلای 18 عیار / 750", "طلا",
+    start_date="1405/07/01", end_date="1405/07/23", jalali=True,
+)
+details = get_tgju_instrument_details("بیت کوین", "ارز دیجیتال")
+```
+
+نام فارسی، نام انگلیسی و `Symbol` فهرست قابل استفاده‌اند و نیازی به شناسهٔ عددی TGJU نیست. نام مبهم با `ValueError` و گزینه‌های قابل انتخاب گزارش می‌شود؛ مثلاً «طلای ۱۸ عیار» می‌تواند به دو عیار مختلف اشاره کند، پس نام کامل را از فهرست انتخاب کنید.
+
+فهرست نمادها و نمای بازار **صفحه‌بندی دارند**؛ `attrs["has_more"]` ادامه داشتن داده را مشخص می‌کند. برای صفحهٔ بعد از `get_tgju_instruments("ارز", page=2)` یا `get_tgju_market("ارز", page=2)` استفاده کنید. خروجی یک فراخوانی، فهرست کامل همهٔ ابزارها نیست. تاریخچه، همهٔ صفحات بازهٔ درخواستی را دریافت و صعودی مرتب می‌کند؛ واحد و منشأ آن در `usd.attrs` قرار دارد.
+
+منبع این قابلیت، نقاط دسترسی عمومی و بدون احراز هویت TGJU است و توکن اشتراک نیاز ندارد. `fima` وابسته به TGJU نیست و ادعای تأیید یا مجوز رسمی از آن ندارد. دسترسی و رفتار منبع ممکن است تغییر کند؛ مسئولیت رعایت شرایط و محدودیت‌های ارائه‌دهنده بر عهدهٔ کاربر است. ریال و تومان تبدیل نمی‌شوند؛ فیلد اعلام‌نشده خالی می‌ماند. [راهنمای فارسی، ستون‌ها و محدودیت‌ها](https://github.com/hemoboghosian/fima/blob/master/docs/tgju.md).
+
 ## API عمومی
 
 ### `fima.Options`
@@ -340,6 +370,16 @@ selected_details = get_tsetmc_fund_details(
 - `get_tsetmc_funds`
 - `get_tsetmc_fund_details`
 - `get_tsetmc_fund_types`
+
+### `fima.TGJU`
+
+- `get_tgju_categories`
+- `get_tgju_instruments`
+- `get_tgju_market`
+- `get_tgju_history`
+- `get_tgju_instrument_details`
+
+همین پنج تابع از `fima` نیز قابل واردسازی هستند. واردسازی با `*` از `fima.TGJU` فقط همین نام‌ها را صادر می‌کند؛ هنگام واردسازی ماژول، درخواست شبکه انجام نمی‌شود.
 
 پارامترهایی که با `_` شروع می‌شوند برای کنترل داخلی و آزمون هستند و بخشی از API پایدار عمومی محسوب نمی‌شوند.
 
