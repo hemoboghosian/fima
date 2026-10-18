@@ -91,3 +91,5 @@ from fima.TSEInstitutions import get_all_institutions
 
 institutions = get_all_institutions()
 ```
+
+Public table schemas and analytical model units follow [data conventions](data-conventions.md); see [unreleased migration notes](data-migration.md) before upgrading.

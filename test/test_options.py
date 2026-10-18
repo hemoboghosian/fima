@@ -7,22 +7,22 @@ from fima.Options import (get_greeks, get_implied_volatility, black_scholes_mert
                           download_market_watch, download_all_underlying_assets, download_historical_data,)
 
 
-EXPECTED_HISTORICAL_COLUMNS = ['Date', 'Quantity', 'Volume', 'Value', 'MinPrice', 'MaxPrice', 'FirstPrice', 'LastPrice',
-                               'ClosePrice']
+EXPECTED_HISTORICAL_COLUMNS = ['JalaliDate', 'TransactionCount', 'TradeVolume', 'TradeValue', 'LowPrice', 'HighPrice', 'OpeningPrice', 'LastPrice',
+                               'ClosingPrice']
 
 
 @pytest.fixture(scope="session")
 def sample_option_info():
     return pd.DataFrame([{"Ticker": "TEST", "UATicker": "TESTUA", "StrikePrice": 100,
                           "MaturityDate": jd.date.today() + jd.timedelta(days=90), "DaysToMaturity": 90, "Type": "Call",
-                          "LastPrice": 5, "LastPrice-UA": 100}])
+                          "LastPrice": 5, "UnderlyingLastPrice": 100}])
 
 
 @pytest.fixture(scope="session")
 def sample_ua_historical_data():
     dates = [jd.date.today() - jd.timedelta(days=i) for i in range(80, 0, -1)]
     prices = np.linspace(90, 110, 80)
-    return pd.DataFrame({"Date": dates, "ClosePrice": prices})
+    return pd.DataFrame({"Date": dates, "ClosingPrice": prices})
 
 
 @pytest.fixture(scope="session")
@@ -41,7 +41,7 @@ def test_download_all_underlying_assets_from_existing_market_watch(market_watch_
     assert all_underlying_assets is not None
     assert isinstance(all_underlying_assets, pd.DataFrame)
     assert not all_underlying_assets.empty
-    expected_columns = ['Ticker', 'InstrumentCode', 'ClosePrice', 'LastPrice', 'YesterdayPrice', 'URL']
+    expected_columns = ['Ticker', 'InstrumentCode', 'ClosingPrice', 'LastPrice', 'YesterdayPrice', 'URL']
     assert all(column in all_underlying_assets.columns for column in expected_columns)
 
 
@@ -65,10 +65,10 @@ def test_download_market_watch_basic_stack_and_date(stack, j_date):
     assert isinstance(market_watch, pd.DataFrame)
     assert not market_watch.empty
     if stack == "Horizontal":
-        expected_columns = ['Ticker-C', 'Ticker-P', 'Ticker-UA', 'StrikePrice', 'DaysToMaturity', 'LastPrice-C',
-                            'LastPrice-P', 'LastPrice-UA']
+        expected_columns = ['CallTicker', 'PutTicker', 'UnderlyingTicker', 'StrikePrice', 'DaysToMaturity', 'CallLastPrice',
+                            'PutLastPrice', 'UnderlyingLastPrice']
     else:
-        expected_columns = ['Ticker', 'Ticker-UA', 'StrikePrice', 'DaysToMaturity', 'LastPrice', 'Type']
+        expected_columns = ['Ticker', 'UnderlyingTicker', 'StrikePrice', 'DaysToMaturity', 'LastPrice', 'OptionType']
     assert all(column in market_watch.columns for column in expected_columns)
 
 
@@ -124,17 +124,17 @@ def test_download_chain_contracts_limited(j_date, bsm, greeks, implied_volatilit
     assert chain_contracts is not None
     assert isinstance(chain_contracts, pd.DataFrame)
     assert not chain_contracts.empty
-    basic_columns = ['Ticker-C', 'Ticker-P', 'Ticker-UA', 'StrikePrice', 'DaysToMaturity', 'LastPrice-C', 'LastPrice-P',
-                     'LastPrice-UA']
+    basic_columns = ['CallTicker', 'PutTicker', 'UnderlyingTicker', 'StrikePrice', 'DaysToMaturity', 'CallLastPrice', 'PutLastPrice',
+                     'UnderlyingLastPrice']
     assert all(column in chain_contracts.columns for column in basic_columns)
     if bsm:
-        assert all(column in chain_contracts.columns for column in ['BSMPrice-C', 'BSMPrice-P', 'Volatility-C', 'Volatility-P'])
+        assert all(column in chain_contracts.columns for column in ['CallBSMPrice', 'PutBSMPrice', 'CallVolatility', 'PutVolatility'])
     if greeks:
-        assert all(column in chain_contracts.columns for column in ['Delta-C', 'Gamma-C', 'Theta-C', 'Vega-C', 'Rho-C',
-                                                                    'Delta-P', 'Gamma-P', 'Theta-P', 'Vega-P', 'Rho-P'])
+        assert all(column in chain_contracts.columns for column in ['CallDelta', 'CallGamma', 'CallTheta', 'CallVega', 'CallRho',
+                                                                    'PutDelta', 'PutGamma', 'PutTheta', 'PutVega', 'PutRho'])
 
     if implied_volatility:
-        assert all(column in chain_contracts.columns for column in ['ImpliedVolatility-C', 'ImpliedVolatility-P'])
+        assert all(column in chain_contracts.columns for column in ['ImpliedCallVolatility', 'ImpliedPutVolatility'])
 
 
 @pytest.mark.integration
@@ -145,8 +145,8 @@ def test_download_chain_contracts_with_calculations():
     assert chain_contracts is not None
     assert isinstance(chain_contracts, pd.DataFrame)
     assert not chain_contracts.empty
-    assert all(column in chain_contracts.columns for column in ['BSMPrice-C', 'BSMPrice-P', 'Volatility-C',
-                                                                'Volatility-P', 'Delta-C', 'Gamma-C', 'Theta-C',
-                                                                'Vega-C', 'Rho-C', 'Delta-P', 'Gamma-P', 'Theta-P',
-                                                                'Vega-P', 'Rho-P', 'ImpliedVolatility-C',
-                                                                'ImpliedVolatility-P'])
+    assert all(column in chain_contracts.columns for column in ['CallBSMPrice', 'PutBSMPrice', 'CallVolatility',
+                                                                'PutVolatility', 'CallDelta', 'CallGamma', 'CallTheta',
+                                                                'CallVega', 'CallRho', 'PutDelta', 'PutGamma', 'PutTheta',
+                                                                'PutVega', 'PutRho', 'ImpliedCallVolatility',
+                                                                'ImpliedPutVolatility'])
