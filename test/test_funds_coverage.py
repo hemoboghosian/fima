@@ -11,7 +11,7 @@ from .test_funds_http import response
 
 def public_fund(monkeypatch, provider, *, name="Fund A", kind="در سهام", group=0):
     calls = []
-    row = {"Name": name, "FundType": kind, "WebsiteAddress": "fund.example",
+    row = {"FundName": name, "FundTypeName": kind, "WebsiteAddress": "fund.example",
            "GroupId": group, "Ticker": "AAA"}
 
     def catalog(**kwargs):
@@ -47,8 +47,8 @@ def test_public_rayan_marketmaker_uses_aggregate_nav(monkeypatch):
 
     monkeypatch.setattr(Funds.requests, "get", get)
     assert Funds.get_daily_navs("Fund A").to_dict("records") == [{
-        "JDate": jd.date(1405, 7, 19), "Subscription": 55, "Redemption": 50,
-        "Statistical": 45, "TotalNAV": 50}]
+        "JalaliDate": "1405-07-19", "SubscriptionNAV": 11, "RedemptionNAV": 10,
+        "StatisticalNAV": 9, "TotalNAV": 50}]
     assert len(catalog_calls) == 1
     assert calls == ["https://fund.example/api/v1/public/navMulti?size=-1"]
 
@@ -149,7 +149,7 @@ def test_mabna_nav_fields_are_named_not_positional(monkeypatch):
     monkeypatch.setattr(Funds.requests, "get", lambda url, **kwargs: response({"data": [data]}, url=url))
     assert Funds._get_daily_navs_mabna("A").to_dict("records") == [{
         "JDate": jd.date(1405, 7, 19), "Subscription": 3, "Redemption": 2,
-        "Statistical": 2, "TotalNAV": 30}]
+        "Statistical": 2, "TotalSubscriptionNAV": 30}]
 
 
 def current_assets(date="2026-10-11"):
@@ -177,9 +177,9 @@ def test_current_mabna_allocation_and_complete_pagination(monkeypatch):
 
     monkeypatch.setattr(Funds.requests, "get", get)
     result = Funds.get_daily_asset_allocation("Fund A")
-    assert result["Date"].tolist() == [jd.date(1405, 7, 19), jd.date(1405, 7, 18)]
+    assert result["JalaliDate"].tolist() == ["1405-07-19", "1405-07-18"]
     assert result["Stocks"].tolist() == [4, 4]
-    assert result["Stocks Weight"].tolist() == [.4, .4]
+    assert result["StocksWeight"].tolist() == [.4, .4]
     assert result["CCDs"].tolist() == [5, 5]
     assert pages == [1, 2]
 
@@ -345,7 +345,7 @@ def test_tadbir_parent_identity_can_be_in_a_second_selector(monkeypatch):
 @pytest.mark.parametrize("display", ["آذرین", "صندوق س.بخشی فلزات کیمیا-ب (آذرین)"])
 def test_tadbir_sector_alias_resolves_by_exact_catalog_ticker(monkeypatch, display):
     public_fund(monkeypatch, "گروه رایانه تدبیر پرداز", name="بخشی فلزات کیمیا", kind="در سهام-بخشی")
-    metadata = pd.DataFrame([{"Name": "بخشی فلزات کیمیا", "FundType": "در سهام-بخشی",
+    metadata = pd.DataFrame([{"FundName": "بخشی فلزات کیمیا", "FundTypeName": "در سهام-بخشی",
                               "WebsiteAddress": "fund.example", "Ticker": "آذرین"}])
     monkeypatch.setattr(Funds, "get_all_funds", lambda **kwargs: metadata.copy())
 
@@ -394,8 +394,8 @@ def test_tadbir_allocation_selects_basket_and_preserves_option_holdings(monkeypa
     monkeypatch.setattr(Funds.requests, "get", get)
     result = Funds.get_daily_asset_allocation("Fund A")
     assert result["Options"].tolist() == [1000]
-    assert result["Options Weight"].tolist() == [2.0]
-    assert result["Upper5%Stocks"].tolist() == [1000]
+    assert result["OptionsWeight"].tolist() == [2.0]
+    assert result["TopFiveStocks"].tolist() == [1000]
 
 
 def test_mabna_nav_checks_each_record(monkeypatch):

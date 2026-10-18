@@ -69,7 +69,7 @@ print(usd[["Date", "Close"]].tail())
 from fima import get_all_funds
 
 funds = get_all_funds()
-print(funds[["Name", "FundType", "TotalNAV"]].head())
+print(funds[["FundName", "FundTypeName", "TotalNAV"]].head())
 ```
 
 برای دریافت تاریخچهٔ ارزش خالص دارایی‌ها و ترکیب دارایی‌های یک صندوق، نام دقیق آن را از همین فهرست انتخاب کنید؛ نمونه‌ها در [راهنمای صندوق‌ها](docs/funds.md) آمده‌اند.
