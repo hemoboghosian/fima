@@ -19,7 +19,7 @@ def _public_frame(frame):
              'Value': 'TradeValue', 'TradesValue': 'TradeValue', 'TotalPrice': 'TradeValue',
              'TransactionValue': 'TradeValue', 'TotalTransitions': 'TransactionCount',
              'ClosePriceChangePrice': 'ClosingPriceChange', 'ClosePricePercentageChange': 'ClosingPricePercentageChange',
-             'ChangeOpenInterest': 'OpenInterestChange', 'Producer': 'ProducerName'}
+             'ChangeOpenInterest': 'OpenInterestChange', 'Producer': 'ProducerName', 'Broker': 'BrokerName'}
     result = frame.rename(columns={c: names.get(c, c[0].upper() + c[1:]) for c in frame}).copy()
     quantities = {'TradeVolume', 'TradeValue', 'TransactionCount', 'ClosingPrice', 'OpeningPrice', 'LowPrice',
                   'HighPrice', 'LastPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',

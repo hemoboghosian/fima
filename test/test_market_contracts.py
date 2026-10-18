@@ -32,6 +32,7 @@ def test_physical_keys_volume_value_prices_and_dates():
     assert pd.isna(result.iloc[0].SettlementJalaliDate)
     assert result.iloc[0].Unit == "ton"
     assert result.iloc[0].Symbol == "001"
+    assert result.iloc[0].BrokerName == "Broker"
 
 
 def test_ime_option_timestamp_and_numeric_ids(monkeypatch):

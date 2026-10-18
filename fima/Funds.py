@@ -60,7 +60,8 @@ def _allocation_frame(frame):
 def _catalog_frame(frame):
     names = {"RegNo": "RegistrationNumber", "InceptionDate": "InceptionJalaliDate",
              "UpdateDate": "UpdateJalaliDate", "DividendFrequency (Month)": "DividendFrequencyMonths",
-             "Others Weight": "OtherAssetsWeight", "Bank CDs Weight": "DepositWeight"}
+             "Others Weight": "OtherAssetsWeight", "Bank CDs Weight": "DepositWeight",
+             "StatisticalNav": "StatisticalNAV"}
     result = frame.rename(columns={c: names.get(c, _column_name(c)) for c in frame}).copy()
     for column in result:
         if column == "IsCompleted":

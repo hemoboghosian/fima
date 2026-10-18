@@ -40,7 +40,7 @@ def test_get_all_ime_physical_trades(start_date, end_date):
 
     expected_columns = ['GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'LowPrice', 'ClosingPrice', 'HighPrice',
                         'SupplyVolume', 'SupplyBasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'TradeVolume',
-                        'TradeValue', 'JalaliDate', 'DeliveryJalaliDate', 'Warehouse', 'Supplier', 'SettlementJalaliDate', 'Broker',
+                        'TradeValue', 'JalaliDate', 'DeliveryJalaliDate', 'Warehouse', 'Supplier', 'SettlementJalaliDate', 'BrokerName',
                         'SupplyType', 'BuyType', 'Currency', 'Unit', 'ExchangeHall', 'PacketType', 'Settlement']
 
     assert all(column in all_ime_physical_trades.columns for column in expected_columns)

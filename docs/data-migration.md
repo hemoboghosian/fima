@@ -65,6 +65,7 @@ responses inspected during the audit, and [Mibian source](https://github.com/yas
 | Old public name | New public name | Scope |
 | --- | --- | --- |
 | Name / FundType / RegNo | FundName / FundTypeName / RegistrationNumber | Fipiran catalog |
+| StatisticalNav | StatisticalNAV | Fipiran catalog; same per-unit statistical NAV concept |
 | InceptionDate / UpdateDate | InceptionJalaliDate / UpdateJalaliDate | Fipiran catalog |
 | DividendFrequency (Month) | DividendFrequencyMonths | Fipiran catalog |
 | Upper5%Stocks / Upper5%Bonds | TopFiveStocks / TopFiveBonds | Allocations/concentration; **five holdings, not five percent** |
@@ -154,6 +155,7 @@ and redirect/error pages at other fund sites remain provider/environment limits.
 | ChangeOpenInterest | OpenInterestChange | IME futures/options |
 | DeliveryDate / SettlementDate | DeliveryJalaliDate / SettlementJalaliDate | IME physical/export/derivatives |
 | DeliveryGDate / DeliveryJDate | DeliveryGregorianDate / DeliveryJalaliDate | IME gold/silver |
+| Broker | BrokerName | IME physical; same provider field as export brokerage |
 | Producer | ProducerName | IME producer/product tables |
 | Name / NationalId | InstitutionName / NationalID | Institutions |
 
