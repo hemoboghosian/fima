@@ -103,7 +103,7 @@ print(usd.attrs)
 
 امضای تابع:
 
-```python
+```text
 get_tgju_history(
     instrument, category=None, *, start_date=None, end_date=None, jalali=False,
 )
