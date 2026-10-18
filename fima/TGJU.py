@@ -186,15 +186,15 @@ def _catalog_page(client, source, search, page):
     rows = []
     for raw in data['list']:
         if (not isinstance(raw, dict) or not isinstance(raw.get('title'), str)
-                or not raw['title'].strip() or not isinstance(raw.get('grade'), str)
-                or not raw['grade'] or not raw.get('n1') or not isinstance(raw.get('type'), str)):
+                or not raw['title'].strip() or not raw.get('n1')
+                or not isinstance(raw.get('type'), str)):
             raise ValueError('TGJU malformed catalog instrument')
         if raw.get('batch') not in _families:
             continue
-        symbol = (raw.get('s3') or raw.get('s1') or raw['grade']).strip()
-        if not symbol or any(x in symbol for x in '/?#'):
+        symbol = raw.get('s3') or raw.get('s1') or raw.get('grade')
+        if not isinstance(symbol, str) or not symbol.strip() or any(x in symbol for x in '/?#'):
             raise ValueError('TGJU malformed instrument symbol')
-        rows.append(dict(Symbol=symbol, Name=raw['title'].strip(), EnglishName=raw.get('title_en'),
+        rows.append(dict(Symbol=symbol.strip(), Name=raw['title'].strip(), EnglishName=raw.get('title_en'),
             Category=raw.get('category'), Group=_families[raw['batch']][0],
             Market='بازار داخلی' if raw['type'].startswith('markets.internal') else 'بازار جهانی',
             Currency=(raw.get('s2') or '').upper() or None, _id=str(raw['n1']), _raw=raw))
@@ -223,25 +223,35 @@ def _table(rows, columns, attrs=None):
 def _resolve(client, instrument, category):
     if not isinstance(instrument, str) or not instrument.strip():
         raise ValueError('instrument must be a nonempty name or symbol from get_tgju_instruments()')
-    candidates = {}
-    for source in _sources(client, category):
-        seen = set()
-        for page in range(1, _MAX_PAGES + 1):
-            rows, more, count = _catalog_page(client, source, instrument, page)
-            fingerprint = tuple(row['_id'] for row in rows)
-            if count and fingerprint and fingerprint in seen:
-                raise ValueError('TGJU catalog pagination repeated; narrow the category or search')
-            seen.add(fingerprint)
-            for row in rows:
-                candidates[row['_id']] = row
-            if not more or not count:
-                break
-        else:
-            raise ValueError('TGJU catalog pagination limit reached; narrow the category or search')
-    needle = _norm(instrument)
-    exact = [row for row in candidates.values() if needle in {
-        _norm(row['Name']), _norm(row['Symbol']), _norm(row['EnglishName'] or ''), _norm(row['_raw']['grade'])}]
-    matches = exact or [row for row in candidates.values() if any(needle in _norm(row[k] or '') for k in ('Name', 'EnglishName', 'Symbol'))]
+    sources = _sources(client, category)
+    queries = [instrument]
+    words = _re.sub(r'[_-]+', ' ', instrument)
+    if words != instrument:
+        queries.append(words)
+    # Some new catalog symbols are not indexed verbatim by TGJU search.
+    # Retry ordinary word search, but still select against the original name/symbol.
+    for query in queries:
+        candidates = {}
+        for source in sources:
+            seen = set()
+            for page in range(1, _MAX_PAGES + 1):
+                rows, more, count = _catalog_page(client, source, query, page)
+                fingerprint = tuple(row['_id'] for row in rows)
+                if count and fingerprint and fingerprint in seen:
+                    raise ValueError('TGJU catalog pagination repeated; narrow the category or search')
+                seen.add(fingerprint)
+                for row in rows:
+                    candidates[row['_id']] = row
+                if not more or not count:
+                    break
+            else:
+                raise ValueError('TGJU catalog pagination limit reached; narrow the category or search')
+        needle = _norm(instrument)
+        exact = [row for row in candidates.values() if needle in {
+            _norm(row['Name']), _norm(row['Symbol']), _norm(row['EnglishName'] or ''), _norm(row['_raw'].get('grade') or '')}]
+        matches = exact or [row for row in candidates.values() if any(needle in _norm(row[k] or '') for k in ('Name', 'EnglishName', 'Symbol'))]
+        if matches:
+            break
     if not matches:
         raise ValueError(f'Unknown TGJU instrument {instrument!r}; use get_tgju_instruments()')
     if len(matches) != 1:

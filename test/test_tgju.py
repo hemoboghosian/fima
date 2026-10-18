@@ -18,6 +18,7 @@ HOME = '''<script>const search_config = [
 {title: "ارز", source: "https://api.tgju.org/v1/newsearch?module=markets.internal&batch=internal_currency"},
 {title: "انرژی", source: "https://api.tgju.org/v1/newsearch?module=markets.global&batch=global_energy"},
 {title: "ارز دیجیتال", source: "https://api.tgju.org/v1/newsearch?module=markets.global&batch=crypto"},
+{title: "commodity", source: "https://api.tgju.org/v1/newsearch?module=markets.global&batch=global_commodity"},
 {title: "خبر", source: "https://api.tgju.org/v1/newsearch?module=news"}
 ];</script>'''
 PROFILE = '''<h1 class="title">دلار</h1>
@@ -88,7 +89,7 @@ def provider(monkeypatch):
 def test_dynamic_category_discovery_and_independent_results(provider):
     table = TGJU.get_tgju_categories()
     assert list(table.columns) == ['Category', 'Market', 'EnglishName']
-    assert table.Category.tolist() == ['طلا', 'ارز', 'انرژی', 'ارز دیجیتال']
+    assert table.Category.tolist() == ['طلا', 'ارز', 'انرژی', 'ارز دیجیتال', 'commodity']
     table.loc[0, 'Category'] = 'changed'
     assert TGJU.get_tgju_categories().Category.iloc[0] == 'طلا'
     assert len(provider['calls']) == 1
@@ -322,3 +323,29 @@ def test_suspicious_provider_ohlc_is_preserved_without_repair(provider):
     history = TGJU.get_tgju_history('نفت برنت', 'انرژی')
     assert history[['Open','Low','High','Close']].iloc[0].tolist() == [101.031,100.2,99.556,103.356]
     assert history.High.iloc[0] < history.Low.iloc[0]
+
+
+def test_commodity_with_null_grade_uses_public_symbol(provider):
+    # Observed newsearch record: grade is optional even when s3 and n1 exist.
+    provider['rows'] = [dict(BRENT, mid=2172884, n1=2150998,
+        title='روغن کلزا', title_en='Canola Oil', grade=None,
+        s1='روغن-کلزا', s2='cad', s3='commodity_canola_oil',
+        batch='global_commodity', category='محصولات کشاورزی')]
+    table = TGJU.get_tgju_instruments('commodity')
+    assert table.Symbol.tolist() == ['commodity_canola_oil']
+    assert table.Currency.tolist() == ['CAD']
+
+
+def test_catalog_without_any_public_symbol_is_rejected(provider):
+    provider['rows'] = [dict(USD, grade=None, s1=None, s3=None)]
+    with pytest.raises(ValueError, match='TGJU.*symbol'):
+        TGJU.get_tgju_instruments('currency')
+
+
+def test_symbol_lookup_retries_readable_words_without_changing_selection(provider):
+    canola = dict(BRENT, grade=None, s3='commodity_canola_oil', title_en='Canola Oil')
+    provider['rows'] = lambda params: [] if params.get('q') == 'commodity_canola_oil' else [canola]
+    details = TGJU.get_tgju_instrument_details('commodity_canola_oil', 'commodity')
+    assert details['Symbol'] == 'commodity_canola_oil'
+    queries = [kwargs['params']['q'] for url, kwargs in provider['calls'] if url.endswith('/newsearch')]
+    assert queries == ['commodity_canola_oil', 'commodity canola oil']
