@@ -35,21 +35,21 @@ def test_get_fund_row_success():
     all_funds = pd.DataFrame(
         [
             {
-                "Name": "Fund A",
+                "FundName": "Fund A",
                 "WebsiteAddress": "funda.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             },
             {
-                "Name": "Fund B",
+                "FundName": "Fund B",
                 "WebsiteAddress": "fundb.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             },
         ]
     )
 
     row = Funds._get_fund_row("Fund A", all_funds)
 
-    assert row["Name"] == "Fund A"
+    assert row["FundName"] == "Fund A"
     assert row["WebsiteAddress"] == "funda.ir"
 
 
@@ -57,9 +57,9 @@ def test_get_fund_row_invalid_name_raises():
     all_funds = pd.DataFrame(
         [
             {
-                "Name": "Fund A",
+                "FundName": "Fund A",
                 "WebsiteAddress": "funda.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             }
         ]
     )
@@ -72,9 +72,9 @@ def test_get_daily_navs_invalid_fund_name_raises(monkeypatch):
     fake_funds = pd.DataFrame(
         [
             {
-                "Name": "Fund A",
+                "FundName": "Fund A",
                 "WebsiteAddress": "funda.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             }
         ]
     )
@@ -93,9 +93,9 @@ def test_get_daily_asset_allocation_invalid_fund_name_raises(monkeypatch):
     fake_funds = pd.DataFrame(
         [
             {
-                "Name": "Fund A",
+                "FundName": "Fund A",
                 "WebsiteAddress": "funda.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             }
         ]
     )
@@ -114,9 +114,9 @@ def test_get_daily_asset_allocation_no_public_nav_type_raises(monkeypatch):
     fake_funds = pd.DataFrame(
         [
             {
-                "Name": "Fund A",
+                "FundName": "Fund A",
                 "WebsiteAddress": "funda.ir",
-                "FundType": "جسورانه",
+                "FundTypeName": "جسورانه",
             }
         ]
     )
@@ -135,9 +135,9 @@ def test_get_daily_navs_stabilization_fund_raises(monkeypatch):
     fake_funds = pd.DataFrame(
         [
             {
-                "Name": "صندوق تثبیت بازار سرمایه",
+                "FundName": "صندوق تثبیت بازار سرمایه",
                 "WebsiteAddress": "cmsfund.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             }
         ]
     )
@@ -156,9 +156,9 @@ def test_get_daily_asset_allocation_stabilization_fund_raises(monkeypatch):
     fake_funds = pd.DataFrame(
         [
             {
-                "Name": "صندوق تثبیت بازار سرمایه",
+                "FundName": "صندوق تثبیت بازار سرمایه",
                 "WebsiteAddress": "cmsfund.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             }
         ]
     )
@@ -177,9 +177,9 @@ def test_get_daily_asset_allocation_unknown_developer_raises(monkeypatch):
     fake_funds = pd.DataFrame(
         [
             {
-                "Name": "Fund A",
+                "FundName": "Fund A",
                 "WebsiteAddress": "unknownfund.ir",
-                "FundType": "Test Type",
+                "FundTypeName": "Test Type",
             }
         ]
     )

@@ -1,78 +1,55 @@
-# دادهٔ صندوق‌های TSETMC
+# TSETMC fund data
 
-[User guide](../README.md) | [Other fund sources](funds.md)
-
-## اطلاعات صندوق‌ها از TSETMC
+[User guide](../README.md) | [Fund guide](funds.md) | [Migration](data-migration.md#funds)
 
 ```python
-import pandas as pd
 from fima import get_tsetmc_fund_types, get_tsetmc_funds, get_tsetmc_fund_details
 
-fund_types = get_tsetmc_fund_types()
-stock_funds = get_tsetmc_funds("سهامی")
-mixed_funds = get_tsetmc_funds("مختلط")
-fund_names = mixed_funds["mfName"].tolist()
-
-details = get_tsetmc_fund_details("آرمان سپهر آتی")
-nav_history = pd.DataFrame(details.get("stats") or [])
-
-# تعیین گروه، جست‌وجوی نام را به همان گروه محدود می‌کند.
-selected_details = get_tsetmc_fund_details(
-    fund_name="آرمان سپهر آتی", fund_type="مختلط"
-)
+types = get_tsetmc_fund_types()
+funds = get_tsetmc_funds("mixed")
+print(funds[["FundName", "RegistrationNumber", "SubscriptionNAV", "RedemptionNAV"]])
+details = get_tsetmc_fund_details(funds.iloc[0]["FundName"], fund_type="mixed")
+# Explicit registration selection also remains supported.
+details = get_tsetmc_fund_details(reg_no=funds.iloc[0]["RegistrationNumber"])
 ```
 
-تابع `get_tsetmc_fund_types()` بدون درخواست شبکه، جدولی از نام فارسی گروه‌ها، نام انگلیسی قابل استفاده و شناسهٔ TSETMC می‌دهد. برای استفادهٔ معمول کافی است نام گروه را به `get_tsetmc_funds(fund_type)` بدهید؛ خروجی آن فهرست صندوق‌های همان گروه در قالب `DataFrame` است. نام‌های فارسی شامل «سهامی»، «مختلط»، «درآمد ثابت»، «بازارگردانی»، «جسورانه»، «زمین و ساختمان»، «پروژه»، «کالایی»، «خصوصی» و «صندوق» هستند. نام‌های انگلیسی جدول نیز پذیرفته می‌شوند؛ برای نمونه `equity` یا `stock` برای سهامی و `mixed` برای مختلط. «در سهام» و «سهام» نیز معادل «سهامی» پذیرفته می‌شوند. تفاوت حروف عربی و فارسی، فاصله و نیم‌فاصله و بزرگی حروف انگلیسی در انتخاب نام نادیده گرفته می‌شود.
+Snapshots use canonical PascalCase columns, numeric per-unit NAVs and separate
+TotalNAV, pandas Gregorian date columns, string identifiers and percentage-point
+weights/returns. The actual fund name is source mfName (FundName); source name
+becomes ProviderName and can be null. fixIncome becomes FundTypeID, while the
+different source fundType remains ProviderFundTypeCode. ProviderFundSize is not
+assumed to mean total assets. See the full mapping in the migration notes.
+Unknown additional columns capitalize the source's initial letter; nested
+Stats/FundProfits payloads keep raw provider keys and row order. An explicitly
+empty group returns an empty frame without columns.
 
-برای سازگاری، فراخوانی‌های عددی مانند `get_tsetmc_funds(6)` و `get_tsetmc_funds(7)` همچنان معتبرند. شناسهٔ عددی هر گروه در جدول `fund_types` قابل مشاهده است و نباید با شناسهٔ فیپیران یکسان فرض شود. گزینهٔ عددی `0` برای نمایش همه در سایت استفاده می‌شود، اما هنگام بررسی پاسخ `500` داشت؛ در فهرست نام‌های پیشنهادی قرار ندارد و دریافت موفق آن تضمین نمی‌شود. جدول نام گروه‌ها به معنی تضمین دسترسی فعلی سرویس نیست.
+The detail API intentionally returns the **complete raw provider dict**, including
+regNo/mfName/stats/fundProfits with their original types, keys and ordering. It is
+not a normalized history table. To inspect raw history explicitly, use
+`pd.DataFrame(details.get("stats") or [])`. Snapshot and detail dates/coverage
+can differ; do not fill one from the other.
 
-نام ستون‌ها و ترتیب ردیف‌ها از منبع حفظ می‌شود؛ تاریخ‌ها رشته‌های میلادیِ خام هستند و مقادیر نوع دادهٔ معمول pandas را می‌گیرند. نام صندوق در `mfName`، شمارهٔ ثبت در `regNo` و گروه نمایشی در `fixIncome` است؛ ستون `fundType` الزاماً گروه انتخاب‌شده نیست. فیلدهای اضافی و تو‌در‌تو حذف یا بازنام‌گذاری نمی‌شوند. آرایهٔ معتبر و خالی `funds` یک جدول خالی بدون ستون برمی‌گرداند؛ پاسخ نامعتبر یا فاقد این آرایه خطا ایجاد می‌کند. حتی یک شناسهٔ گروه ناشناخته ممکن است از طرف منبع به‌صورت آرایهٔ خالی پاسخ داده شود.
+Name selection is exact after Arabic/Persian letter, whitespace and English-case
+normalization. With no fund_type, all ten supported individual groups are checked;
+a failed group propagates instead of assuming uniqueness. Repeated matches for
+one registration are accepted; multiple registrations raise ValueError. Numeric
+positional registration arguments and reg_no= are still supported. Conflicting
+name/registration selectors fail before HTTP. No fuzzy match is attempted.
 
-تابع `get_tsetmc_fund_details(fund_name)` اطلاعات کامل صندوق انتخاب‌شده با نام را در قالب `dict` برمی‌گرداند. نام کامل را از ستون `mfName` فهرست صندوق‌ها انتخاب کنید؛ برای دانستن شمارهٔ ثبت نیازی به بررسی نشانی سایت ندارید. اگر `fund_type` مشخص نشود، هر ده گروه شناخته‌شده جداگانه بررسی می‌شوند؛ این کار درخواست‌های بیشتری دارد و به دسترسی همهٔ آن گروه‌ها وابسته است. تعیین گروه با نام، مانند `fund_type="مختلط"`، جست‌وجو را به یک گروه محدود می‌کند. نام پس از یکسان‌سازی حروف عربی و فارسی، فاصله‌ها و بزرگی حروف انگلیسی باید دقیقاً مطابق باشد؛ نام ناقص یا شبیه‌ترین نام به‌طور حدسی انتخاب نمی‌شود. چند ردیف با یک شمارهٔ ثبت یک صندوق محسوب می‌شوند، اما تطابق با چند شمارهٔ ثبت، `ValueError` ایجاد می‌کند؛ گروه را مشخص کنید یا از شمارهٔ ثبت فهرست استفاده کنید. شکست دریافت یک گروه در جست‌وجوی کامل مخفی نمی‌شود.
+Numeric group arguments still accept nonnegative whole numbers or ASCII digit
+strings. Registration arguments require positive whole numbers; these are not
+instrument codes. Offline type discovery has string FundTypeID values, Persian
+FundTypeName and EnglishName. Group 0 is an advanced provider selector, not a
+listed supported group, and can fail.
 
-فراخوانی‌های قبلی `get_tsetmc_fund_details(11172)` و `get_tsetmc_fund_details(reg_no=11172)` همچنان معتبرند و مستقیماً جزئیات را می‌گیرند. `reg_no` شمارهٔ ثبت است، نه کد معاملاتی ابزار؛ آن را با نام یا گروه در یک فراخوانی ترکیب نکنید. فیلدهای `stats` و `fundProfits`، در صورت ارائه توسط منبع، با ساختار و ترتیب اصلی حفظ می‌شوند. تاریخچه مرتب، تکمیل یا به تاریخ شمسی تبدیل نمی‌شود؛ جدول `nav_history` در مثال بالا فقط دادهٔ `stats` را به جدول تبدیل می‌کند. تاریخ و پوشش اطلاعات جزئیات ممکن است با فهرست صندوق‌ها متفاوت باشد؛ جدیدترین بودن و کامل بودن تاریخچه تضمین نمی‌شود.
+Invalid parameters, malformed JSON/records and mismatched registration raise
+ValueError; transport/certificate/timeout/HTTP failures propagate as requests
+exceptions. Requests retain verified HTTPS, finite timeouts and bounded retries.
+There are no import-time network requests or Fipiran/website fallbacks.
 
-در استفادهٔ عددی، شناسهٔ گروه باید عدد صحیح نامنفی و شمارهٔ ثبت باید عدد صحیح مثبت باشد. رشتهٔ ارقام لاتین و مقدار عددیِ بدون بخش اعشاری، مانند `11172.0` موجود در پاسخ منبع، نیز پذیرفته می‌شود؛ مقدار بولی یا مسیر به‌جای شناسه پذیرفته نمی‌شود. نام یا ورودی نامعتبر، ترکیب متعارض انتخاب‌ها، JSON یا ساختار پاسخ نامعتبر و عدم تطابق شمارهٔ ثبت جزئیات، `ValueError` ایجاد می‌کنند. خطاهای اتصال، مهلت، گواهی و HTTP به‌صورت زیرکلاس‌های `requests.RequestException` منتشر می‌شوند؛ منبع ممکن است برای شمارهٔ ثبت ناموجود نیز `500` برگرداند. درخواست‌ها بررسی گواهی HTTPS، مهلت محدود و سیاست تلاش مجدد محدود بخش `Funds` را دارند. این توابع از فیپیران یا وب‌سایت مستقل صندوق داده‌ای دریافت نمی‌کنند و رفتار توابع قبلی تغییر نمی‌کند.
-
-شواهد بررسی منبع و محدودیت‌ها در بخش‌های بعدی همین راهنما آمده است.
-
-## بررسی منبع در ۲۰۲۶-۱۰-۱۴
-
-درخواست‌های مستقیم با بررسی گواهی HTTPS و مهلت محدود، بدون تغییر مسیر، انجام شدند:
-
-| مسیر | پاسخ مشاهده‌شده |
-| --- | --- |
-| [فهرست سهامی](https://cdn.tsetmc.com/api/Fund/GetFunds/6) | `200`، JSON با کلید `funds`؛ ۱۲۶ رکورد در این نمونه |
-| [فهرست مختلط](https://cdn.tsetmc.com/api/Fund/GetFunds/7) | `200`، JSON با کلید `funds`؛ ۱۷ رکورد در این نمونه |
-| [جزئیات صندوق 11172](https://cdn.tsetmc.com/api/Fund/GetFundInDetail/11172) | `200`، JSON با کلید `fund`؛ شامل ۳۵۳۹ رکورد `stats` و آرایهٔ خالی `fundProfits` |
-| `/api/Fund/GetFunds/0` | `500` با بدنهٔ خالی در درخواست بررسی |
-| `/api/Fund/GetFunds/999` | `200` با `{"funds": []}` |
-| `/api/Fund/GetFundInDetail/999999999` | `500` با بدنهٔ خالی |
-
-تعدادها و تاریخ‌ها فقط شواهد نمونه‌اند و شرط ثابت تست زنده نیستند. ابزار مرور وب به این نشانی‌ها دسترسی نداشت، اما درخواست مستقیم Python موفق بود؛ شکست ابزار مرور به معنی قطع بودن API نیست.
-
-صفحهٔ [صندوق 11172](https://tsetmc.ir/Fund/11172) پوستهٔ برنامهٔ جاوااسکریپت را برمی‌گرداند. فایل عمومی `main.f24603b0cc21e2598771.js` مسیرهای بالا، باز کردن جزئیات با شمارهٔ ثبت و نمایش نام از `mfName` و گروه از `fixIncome` را تأیید کرد. تابع فعال فهرست، `funds` را از پاسخ می‌خواند؛ یکی از توابع دیگر همان فایل کلیدی نامرتبط داشت، بنابراین فقط نام تابع جاوااسکریپت مبنای ساختار پاسخ قرار نگرفت. پاسخ واقعی و مصرف‌کنندهٔ فعال بررسی شدند.
-
-## قرارداد خروجی
-
-برای انتخاب بدون دانستن شناسه، `get_tsetmc_fund_types()` جدول نام‌های فارسی و انگلیسی را بدون شبکه می‌دهد. `get_tsetmc_funds("سهامی")` یا `get_tsetmc_funds("مختلط")` همان فهرست عددی را می‌گیرد؛ نام گروه فقط به شناسهٔ تأییدشده نگاشت می‌شود و ستون‌های خروجی تغییر نمی‌کنند. جدول شامل ده گروه مشخص سایت است و به معنی تضمین دسترسی هر گروه نیست.
-
-`get_tsetmc_funds(fund_type)` با انتخاب صریح گروه، یک `DataFrame` می‌دهد. شناسه‌ها از منوی فعلی سایت تأیید شدند: `6` سهامی، `7` مختلط، `4` درآمد ثابت، `11` بازارگردانی، `12` جسورانه، `14` زمین و ساختمان، `13` پروژه، `5` بر پایهٔ گواهی سپردهٔ کالایی، `16` خصوصی و `17` با عنوان «صندوق». گزینهٔ `0` نمایش همه است، اما پاسخ موفق آن در این بررسی به دست نیامد. شناسهٔ جدید یا ناشناخته به منبع ارسال می‌شود؛ نتیجه ممکن است خالی یا خطا باشد. شناسه‌های فیپیران به‌طور حدسی به این شناسه‌ها نگاشت نمی‌شوند.
-
-ستون‌ها و ترتیب ردیف‌ها حفظ می‌شوند و pandas نوع داده را به روش معمول تعیین می‌کند. در نمونه‌های سهامی و مختلط، `fundType` برابر `0` بود و `fixIncome` گروه نمایشی را مشخص می‌کرد. `name` تهی بود ولی `mfName` نام صندوق را داشت. مقادیر تهی، صفر، رشتهٔ خالی، تاریخ‌های میلادی و فیلدهای اضافی بدون تبدیل اختصاصی حفظ می‌شوند؛ مقادیر تهی در جدول تابع قواعد معمول pandas هستند. آرایهٔ خالی معتبر، جدول خالی بدون ستون است؛ پاسخ فاقد آرایهٔ `funds` یا دارای رکورد بدون `regNo` و `mfName`، `ValueError` ایجاد می‌کند.
-
-`get_tsetmc_fund_details("آرمان سپهر آتی")` نام را با ستون `mfName` فهرست‌های رسمی تطبیق می‌دهد و شیء داخل `fund` را به‌صورت `dict` برمی‌گرداند. `fund_type="مختلط"` اختیاری است و جست‌وجو را محدود می‌کند. در نبود گروه، ده مسیر جداگانهٔ تأییدشده بررسی می‌شوند؛ مسیر مشکل‌دار `0` و منبع فیپیران برای حل نام استفاده نمی‌شوند. هنگام بررسی مجدد در همان روز، هر ده مسیر پاسخ JSON معتبر داشتند؛ گروه `14` آرایهٔ خالی برگرداند و مسیر `0` همچنان `500` داشت. هیچ خطای گروهی در جست‌وجوی کامل نادیده گرفته نمی‌شود و تا پایان بررسی گروه‌ها، یکتا بودن نام فرض نمی‌شود.
-
-تطابق نام فقط پس از تبدیل «ي/ك» به «ی/ک»، یکسان‌سازی بزرگی حروف انگلیسی و حذف تفاوت فاصله و نیم‌فاصله انجام می‌شود. پیشوند مالی، بخش‌های معنایی نام یا زیررشته‌ها حذف نمی‌شوند؛ تطابق تقریبی وجود ندارد. نام تکراری با چند شمارهٔ ثبت خطاست؛ چند ردیف با همان شمارهٔ ثبت یک هویت محسوب می‌شوند. نام پیدا‌نشده نیز `ValueError` ایجاد می‌کند. برای انتخاب نام دقیق از `mfName` استفاده کنید. جست‌وجوی کامل درخواست‌های بیشتری دارد و با خطای هر گروه متوقف می‌شود؛ اگر نوع صندوق را می‌دانید آن را مشخص کنید.
-
-فراخوانی عددی موقعیتی قبلی و `get_tsetmc_fund_details(reg_no=11172)` حفظ شده‌اند و فهرست‌ها را نمی‌گیرند. نام و شمارهٔ ثبت، یا شمارهٔ ثبت و گروه، نباید با هم داده شوند. شمارهٔ ثبت جزئیات باید با درخواست مطابق باشد. فیلدهای تو‌در‌تو، حتی فیلدهای جدید منبع، حذف یا به جدول مسطح تبدیل نمی‌شوند. اعتبارسنجی رکورد، هویت اصلی را بررسی می‌کند؛ برای تمام فیلدهای اختصاصیِ داخل آن طرح ثابت تحمیل نمی‌شود. تاریخچهٔ `stats` را می‌توان با `pd.DataFrame(details.get("stats") or [])` به جدول تبدیل و در صورت نیاز جداگانه مرتب کرد. با وجود تطابق شمارهٔ ثبت، نام یا تاریخ قدیمی جزئیات ممکن است با فهرست جدید تفاوت داشته باشد؛ پاسخ منبع بازنویسی نمی‌شود.
-
-هر دو تابع از انتقال HTTP موجود بخش `Funds` استفاده می‌کنند: گواهی معتبر، تغییر مسیر مجاز، مهلت ۳۰ ثانیه برای هر درخواست و حداکثر یک تلاش مجدد برای `429` یا وضعیت‌های گذرای منتخب `5xx`، فقط وقتی تأخیر اعلام‌شده کوتاه باشد. خطای HTTP یا اتصال مخفی نمی‌شود و JSON یا ساختار نامعتبر `ValueError` ایجاد می‌کند. این توابع به فهرست فیپیران، وب‌سایت صندوق یا دانلود هنگام واردسازی وابسته نیستند.
-
-## محدودیت مشاهده‌شده
-
-برای صندوق `11172`، `recordDate` فهرست مختلط برابر `2026-10-12T00:00:00` بود ولی جزئیات و آخرین تاریخ موجود در `stats` برابر `2026-09-05T00:00:00` بودند. ترتیب `stats` نیز کاملاً صعودی یا نزولی نبود: نخستین رکورد نمونه تاریخ `2013-10-31`، رکورد بعدی `2013-10-30` و آخرین رکورد `2026-09-05` داشت. علت تفاوت تاریخ‌ها از این پاسخ‌ها معلوم نمی‌شود؛ نباید کش، خطای محاسبه، قطع سرویس یا پوشش کامل تاریخچه را فرض کرد.
-
-خروجی دقیقاً همان اطلاعات ارائه‌شده در فراخوانی مربوطه است. تاریخ و کامل بودن اطلاعات، امکان دانلود همهٔ گروه‌ها، تاریخچهٔ بازده کل و همسان بودن ترکیب دارایی با گزارش‌های سایت صندوق تضمین نمی‌شوند. دادهٔ فهرست برای پر کردن تاریخچهٔ جزئیات استفاده نمی‌شود و پاسخ `500` برای شناسهٔ ناموجود به خطای «یافت نشد» حدسی تبدیل نمی‌شود. بررسی HTTPS نیز برای رفع خطای ارائه‌دهنده غیرفعال نمی‌شود.
-
-بررسی مستقل تازگی اطلاعات و دسترسی گروه `0` در [Issue #42](https://github.com/hemoboghosian/fima/issues/42) پیگیری می‌شود.
+Provider evidence: [official menu](https://tsetmc.ir/Fund/11172) and its public
+frontend confirm mfName/fixIncome and the Fund/GetFunds and GetFundInDetail API
+paths. Live October 2026 responses showed fundType=0 alongside real fixIncome
+groups, null name alongside actual mfName, list/detail freshness differences,
+unsorted stats and HTTP 500 for group 0 or nonexistent registration. These are
+preserved source limitations, tracked in [Issue #42](https://github.com/hemoboghosian/fima/issues/42).

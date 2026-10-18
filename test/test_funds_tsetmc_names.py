@@ -41,8 +41,8 @@ def test_type_discovery_is_offline_and_returns_an_independent_table(monkeypatch)
     calls = mock_catalogs(monkeypatch)
     table = Funds.get_tsetmc_fund_types()
     assert list(table.columns) == ["FundTypeID", "FundTypeName", "EnglishName"]
-    assert set(table.FundTypeID) == GROUPS
-    assert table.set_index("FundTypeName").loc["سهامی", "FundTypeID"] == 6
+    assert set(table.FundTypeID) == {str(x) for x in GROUPS}
+    assert table.set_index("FundTypeName").loc["سهامی", "FundTypeID"] == "6"
     assert table.set_index("FundTypeName").loc["مختلط", "EnglishName"] == "mixed"
     table.loc[0, "FundTypeName"] = "changed locally"
     assert "changed locally" not in Funds.get_tsetmc_fund_types().FundTypeName.tolist()

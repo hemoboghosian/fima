@@ -53,7 +53,7 @@ def mock_get(monkeypatch, data=None, *, status=200, text=None):
 
 
 @pytest.mark.parametrize("fund_type", [6, "6", np.int64(6), 6.0])
-def test_list_preserves_raw_columns_order_and_nested_values(monkeypatch, fund, fund_type):
+def test_list_normalizes_columns_and_preserves_order_and_nested_values(monkeypatch, fund, fund_type):
     row = dict(fund, recordDate="2026-10-12T00:00:00", stats=None,
                futureField={"source": "unchanged"})
     rows = [row, dict(row, regNo=12250.0, mfName="صندوق دوم")]
@@ -61,11 +61,20 @@ def test_list_preserves_raw_columns_order_and_nested_values(monkeypatch, fund, f
 
     result = Funds.get_tsetmc_funds(fund_type)
 
-    pd.testing.assert_frame_equal(result, pd.DataFrame(rows))
-    assert list(result.regNo) == [11172.0, 12250.0]
-    assert result.loc[0, "fundType"] == 0
-    assert result.loc[0, "fixIncome"] == 7  # Do not derive this from the URL.
-    assert result.loc[0, "futureField"] == {"source": "unchanged"}
+    assert list(result.columns) == ["RegistrationNumber", "ProviderFundTypeCode", "FundTypeID", "FundName",
+        "ProviderName", "WebSite", "UpdateGregorianDate", "SubscriptionNAV", "RedemptionNAV", "StatisticalNAV",
+        "DepositWeight", "FundProfits", "Stats", "FutureField"]
+    assert result.RegistrationNumber.tolist() == ["11172", "12250"]
+    assert result.FundName.tolist() == [row["mfName"] for row in rows]
+    assert result.loc[0, "ProviderFundTypeCode"] == "0"
+    assert result.loc[0, "FundTypeID"] == "7"  # Do not derive this from the URL.
+    assert result.SubscriptionNAV.tolist() == [62105, 62105]
+    assert result.RedemptionNAV.tolist() == [61734, 61734]
+    assert result.StatisticalNAV.tolist() == [61734, 61734]
+    assert result.UpdateGregorianDate.tolist() == [pd.Timestamp("2026-10-12")] * 2
+    assert result.loc[0, "FutureField"] == {"source": "unchanged"}
+    assert result.loc[0, "Stats"] is None
+    assert result.loc[0, "FundProfits"] == []
     assert calls == [(BASE_URL + "/GetFunds/6", {
         "timeout": 30, "verify": True, "allow_redirects": True,
     })]
@@ -164,8 +173,8 @@ def test_optional_detail_fields_can_be_absent_or_null(monkeypatch):
 def test_live_tsetmc_fund_group(fund_type):
     result = Funds.get_tsetmc_funds(fund_type)
     assert not result.empty
-    assert {"regNo", "mfName", "fixIncome", "recordDate", "navStat"}.issubset(result.columns)
-    assert (result.fixIncome == fund_type).all()
+    assert {"RegistrationNumber", "FundName", "FundTypeID", "UpdateGregorianDate", "StatisticalNAV"}.issubset(result.columns)
+    assert (result.FundTypeID == str(fund_type)).all()
 
 
 @pytest.mark.integration

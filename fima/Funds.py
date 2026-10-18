@@ -10,9 +10,97 @@ import re
 from email.utils import parsedate_to_datetime
 from contextvars import ContextVar
 from numbers import Integral, Real
+from ._data import identifier_series, jalali_date, number_series, gregorian_series, text_or_na
 
 __all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation",
            "get_tsetmc_funds", "get_tsetmc_fund_details", "get_tsetmc_fund_types"]
+
+
+def _column_name(name):
+    name = name.replace("Upper5%Stocks", "TopFiveStocks").replace("Upper5%Bonds", "TopFiveBonds")
+    return "".join(part[0].upper() + part[1:] for part in re.split(r"[ _]+", name) if part)
+
+
+def _nav_frame(frame):
+    names = {"JDate": "JalaliDate", "Subscription": "SubscriptionNAV",
+             "Redemption": "RedemptionNAV", "Statistical": "StatisticalNAV",
+             "SubscriptionPerUnit": "SubscriptionNAV", "RedemptionPerUnit": "RedemptionNAV",
+             "StatisticalPerUnit": "StatisticalNAV", "CommonSubscriptionPerUnit": "OrdinarySubscriptionNAV",
+             "SpecialSubscription": "PreferredSubscriptionNAV", "SpecialRedemption": "PreferredRedemptionNAV",
+             "SpecialStatistical": "PreferredStatisticalNAV", "TotalPrefferedUnits": "TotalPreferredUnits",
+             "total_net_asset_value_with_buy_commission_and_discount": "TotalSubscriptionNAV",
+             "total_net_asset_value_with_sell_commission_and_discount": "TotalRedemptionNAV"}
+    result = frame.rename(columns={c: names.get(c, _column_name(c)) for c in frame}).copy()
+    result["JalaliDate"] = result["JalaliDate"].map(jalali_date)
+    for column in result:
+        if column != "JalaliDate" and (column.endswith(("NAV", "Units", "Count", "Amount", "Ratio", "Factor"))
+                                        or column == "Common"):
+            result[column] = number_series(result[column])
+    return result
+
+
+def _allocation_frame(frame):
+    result = frame.copy()
+    # Unrecognized provider labels remain opaque metadata instead of guessed
+    # translations or non-English public column names.
+    unknown = [c for c in result if not c.isascii() and not c.endswith(" Weight")]
+    if unknown:
+        result["ProviderAssets"] = [{name: {"Value": row[name], "Weight": row.get(name + " Weight")}
+                                     for name in unknown if pd.notna(row[name])}
+                                    for _, row in result.iterrows()]
+        result.drop(columns=[c for c in result if not c.isascii()], inplace=True)
+    result.rename(columns={c: "JalaliDate" if c == "Date" else _column_name(c) for c in result}, inplace=True)
+    result["JalaliDate"] = result["JalaliDate"].map(jalali_date)
+    for column in result:
+        if column not in ("JalaliDate", "ProviderAssets"):
+            result[column] = number_series(result[column])
+    return result
+
+
+def _catalog_frame(frame):
+    names = {"RegNo": "RegistrationNumber", "InceptionDate": "InceptionJalaliDate",
+             "UpdateDate": "UpdateJalaliDate", "DividendFrequency (Month)": "DividendFrequencyMonths",
+             "Others Weight": "OtherAssetsWeight", "Bank CDs Weight": "DepositWeight"}
+    result = frame.rename(columns={c: names.get(c, _column_name(c)) for c in frame}).copy()
+    for column in result:
+        if column in ("RegistrationNumber", "InstrumentCode", "GroupId", "FundTypeID") or column.endswith(("SeoRegisterNo", "SeoRegisterNumber")):
+            result[column] = identifier_series(result[column])
+        elif column.endswith("JalaliDate"):
+            result[column] = result[column].map(jalali_date)
+        elif column == "RankLastUpdate":
+            result[column] = result[column].map(lambda value: pd.to_datetime(value, errors="coerce"))
+        elif (column.endswith(("Weight", "Return", "NAV")) or column in
+              {"Units", "DividendFrequencyMonths", "ReturnFromInception", "EstimatedReturn", "GuaranteedEarningRate"}):
+            result[column] = number_series(result[column])
+        elif column in ("LiquidityGuarantor", "FundName", "WebsiteAddress"):
+            result[column] = result[column].map(text_or_na)
+    return result
+
+
+def _tsetmc_fund_frame(frame):
+    names = {"regNo": "RegistrationNumber", "mfName": "FundName", "mfNameEng": "FundEnglishName",
+             "name": "ProviderName", "nameEN": "ProviderNameEN", "fixIncome": "FundTypeID",
+             "fundType": "ProviderFundTypeCode", "fundSize": "ProviderFundSize",
+             "recordDate": "UpdateGregorianDate", "initiationDate": "InceptionGregorianDate",
+             "navSub": "SubscriptionNAV", "navRed": "RedemptionNAV", "navStat": "StatisticalNAV",
+             "netAsset": "TotalNAV", "portfolioFiveBest": "TopFiveStocksWeight",
+             "portfolioStock": "StocksWeight", "portfolioBond": "BondsWeight",
+             "portfolioDeposit": "DepositWeight", "portfolioOther": "OtherAssetsWeight",
+             "portfolioCash": "CashWeight", "dividentIntervalPeriod": "DividendFrequencyMonths",
+             "day1Return": "DailyReturn", "day7Return": "WeeklyReturn", "day30Return": "MonthlyReturn",
+             "day90Return": "QuarterlyReturn", "day180Return": "SemiAnnualReturn",
+             "day365Return": "AnnualReturn", "dayFirstReturn": "ReturnFromInception"}
+    result = frame.rename(columns={c: names.get(c, _column_name(c)) for c in frame}).copy()
+    for column in result:
+        if column in ("RegistrationNumber", "FundTypeID", "ProviderFundTypeCode"):
+            result[column] = identifier_series(result[column])
+        elif column.endswith("GregorianDate"):
+            result[column] = gregorian_series(result[column])
+        elif (column.endswith(("NAV", "Weight", "Return", "Percent", "No")) or column in
+              {"Units", "UnitsSub", "UnitsRed", "DividendFrequencyMonths", "ReturnFromInception",
+               "EstimatedEarningRate", "GuaranteedEarningRate", "ProviderFundSize"}):
+            result[column] = number_series(result[column])
+    return result
 
 
 def __dir__():
@@ -66,7 +154,7 @@ def _fund_label(name):
 def _select_fund_id(items, id_key, name_key, provider):
     context = _fund_request_context.get()
     row = context["row"]
-    name = _fund_label(row["Name"])
+    name = _fund_label(row["FundName"])
     ticker = row.get("Ticker")
     matches = set()
     for item in items:
@@ -81,7 +169,7 @@ def _select_fund_id(items, id_key, name_key, provider):
                      or any(_fund_label(ticker) == _fund_label(t) for t in tickers))):
             matches.add(str(item[id_key]))
     if len(matches) != 1:
-        raise NotImplementedError(f"Cannot resolve {provider} identity for fund {row['Name']}; "
+        raise NotImplementedError(f"Cannot resolve {provider} identity for fund {row['FundName']}; "
                                   "the website may expose only underlying baskets")
     value = next(iter(matches))
     if not re.fullmatch(r"[1-9]\d*", value):
@@ -95,11 +183,11 @@ def _rayan_fund_id(website):
         return 1
     if "rayan_id" not in context:
         data = _safe_get_json(f"https://{website}/api/v1/public/fundItems")
-        if data is None and context["row"]["FundType"] != "اختصاصی بازارگردانی":
+        if data is None and context["row"]["FundTypeName"] != "اختصاصی بازارگردانی":
             context["rayan_id"] = 1  # Legacy single-fund sites have no fundItems API.
         else:
             if not isinstance(data, list) or not data:
-                raise NotImplementedError(f"No Rayan identity for fund {context['row']['Name']}")
+                raise NotImplementedError(f"No Rayan identity for fund {context['row']['FundName']}")
             context["rayan_id"] = _select_fund_id(data, "fundId", "fundName", "Rayan")
     return context["rayan_id"]
 
@@ -121,7 +209,7 @@ def _tadbir_basket_id(website):
             try:
                 context["tadbir_id"] = _select_fund_id(items, "id", "name", "Tadbir")
             except NotImplementedError as exc:
-                raise ValueError(f"Tadbir fund identity is missing or ambiguous for {context['row']['Name']}") from exc
+                raise ValueError(f"Tadbir fund identity is missing or ambiguous for {context['row']['FundName']}") from exc
     return context["tadbir_id"]
 
 
@@ -131,7 +219,7 @@ def _mabna_portfolio_id(website):
         return 1
     if "mabna_id" not in context:
         data = _safe_get_json(f"https://{website}/api/v2/public/fund/portfolios")
-        if data is None and context["row"]["FundType"] != "اختصاصی بازارگردانی":
+        if data is None and context["row"]["FundTypeName"] != "اختصاصی بازارگردانی":
             context["mabna_id"] = 1
         else:
             items = data.get("data") if isinstance(data, dict) else None
@@ -227,7 +315,9 @@ def get_tsetmc_fund_types() -> pd.DataFrame:
     It describes supported names, not current service availability or counts.
     Advanced numeric selector 0 is not listed: its all-groups API can fail.
     """
-    return pd.DataFrame(_TSETMC_FUND_TYPES, columns=["FundTypeID", "FundTypeName", "EnglishName"])
+    frame = pd.DataFrame(_TSETMC_FUND_TYPES, columns=["FundTypeID", "FundTypeName", "EnglishName"])
+    frame["FundTypeID"] = identifier_series(frame["FundTypeID"])
+    return frame
 
 
 def _tsetmc_fund_type(value):
@@ -248,7 +338,7 @@ def _tsetmc_fund_type(value):
 
 
 def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
-    """Return a TSETMC fund-group snapshot with the provider's original columns.
+    """Return a normalized TSETMC fund-group snapshot (raw details remain separate).
 
     ``fund_type`` accepts a Persian/English group name (e.g. "سهامی",
     "مختلط", "equity", "mixed"); see get_tsetmc_fund_types() for options.
@@ -257,8 +347,9 @@ def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
     selectors remain supported. These are not Fipiran type IDs or the returned
     ``fundType`` field. Provider availability is not guaranteed.
 
-    Return a DataFrame in provider order, without renaming columns, parsing
-    dates or flattening nested fields. Normal pandas dtype inference applies.
+    Return a DataFrame in provider order with canonical English columns,
+    numeric NAV/amount/percentage values, string identifiers and pandas
+    Gregorian dates. Nested payloads retain provider keys; no flattening.
     An explicit empty ``funds`` array returns an empty DataFrame without columns.
 
     Raises ValueError for invalid identifiers, JSON or record/envelope schema;
@@ -268,11 +359,14 @@ def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
     """
     fund_type = _tsetmc_fund_type(fund_type)
     url = f"https://cdn.tsetmc.com/api/Fund/GetFunds/{fund_type}"
-    data = _decode_json(_request("GET", url))
+    try:
+        data = _decode_json(_request("GET", url))
+    except ValueError as exc:
+        raise ValueError(f"TSETMC fund response: {exc}") from exc
     records = data.get("funds") if isinstance(data, dict) else None
     if not isinstance(records, list):
         raise ValueError(f"Invalid TSETMC funds response: {url}")
-    return pd.DataFrame([_tsetmc_fund_record(record, url) for record in records])
+    return _tsetmc_fund_frame(pd.DataFrame([_tsetmc_fund_record(record, url) for record in records]))
 
 
 def _resolve_tsetmc_fund_name(fund_name, fund_type):
@@ -282,9 +376,9 @@ def _resolve_tsetmc_fund_name(fund_name, fund_type):
     wanted = _tsetmc_name(fund_name)
     for code in codes:
         for record in get_tsetmc_funds(code).to_dict("records"):
-            name = record["mfName"]
+            name = record["FundName"]
             if isinstance(name, str) and _tsetmc_name(name) == wanted:
-                matches.add(_tsetmc_fund_identifier(record["regNo"], "TSETMC regNo"))
+                matches.add(_tsetmc_fund_identifier(record["RegistrationNumber"], "TSETMC regNo"))
     if not matches:
         raise ValueError(f"No TSETMC fund matches {fund_name!r}; "
                          "choose its full name from get_tsetmc_funds(fund_type)")
@@ -330,7 +424,10 @@ def get_tsetmc_fund_details(fund_name=None, *, fund_type=None, reg_no=None) -> d
             raise ValueError("fund_type requires a fund_name; do not combine it with reg_no")
         reg_no = _tsetmc_fund_identifier(fund_name, "reg_no or fund_name")
     url = f"https://cdn.tsetmc.com/api/Fund/GetFundInDetail/{reg_no}"
-    data = _decode_json(_request("GET", url))
+    try:
+        data = _decode_json(_request("GET", url))
+    except ValueError as exc:
+        raise ValueError(f"TSETMC fund response: {exc}") from exc
     record = _tsetmc_fund_record(data.get("fund") if isinstance(data, dict) else None, url)
     if _tsetmc_fund_identifier(record["regNo"], f"TSETMC regNo at {url}") != reg_no:
         raise ValueError(f"TSETMC fund registration does not match reg_no: {url}")
@@ -896,7 +993,7 @@ def _get_rayan_hamafza_nav_records(website: str, fund_id=1):
 def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     context = _fund_request_context.get()
-    if context is not None and context["row"]["FundType"] == "اختصاصی بازارگردانی":
+    if context is not None and context["row"]["FundTypeName"] == "اختصاصی بازارگردانی":
         data = _safe_get_json(f"https://{website}/api/v1/public/navMulti?size=-1")
         if data is not None:
             if not isinstance(data, list) or not data or not all(isinstance(row, dict) for row in data):
@@ -908,10 +1005,9 @@ def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
             if navs[required].isna().any().any():
                 raise ValueError("Missing Rayan aggregate NAV values")
             result = pd.DataFrame({"JDate": navs["jalaliDate"].map(_jalali_str_to_date)})
-            units = pd.to_numeric(navs["fundCapital"])
             for source, target in [("purchaseNAVPerShare", "Subscription"),
                                    ("sellNAVPerShare", "Redemption"), ("statisticNav", "Statistical")]:
-                result[target] = pd.to_numeric(navs[source]) * units
+                result[target] = number_series(navs[source])
             result["TotalNAV"] = pd.to_numeric(navs["totalAssetsValue"])
             return result
     records = _get_rayan_hamafza_nav_records(website, _rayan_fund_id(website))
@@ -928,15 +1024,15 @@ def _get_daily_navs_rayan_hamafza(fund_name: str) -> pd.DataFrame:
     if missing_columns:
         raise ValueError(f"Rayan Hamafza NAV response is missing these columns: {missing_columns}")
     navs["JDate"] = navs["JDate"].apply(_jalali_str_to_date)
-    navs["PurchaseNAVPerShare"] = pd.to_numeric(navs["PurchaseNAVPerShare"], errors="coerce")
-    navs["SellNAVPerShare"] = pd.to_numeric(navs["SellNAVPerShare"], errors="coerce")
-    navs["StatisticalNAVPerShare"] = pd.to_numeric(navs["StatisticalNAVPerShare"], errors="coerce")
-    navs["Units"] = pd.to_numeric(navs["Units"], errors="coerce")
-    navs["NAV"] = pd.to_numeric(navs["NAV"], errors="coerce")
-    # You want TOTAL NAVs, so multiply per-share NAVs by units.
-    navs["Subscription"] = navs["PurchaseNAVPerShare"] * navs["Units"]
-    navs["Redemption"] = navs["SellNAVPerShare"] * navs["Units"]
-    navs["Statistical"] = navs["StatisticalNAVPerShare"] * navs["Units"]
+    navs["PurchaseNAVPerShare"] = number_series(navs["PurchaseNAVPerShare"])
+    navs["SellNAVPerShare"] = number_series(navs["SellNAVPerShare"])
+    navs["StatisticalNAVPerShare"] = number_series(navs["StatisticalNAVPerShare"])
+    navs["Units"] = number_series(navs["Units"])
+    navs["NAV"] = number_series(navs["NAV"])
+    # Keep per-unit NAV distinct from the aggregate NAV supplied separately.
+    navs["Subscription"] = navs["PurchaseNAVPerShare"]
+    navs["Redemption"] = navs["SellNAVPerShare"]
+    navs["Statistical"] = navs["StatisticalNAVPerShare"]
     navs["TotalNAV"] = navs["NAV"]
     navs = navs[["JDate", "Subscription", "Redemption", "Statistical", "TotalNAV"]]
     return navs
@@ -1001,8 +1097,8 @@ def _mabna_asset_frame(records, current):
             column = mapping.get(_fund_label(name), name.strip())
             if column in row:
                 raise ValueError(f"Duplicate Mabna asset name: {name}")
-            row[column] = pd.to_numeric(asset["value"])
-            row[f"{column} Weight"] = pd.to_numeric(asset["percentage"])
+            row[column] = number_series(pd.Series([asset["value"]])).iloc[0]
+            row[f"{column} Weight"] = number_series(pd.Series([asset["percentage"]])).iloc[0]
             if pd.isna(row[column]) or pd.isna(row[f"{column} Weight"]):
                 raise ValueError(f"Missing Mabna asset values: {name}")
         rows.append(row)
@@ -1013,7 +1109,6 @@ def _mabna_asset_frame(records, current):
     if result[columns].isna().any().any():
         raise ValueError("Missing Mabna asset report values")
     extras = [column for column in result if column not in columns]
-    result[extras] = result[extras].fillna(0)
     return result[columns + extras]
 
 
@@ -1039,15 +1134,15 @@ def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     if records is None:
         raise ValueError(f"No Mabna NAV report: {url}")
     mapping = {"date_time": "JDate", "purchase_price": "Subscription", "redemption_price": "Redemption",
-               "statistical_value": "Statistical", "total_net_asset_value_with_buy_commission_and_discount": "TotalNAV"}
+               "statistical_value": "Statistical", "total_net_asset_value_with_buy_commission_and_discount": "TotalSubscriptionNAV"}
     navs = pd.DataFrame(records)
     _require_columns(navs, list(mapping), "Mabna NAV")
     if navs[list(mapping)].isna().any().any():
         raise ValueError("Missing Mabna NAV values")
     navs = navs[list(mapping)].rename(columns=mapping).copy()
     navs["JDate"] = pd.to_datetime(navs["JDate"]).map(lambda date: _gregorian_to_jalali(date.date()))
-    for column in ["Subscription", "Redemption", "Statistical", "TotalNAV"]:
-        navs[column] = pd.to_numeric(navs[column])
+    for column in ["Subscription", "Redemption", "Statistical", "TotalSubscriptionNAV"]:
+        navs[column] = number_series(navs[column])
     return navs
 
 
@@ -1188,15 +1283,15 @@ def _get_daily_navs_noavaran(fund_name: str) -> pd.DataFrame:
     if missing_columns:
         raise ValueError(f"Noavaran NAV response is missing these columns: {missing_columns}")
     navs["JDate"] = navs["Date"].apply(_jalali_str_to_date)
-    navs["SubscriptionValue"] = pd.to_numeric(navs["SubscriptionValue"], errors="coerce")
-    navs["RedemptionValue"] = pd.to_numeric(navs["RedemptionValue"], errors="coerce")
-    navs["StatisticalValue"] = pd.to_numeric(navs["StatisticalValue"], errors="coerce")
-    navs["TotalQuantity"] = pd.to_numeric(navs["TotalQuantity"], errors="coerce")
-    navs["NetAssetValue"] = pd.to_numeric(navs["NetAssetValue"], errors="coerce")
-    # You want TOTAL NAVs.
-    navs["Subscription"] = navs["SubscriptionValue"] * navs["TotalQuantity"]
-    navs["Redemption"] = navs["RedemptionValue"] * navs["TotalQuantity"]
-    navs["Statistical"] = navs["StatisticalValue"] * navs["TotalQuantity"]
+    navs["SubscriptionValue"] = number_series(navs["SubscriptionValue"])
+    navs["RedemptionValue"] = number_series(navs["RedemptionValue"])
+    navs["StatisticalValue"] = number_series(navs["StatisticalValue"])
+    navs["TotalQuantity"] = number_series(navs["TotalQuantity"])
+    navs["NetAssetValue"] = number_series(navs["NetAssetValue"])
+    # Per-unit NAV; total assets are supplied separately.
+    navs["Subscription"] = navs["SubscriptionValue"]
+    navs["Redemption"] = navs["RedemptionValue"]
+    navs["Statistical"] = navs["StatisticalValue"]
     navs["TotalNAV"] = navs["NetAssetValue"]
     navs = navs[["JDate", "Subscription", "Redemption", "Statistical", "TotalNAV"]]
     return navs
@@ -1232,12 +1327,12 @@ def _get_daily_asset_allocation_noavaran(fund_name: str) -> pd.DataFrame:
                       "Bank Weight", "FundUnits Weight", "OtherAssets Weight"]
     for column in value_columns:
         if column not in daily_asset_allocation.columns:
-            daily_asset_allocation[column] = 0
-        daily_asset_allocation[column] = pd.to_numeric(daily_asset_allocation[column], errors="coerce").fillna(0)
+            daily_asset_allocation[column] = float("nan")
+        daily_asset_allocation[column] = number_series(daily_asset_allocation[column])
     for column in weight_columns:
         if column not in daily_asset_allocation.columns:
-            daily_asset_allocation[column] = 0
-        daily_asset_allocation[column] = pd.to_numeric(daily_asset_allocation[column], errors="coerce").fillna(0)
+            daily_asset_allocation[column] = float("nan")
+        daily_asset_allocation[column] = number_series(daily_asset_allocation[column])
 
     daily_asset_allocation = daily_asset_allocation[["Date", "Stocks", "Upper5%Stocks", "Bonds", "CDs", "PhysicalCDs",
                                                      "Bank", "FundUnits", "OtherAssets", "Stocks Weight",
@@ -1262,14 +1357,14 @@ def _get_daily_navs_nika(fund_name: str) -> pd.DataFrame:
                            "redemptionNetAssetValue"],"Nika NAV")
     navs["GDate"] = pd.to_datetime(navs["date"]).dt.date
     navs["JDate"] = navs["GDate"].apply(_gregorian_to_jalali)
-    navs["issuanceNav"] = pd.to_numeric(navs["issuanceNav"], errors="coerce")
-    navs["redemptionNav"] = pd.to_numeric(navs["redemptionNav"], errors="coerce")
-    navs["nominalNAV"] = pd.to_numeric(navs["nominalNAV"], errors="coerce")
-    navs["totalUnit"] = pd.to_numeric(navs["totalUnit"], errors="coerce")
-    navs["redemptionNetAssetValue"] = pd.to_numeric(navs["redemptionNetAssetValue"], errors="coerce")
-    navs["Subscription"] = navs["issuanceNav"] * navs["totalUnit"]
-    navs["Redemption"] = navs["redemptionNav"] * navs["totalUnit"]
-    navs["Statistical"] = navs["nominalNAV"] * navs["totalUnit"]
+    navs["issuanceNav"] = number_series(navs["issuanceNav"])
+    navs["redemptionNav"] = number_series(navs["redemptionNav"])
+    navs["nominalNAV"] = number_series(navs["nominalNAV"])
+    navs["totalUnit"] = number_series(navs["totalUnit"])
+    navs["redemptionNetAssetValue"] = number_series(navs["redemptionNetAssetValue"])
+    navs["Subscription"] = navs["issuanceNav"]
+    navs["Redemption"] = navs["redemptionNav"]
+    navs["Statistical"] = navs["nominalNAV"]
     navs["TotalNAV"] = navs["redemptionNetAssetValue"]
     return navs[["JDate", "Subscription", "Redemption", "Statistical", "TotalNAV"]]
 
@@ -1277,10 +1372,10 @@ def _get_daily_navs_nika(fund_name: str) -> pd.DataFrame:
 def _get_fund_row(fund_name: str, all_funds: pd.DataFrame = None) -> pd.Series:
     if all_funds is None:
         context = _fund_request_context.get()
-        if context is not None and context["row"]["Name"] == fund_name:
+        if context is not None and context["row"]["FundName"] == fund_name:
             return context["row"]
         all_funds = get_all_funds(_set_website_developers=False)
-    matches = all_funds[all_funds["Name"] == fund_name]
+    matches = all_funds[all_funds["FundName"] == fund_name]
     if matches.empty:
         raise ValueError(f"Fund not found: {fund_name}")
     return matches.iloc[0]
@@ -1290,7 +1385,7 @@ def _autoset_website_developers(all_funds: pd.DataFrame, max_workers: int = 10) 
     results = {}
     def safe_detect(row):
         address = row.get("WebsiteAddress")
-        fund_type = row.get("FundType")
+        fund_type = row.get("FundTypeName")
         if pd.isna(address):
             return "No Address"
         if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
@@ -1365,8 +1460,8 @@ def _get_fund_history(fund_name, allocation):
     all_funds = get_all_funds(_set_website_developers=False)
     row = _get_fund_row(fund_name, all_funds)
     kind = "daily asset allocations" if allocation else "daily NAVs"
-    if row["FundType"] in NO_PUBLIC_NAV_FUND_TYPES:
-        raise ValueError(f"Fund type does not have {kind}: {row['FundType']}")
+    if row["FundTypeName"] in NO_PUBLIC_NAV_FUND_TYPES:
+        raise ValueError(f"Fund type does not have {kind}: {row['FundTypeName']}")
     if fund_name == "صندوق تثبیت بازار سرمایه":
         raise ValueError(f"Fund does not have {kind}: {fund_name}")
     website = row["WebsiteAddress"]
@@ -1384,7 +1479,7 @@ def _get_fund_history(fund_name, allocation):
                 "نوآوران": _get_daily_asset_allocation_noavaran,
             }
         else:
-            leveraged = row["FundType"] == "در سهام-سهامی اهرمی"
+            leveraged = row["FundTypeName"] == "در سهام-سهامی اهرمی"
             parsers = {
                 "گروه رایانه تدبیر پرداز": (_get_leveraged_daily_navs_per_share_tadbirpardaz
                                              if leveraged else _get_daily_navs_tadbirpardaz),
@@ -1433,8 +1528,10 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
     pandas.DataFrame
         Daily NAV data for the requested fund.
         Leveraged Tadbir charts contain ordinary and preferred per-unit NAV
-        columns; current charts use SpecialStatistical, while legacy charts
-        retain Common. Other provider-specific columns and units are preserved.
+        columns; preferred-unit columns use PreferredSubscriptionNAV,
+        PreferredRedemptionNAV and PreferredStatisticalNAV; legacy charts
+        retain Common without inferring a NAV subtype. NAVs are per unit;
+        aggregate valuations remain separate. See docs/data-migration.md.
 
     Raises
     ------
@@ -1448,7 +1545,7 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
     requests.RequestException
         For connection, timeout, certificate, or HTTP errors from a provider.
     """
-    return _get_fund_history(fund_name, allocation=False)
+    return _nav_frame(_get_fund_history(fund_name, allocation=False))
 
 
 def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
@@ -1464,7 +1561,8 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     pandas.DataFrame
         Daily asset-allocation data for the requested fund.
         Existing provider units are preserved. Current Mabna reports also
-        retain additional named asset amounts and their Weight columns.
+        retain additional known asset amounts and Weight columns. Unknown
+        source-language asset labels remain in ProviderAssets metadata.
 
     Raises
     ------
@@ -1478,7 +1576,7 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     requests.RequestException
         For connection, timeout, certificate, or HTTP errors from a provider.
     """
-    return _get_fund_history(fund_name, allocation=True)
+    return _allocation_frame(_get_fund_history(fund_name, allocation=True))
 
 
 def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
@@ -1496,8 +1594,9 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
         Fund metadata and current information, including market-maker funds
         and non-market-maker fund compartments, but not the individual
         instruments covered by market makers.
-        WebsiteAddress is the host of the first available website, or None.
-        Missing allocation weights are zero, as with null weights.
+        FundName/FundTypeName identify the fund and type; RegistrationNumber
+        and FundTypeID are strings. WebsiteAddress is the first host or pd.NA.
+        Missing allocation weights remain missing; valid zero remains zero.
 
     Raises
     ------
@@ -1545,7 +1644,7 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
     #                'rankLastUpdate', 'guaranteedEarningRate', 'articlesOfAssociationLink', 'prosoectusLink',
     #                'fundPublisher', 'fundWatch'], inplace=True, axis=1)
     all_funds.columns = all_funds.columns.map(lambda column: column[0].upper() + column[1:])
-    all_funds.rename({'RegNo': 'RegNo', 'TypeOfInvest': 'InvestmentType', 'FundSize': 'TotalNAV',
+    all_funds.rename({'Name': 'FundName', 'RegNo': 'RegistrationNumber', 'TypeOfInvest': 'InvestmentType', 'FundSize': 'TotalNAV',
                       'InitiationDate': 'InceptionDate', 'DailyEfficiency': 'DailyReturn',
                       'WeeklyEfficiency': 'WeeklyReturn', 'MonthlyEfficiency': 'MonthlyReturn',
                       'QuarterlyEfficiency': 'QuarterlyReturn', 'SixMonthEfficiency': 'SemiAnnualReturn',
@@ -1560,9 +1659,10 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
                       'InsCode': 'InstrumentCode'}, axis=1, inplace=True)
     fund_types = _get_fund_types()
     fund_type_map = fund_types.set_index('FundTypeID')['FundTypeName']
-    all_funds['FundType'] = all_funds['FundType'].map(fund_type_map)
+    all_funds['FundTypeID'] = identifier_series(all_funds['FundType'])
+    all_funds['FundTypeName'] = all_funds.pop('FundType').map(fund_type_map)
     all_funds['InvestmentType'] = all_funds['InvestmentType'].map(
-        lambda investment_type: 'ETF' if investment_type == 'Negotiable' else 'Open-Ended')
+        lambda value: {'Negotiable': 'ETF', 'IssuanceAndCancellation': 'Open-Ended'}.get(value, value))
     all_funds['InceptionDate'] = pd.to_datetime(all_funds['InceptionDate'], errors="coerce").dt.date
     all_funds['InceptionDate'] = all_funds['InceptionDate'].apply(
         lambda g: jd.date.fromgregorian(date=g) if isinstance(g, dt.date) and not pd.isna(g) else None)
@@ -1573,14 +1673,12 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
                      'Bank CDs Weight', 'FundUnits Weight', 'Commodities Weight']
     for column in weight_columns:
         if column not in all_funds:
-            all_funds[column] = 0
-        all_funds[column] = all_funds[column].fillna(0)
+            all_funds[column] = float('nan')
+        all_funds[column] = number_series(all_funds[column])
     all_funds['LiquidityGuarantor'] = all_funds['LiquidityGuarantor'].replace('----', '-')
-    all_funds['DividendFrequency (Month)'] = all_funds['DividendFrequency (Month)'].fillna(0)
-    all_funds['DividendFrequency (Month)'] = all_funds['DividendFrequency (Month)'].astype('int')
-    all_funds['DividendFrequency (Month)'] = all_funds['DividendFrequency (Month)'].replace(0, '-')
+    all_funds['DividendFrequency (Month)'] = number_series(all_funds['DividendFrequency (Month)'])
     all_funds['WebsiteAddress'] = all_funds['WebsiteAddress'].apply(_catalog_website)
-    all_funds.loc[all_funds['Name'] == 'صندوق تثبیت بازار سرمایه', 'WebsiteAddress'] = 'cmsfund.ir/'
+    all_funds.loc[all_funds['FundName'] == 'صندوق تثبیت بازار سرمایه', 'WebsiteAddress'] = 'cmsfund.ir/'
     if _set_website_developers:
         all_funds = _autoset_website_developers(all_funds.copy())
-    return all_funds
+    return _catalog_frame(all_funds)

@@ -3,6 +3,7 @@ import subprocess
 import sys
 import datetime as dt
 
+import pandas as pd
 import jdatetime as jd
 import pytest
 import requests
@@ -54,10 +55,10 @@ def test_catalog_uses_provider_post_contract_and_optional_weights(monkeypatch, c
     assert calls[0][0] == "POST"
     assert calls[0][1] == "https://www.fipiran.ir/services/fund/fundcompare"
     assert calls[0][2]["json"] == {"regNos": [], "showMarketMakers": True}
-    assert result.loc[0, "FundType"] == "Equity"
+    assert result.loc[0, "FundTypeName"] == "Equity"
     assert result.loc[0, "WebsiteAddress"] == "fund.example"
-    assert result.loc[0, "FundUnits Weight"] == 0
-    assert result.loc[0, "UpdateDate"] == jd.date.fromgregorian(date=dt.date(2026, 10, 11))
+    assert pd.isna(result.loc[0, "FundUnitsWeight"])
+    assert result.loc[0, "UpdateJalaliDate"] == "1405-07-19"
 
 
 @pytest.mark.parametrize("website,expected", [
@@ -67,7 +68,8 @@ def test_catalog_uses_provider_post_contract_and_optional_weights(monkeypatch, c
 def test_catalog_website_shapes(monkeypatch, catalog, website, expected):
     catalog["items"][0]["websiteAddress"] = website
     mock_catalog(monkeypatch, catalog)
-    assert Funds.get_all_funds().loc[0, "WebsiteAddress"] == expected
+    value = Funds.get_all_funds().loc[0, "WebsiteAddress"]
+    assert pd.isna(value) if expected is None else value == expected
 
 
 @pytest.mark.parametrize("data", [None, [], {}, {"items": []}, {"items": [None]}, {"items": [{"name": "A"}]}])
@@ -164,7 +166,7 @@ def test_catalog_checks_status_before_json(monkeypatch):
 def test_public_provider_schema_error_has_fund_and_website(monkeypatch):
     import pandas as pd
     monkeypatch.setattr(Funds, "get_all_funds", lambda **k: pd.DataFrame([
-        {"Name": "Fund A", "WebsiteAddress": "servatfund.ir", "FundType": "Equity"}]))
+        {"FundName": "Fund A", "WebsiteAddress": "servatfund.ir", "FundTypeName": "Equity"}]))
     monkeypatch.setattr(Funds, "_detect_website_developer", lambda **k: "پیکاد")
     monkeypatch.setattr(Funds.requests.Session, "post", lambda self, url, **k: response({"Result": [{"unexpected": 1}]}, url=url))
     with pytest.raises(ValueError, match="Fund A.*servatfund.ir"):

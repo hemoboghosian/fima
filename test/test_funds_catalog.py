@@ -52,8 +52,8 @@ def test_catalog_excludes_instruments_but_preserves_funds_and_compartments(monke
     ]
     calls = _mock_provider(monkeypatch, rows)
     result = Funds.get_all_funds(_set_website_developers=False)
-    assert result["Name"].tolist() == [row["name"] for row in rows[3:]]
-    assert result["RegNo"].tolist() == [row["regNo"] for row in rows[3:]]
+    assert result["FundName"].tolist() == [row["name"] for row in rows[3:]]
+    assert result["RegistrationNumber"].tolist() == [row["regNo"] for row in rows[3:]]
     assert result["TotalNAV"].tolist() == [100] * 7
     assert result["WebsiteAddress"].tolist() == ["fund.example"] * 7
     assert result.index.equals(pd.RangeIndex(7))
@@ -89,7 +89,7 @@ def test_catalog_without_marketmakers_does_not_require_group_id(monkeypatch):
     row = _row("Equity fund", "E")
     del row["groupId"]
     _mock_provider(monkeypatch, [row])
-    assert Funds.get_all_funds()["Name"].tolist() == ["Equity fund"]
+    assert Funds.get_all_funds()["FundName"].tolist() == ["Equity fund"]
 
 
 def test_optional_website_discovery_only_receives_funds(monkeypatch):
@@ -100,7 +100,7 @@ def test_optional_website_discovery_only_receives_funds(monkeypatch):
     names = []
 
     def discover(frame):
-        names.extend(frame["Name"])
+        names.extend(frame["FundName"])
         return frame.assign(WebsiteDeveloper="Known")
 
     monkeypatch.setattr(Funds, "_autoset_website_developers", discover)
