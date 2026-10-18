@@ -10,16 +10,16 @@ from pandas.testing import assert_frame_equal
 from fima import TSETMC
 
 
-PRICE_COLUMNS = ['ClosePrice', 'LastPrice', 'FirstPrice', 'MinPrice', 'MaxPrice']
+PRICE_COLUMNS = ['ClosingPrice', 'LastPrice', 'OpeningPrice', 'LowPrice', 'HighPrice']
 
 
 def history(close=(100, 90, 50), reference=(100, 80, 45)):
     frame = pd.DataFrame({
-        'GDate': [date(2024, 1, day) for day in range(1, len(close) + 1)],
+        'GregorianDate': [date(2024, 1, day) for day in range(1, len(close) + 1)],
         'YesterdayPrice': reference,
         **{column: close for column in PRICE_COLUMNS},
-        'TransactionNo': 1, 'Volume': 10, 'Value': 1000,
-        'PriceChange': 3, 'SharesNo': 200, 'MarketCap': 20000,
+        'TransactionCount': 1, 'TradeVolume': 10, 'TradeValue': 1000,
+        'PriceChange': 3, 'NumberOfShares': 200, 'MarketCap': 20000,
         'InstrumentCode': '123',
     }, index=pd.Index([f'row-{i}' for i in range(len(close))], name='original'))
     return frame
@@ -56,13 +56,13 @@ def test_order_and_duplicate_non_date_index_preserved(positions):
 def test_actual_dates(dates):
     raw = history()
     if dates == 'gregorian_index':
-        raw.index = pd.DatetimeIndex(raw.pop('GDate'), name='date')
+        raw.index = pd.DatetimeIndex(raw.pop('GregorianDate'), name='date')
     else:
-        jalali = raw.pop('GDate').map(lambda d: jd.date.fromgregorian(date=d))
+        jalali = raw.pop('GregorianDate').map(lambda d: jd.date.fromgregorian(date=d))
         if dates == 'jalali_index':
-            raw.index = pd.Index(jalali, name='JDate')
+            raw.index = pd.Index(jalali, name='JalaliDate')
         else:
-            raw['JDate'] = jalali.map(str).to_numpy()
+            raw['JalaliDate'] = jalali.map(str).to_numpy()
     adjusted = TSETMC.adjust_historical_prices(raw.iloc[::-1])
     np.testing.assert_allclose(adjusted.AdjustmentFactor, [1, .5, .4])
     assert_frame_equal(adjusted[raw.columns], raw.iloc[::-1])
@@ -70,26 +70,26 @@ def test_actual_dates(dates):
 
 def test_zero_trade_changes_and_halt_reopening_preserve_every_row():
     raw = history((100, 80, 40, 45), (100, 80, 40, 40))
-    raw['GDate'] = [date(2024, 1, d) for d in [1, 2, 3, 20]]
-    raw.iloc[1:3, raw.columns.get_loc('TransactionNo')] = 0
-    raw.iloc[1:3, raw.columns.get_loc('Volume')] = 0
-    for column in ['FirstPrice', 'MinPrice', 'MaxPrice']:
+    raw['GregorianDate'] = [date(2024, 1, d) for d in [1, 2, 3, 20]]
+    raw.iloc[1:3, raw.columns.get_loc('TransactionCount')] = 0
+    raw.iloc[1:3, raw.columns.get_loc('TradeVolume')] = 0
+    for column in ['OpeningPrice', 'LowPrice', 'HighPrice']:
         raw.iloc[1:3, raw.columns.get_loc(column)] = 0
     adjusted = TSETMC.adjust_historical_prices(raw)
     np.testing.assert_allclose(adjusted.AdjustmentFactor, [.4, .5, 1, 1])
     assert_frame_equal(adjusted[raw.columns], raw)
-    assert adjusted.loc['row-1', 'AdjustedFirstPrice'] == 0
+    assert adjusted.loc['row-1', 'AdjustedOpeningPrice'] == 0
 
 
 def test_precision_and_subset_endpoint():
     raw = history((7, 11, 13), (7, 3, 5))
     adjusted = TSETMC.adjust_historical_prices(raw)
     assert adjusted.loc['row-0', 'AdjustmentFactor'] == pytest.approx(3 / 7 * 5 / 11)
-    assert adjusted.loc['row-0', 'AdjustedClosePrice'] == pytest.approx(15 / 11)
+    assert adjusted.loc['row-0', 'AdjustedClosingPrice'] == pytest.approx(15 / 11)
     earlier = TSETMC.adjust_historical_prices(raw.iloc[:2])
     np.testing.assert_allclose(earlier.AdjustmentFactor, [3 / 7, 1])
-    assert earlier.loc['row-0', 'AdjustedClosePrice'] == pytest.approx(3)
-    assert earlier.loc['row-1', 'AdjustedClosePrice'] == 11
+    assert earlier.loc['row-0', 'AdjustedClosingPrice'] == pytest.approx(3)
+    assert earlier.loc['row-1', 'AdjustedClosingPrice'] == 11
 
 
 @pytest.mark.parametrize('length', [0, 1])
@@ -102,7 +102,7 @@ def test_empty_and_single(length):
 
 
 @pytest.mark.parametrize('bad', [0, -1, np.nan, np.inf, -np.inf, 'bad', None])
-@pytest.mark.parametrize('column', ['ClosePrice', 'YesterdayPrice'])
+@pytest.mark.parametrize('column', ['ClosingPrice', 'YesterdayPrice'])
 def test_invalid_chain_prices(column, bad):
     raw = history().astype({column: object})
     raw.loc['row-1', column] = bad
@@ -120,9 +120,9 @@ def test_oldest_reference_is_unused_but_later_missing_reference_rejected():
 
 
 @pytest.mark.parametrize(('column', 'bad'), [
-    (column, bad) for column in ['LastPrice', 'FirstPrice', 'MinPrice', 'MaxPrice']
+    (column, bad) for column in ['LastPrice', 'OpeningPrice', 'LowPrice', 'HighPrice']
     for bad in [0, -1, np.nan, np.inf]
-    if (column, bad) != ('FirstPrice', 0)  # Zero opening is a supported provider value.
+    if (column, bad) != ('OpeningPrice', 0)  # Zero opening is a supported provider value.
 ])
 def test_invalid_traded_prices(column, bad):
     raw = history().astype({column: float})
@@ -137,9 +137,9 @@ def test_invalid_traded_prices(column, bad):
 def test_ambiguous_or_incomplete_history(problem):
     raw = history()
     if problem == 'duplicate_date':
-        raw.loc['row-1', 'GDate'] = raw.loc['row-0', 'GDate']
+        raw.loc['row-1', 'GregorianDate'] = raw.loc['row-0', 'GregorianDate']
     elif problem in ['missing_date', 'bad_date']:
-        raw.loc['row-1', 'GDate'] = None if problem == 'missing_date' else 'not-a-date'
+        raw.loc['row-1', 'GregorianDate'] = None if problem == 'missing_date' else 'not-a-date'
     elif problem == 'missing_column':
         raw = raw.drop(columns='YesterdayPrice')
     elif problem == 'mixed_instruments':
@@ -150,9 +150,9 @@ def test_ambiguous_or_incomplete_history(problem):
         raw = raw.drop(columns='InstrumentCode')
         raw['Ticker'] = ['A', 'B', 'A']
     elif problem == 'no_dates':
-        raw = raw.drop(columns='GDate').reset_index(drop=True)
+        raw = raw.drop(columns='GregorianDate').reset_index(drop=True)
     else:
-        raw = pd.concat([raw, raw[['ClosePrice']]], axis=1)
+        raw = pd.concat([raw, raw[['ClosingPrice']]], axis=1)
     with pytest.raises(ValueError):
         TSETMC.adjust_historical_prices(raw)
 
@@ -165,17 +165,17 @@ def test_nonfinite_cumulative_factor_rejected():
 
 @pytest.mark.parametrize('count', [None, pd.NA, 1])
 def test_zero_price_requires_explicit_zero_transaction_count(count):
-    raw = history().astype({'TransactionNo': 'Int64'})
-    raw.loc['row-1', 'TransactionNo'] = count
-    raw.loc['row-1', 'MinPrice'] = 0
-    with pytest.raises(ValueError, match='MinPrice'):
+    raw = history().astype({'TransactionCount': 'Int64'})
+    raw.loc['row-1', 'TransactionCount'] = count
+    raw.loc['row-1', 'LowPrice'] = 0
+    with pytest.raises(ValueError, match='LowPrice'):
         TSETMC.adjust_historical_prices(raw)
 
 
 def test_zero_trade_close_is_still_required_positive():
     raw = history()
-    raw.loc['row-1', ['TransactionNo', 'ClosePrice']] = 0
-    with pytest.raises(ValueError, match='ClosePrice'):
+    raw.loc['row-1', ['TransactionCount', 'ClosingPrice']] = 0
+    with pytest.raises(ValueError, match='ClosingPrice'):
         TSETMC.adjust_historical_prices(raw)
 
 
@@ -191,7 +191,7 @@ def test_underflow_and_adjusted_price_overflow_rejected():
 
 def test_numeric_gregorian_dates_and_same_ticker_different_instruments():
     raw = history()
-    raw['GDate'] = [20240101, 20240102, 20240103]
+    raw['GregorianDate'] = [20240101, 20240102, 20240103]
     np.testing.assert_allclose(TSETMC.adjust_historical_prices(raw).AdjustmentFactor, [.4, .5, 1])
     raw['Ticker'] = 'same-ticker'
     raw.loc['row-1', 'InstrumentCode'] = '456'
@@ -215,9 +215,9 @@ def test_download_default_compatibility_and_opt_in(monkeypatch):
     monkeypatch.setattr(TSETMC, '_find_instrument_code', lambda ticker: '123')
     raw = TSETMC.get_ticker_historical_data('example')
     adjusted = TSETMC.get_ticker_historical_data(None, '123', adjust_prices=True)
-    assert raw.columns.tolist() == ['YesterdayPrice', 'ClosePrice', 'LastPrice',
-                                   'FirstPrice', 'MinPrice', 'MaxPrice', 'PriceChange',
-                                   'TransactionNo', 'Volume', 'Value']
+    assert raw.columns.tolist() == ['YesterdayPrice', 'ClosingPrice', 'LastPrice',
+                                   'OpeningPrice', 'LowPrice', 'HighPrice', 'PriceChange',
+                                   'TransactionCount', 'TradeVolume', 'TradeValue']
     assert_frame_equal(adjusted[raw.columns], raw)
     np.testing.assert_allclose(adjusted.AdjustmentFactor, [1, .5, .4])
     assert adjusted.AdjustedLastPrice.iloc[-1] == pytest.approx(40.4)
@@ -233,8 +233,8 @@ def test_empty_download(monkeypatch, adjust):
     monkeypatch.setattr(TSETMC.requests, 'get', lambda *a, **k: Mock(json=lambda: {'closingPriceDaily': []}))
     result = TSETMC.get_ticker_historical_data(ticker_instrument_code='123', adjust_prices=adjust)
     assert result.empty
-    assert result.index.name == 'JDate'
-    assert 'ClosePrice' in result
+    assert result.index.name == 'JalaliDate'
+    assert 'ClosingPrice' in result
     assert ('AdjustmentFactor' in result) == adjust
 
 
@@ -249,15 +249,15 @@ def test_download_rejects_mixed_instrument_payload(monkeypatch):
 @pytest.mark.parametrize('descending', [False, True])
 def test_zero_opening_on_traded_observation_preserves_ratios(descending):
     raw = history()
-    raw.loc['row-1', 'FirstPrice'] = 0
+    raw.loc['row-1', 'OpeningPrice'] = 0
     if descending:
         raw = raw.iloc[::-1]
     adjusted = TSETMC.adjust_historical_prices(raw)
     expected = [1, .5, .4] if descending else [.4, .5, 1]
     np.testing.assert_allclose(adjusted.AdjustmentFactor, expected)
-    assert adjusted.loc['row-1', 'AdjustedFirstPrice'] == 0
-    assert adjusted.loc['row-1', 'TransactionNo'] == 1
-    np.testing.assert_allclose(adjusted.AdjustedClosePrice, raw.ClosePrice * expected)
+    assert adjusted.loc['row-1', 'AdjustedOpeningPrice'] == 0
+    assert adjusted.loc['row-1', 'TransactionCount'] == 1
+    np.testing.assert_allclose(adjusted.AdjustedClosingPrice, raw.ClosingPrice * expected)
     assert_frame_equal(adjusted[raw.columns], raw)
 
 
@@ -278,27 +278,27 @@ def test_mocked_official_traded_row_with_zero_opening(monkeypatch):
     adjusted = TSETMC.get_ticker_historical_data(ticker='شستا', adjust_prices=True)
     assert_frame_equal(adjusted[raw.columns], raw)
     assert adjusted.AdjustmentFactor.iloc[0] == 1
-    assert adjusted.FirstPrice.iloc[0] == adjusted.AdjustedFirstPrice.iloc[0] == 0
-    assert adjusted.ClosePrice.iloc[0] == adjusted.AdjustedClosePrice.iloc[0] == 1267
+    assert adjusted.OpeningPrice.iloc[0] == adjusted.AdjustedOpeningPrice.iloc[0] == 0
+    assert adjusted.ClosingPrice.iloc[0] == adjusted.AdjustedClosingPrice.iloc[0] == 1267
     assert adjusted.LastPrice.iloc[0] == adjusted.AdjustedLastPrice.iloc[0] == 1273
-    assert adjusted.TransactionNo.iloc[0] == 5605
+    assert adjusted.TransactionCount.iloc[0] == 5605
     assert get.call_count == 2
 
 
 @pytest.mark.parametrize('transaction_count', [None, pd.NA, 0, 1])
 def test_zero_opening_does_not_require_transaction_count(transaction_count):
-    raw = history().astype({'TransactionNo': 'Int64'})
-    raw.loc['row-1', 'TransactionNo'] = transaction_count
-    raw.loc['row-1', 'FirstPrice'] = 0
+    raw = history().astype({'TransactionCount': 'Int64'})
+    raw.loc['row-1', 'TransactionCount'] = transaction_count
+    raw.loc['row-1', 'OpeningPrice'] = 0
     adjusted = TSETMC.adjust_historical_prices(raw)
-    assert adjusted.loc['row-1', 'AdjustedFirstPrice'] == 0
+    assert adjusted.loc['row-1', 'AdjustedOpeningPrice'] == 0
     np.testing.assert_allclose(adjusted.AdjustmentFactor, [.4, .5, 1])
-    without_counts = TSETMC.adjust_historical_prices(raw.drop(columns='TransactionNo'))
+    without_counts = TSETMC.adjust_historical_prices(raw.drop(columns='TransactionCount'))
     np.testing.assert_allclose(without_counts.AdjustmentFactor, adjusted.AdjustmentFactor)
 
 
 def test_negative_opening_on_zero_trade_row_is_rejected():
     raw = history()
-    raw.loc['row-1', ['TransactionNo', 'FirstPrice']] = [0, -1]
-    with pytest.raises(ValueError, match='FirstPrice'):
+    raw.loc['row-1', ['TransactionCount', 'OpeningPrice']] = [0, -1]
+    with pytest.raises(ValueError, match='OpeningPrice'):
         TSETMC.adjust_historical_prices(raw)

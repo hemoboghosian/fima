@@ -6,7 +6,71 @@ from mibian import BS
 from scipy.stats import norm
 import numpy as np
 from typing import Tuple
+from ._data import number_series, identifier_series, jalali_date, gregorian_series
 from fima.TSETMC import _find_instrument_code, get_ticker_historical_data
+
+
+def _option_market_records(data):
+    mapping = {
+        'insCode_P': 'InstrumentCode-P', 'insCode_C': 'InstrumentCode-C',
+        'contractSize': 'ContractSize', 'uaInsCode': 'InstrumentCode-UA',
+        'lval30_UA': 'Ticker-UA', 'beginDate': 'BeginDate', 'endDate': 'EndDate',
+        'strikePrice': 'StrikePrice', 'remainedDay': 'DaysToMaturity',
+        'pClosing_UA': 'ClosePrice-UA', 'pDrCotVal_UA': 'LastPrice-UA',
+        'priceYesterday_UA': 'YesterdayPrice-UA',
+    }
+    for side in ('P', 'C'):
+        for source, target in {
+            'lVal18AFC': 'Ticker', 'lVal30': 'Name', 'zTotTran': 'TransactionCount',
+            'qTotTran5J': 'TradeVolume', 'qTotCap': 'Value', 'notionalValue': 'NotionalValue',
+            'pClosing': 'ClosePrice', 'priceYesterday': 'YesterdayPrice', 'oP': 'OpenPositions',
+            'pDrCotVal': 'LastPrice', 'pMeDem': 'BidPrice', 'qTitMeDem': 'BidVolume',
+            'pMeOf': 'AskPrice', 'qTitMeOf': 'AskVolume', 'yesterdayOP': 'YesterdayOpenPositions',
+        }.items():
+            mapping[source + '_' + side] = target + '-' + side
+    frame = pd.DataFrame(data)
+    missing = set(mapping) - set(frame)
+    if missing:
+        raise ValueError(f'TSETMC option market response missing fields: {sorted(missing)}')
+    frame = frame[list(mapping)].rename(columns=mapping)
+    for column in frame:
+        if column.startswith('InstrumentCode'):
+            frame[column] = identifier_series(frame[column])
+        elif not column.startswith(('Ticker', 'Name', 'BeginDate', 'EndDate')):
+            frame[column] = number_series(frame[column])
+    return frame
+
+
+def _option_frame(frame, j_date=True):
+    names = {'ClosePrice': 'ClosingPrice', 'FirstPrice': 'OpeningPrice', 'MinPrice': 'LowPrice',
+             'MaxPrice': 'HighPrice', 'Value': 'TradeValue', 'Name': 'InstrumentName',
+             'Type': 'OptionType', 'UATicker': 'UnderlyingTicker'}
+    result = frame.copy()
+    rename = {}
+    for column in result:
+        base, prefix = column, ''
+        for suffix, label in [('-C', 'Call'), ('-P', 'Put'), ('-UA', 'Underlying')]:
+            if base.endswith(suffix):
+                base, prefix = base[:-len(suffix)], label
+                break
+        name = prefix + names.get(base, base)
+        if base in ('BeginDate', 'EndDate', 'MaturityDate'):
+            name = prefix + base[:-4] + ('JalaliDate' if j_date else 'GregorianDate')
+            result[column] = result[column].map(jalali_date) if j_date else gregorian_series(result[column])
+        elif base == 'InstrumentCode':
+            result[column] = identifier_series(result[column])
+        elif base not in ('Ticker', 'UATicker', 'Name', 'Type', 'Status', 'URL'):
+            result[column] = number_series(result[column])
+            if base in ('RiskFreeRate', 'Volatility', 'ImpliedVolatility'):
+                result[column] *= 100
+        rename[column] = name
+    return result.rename(columns=rename)
+
+
+def _model_info(frame):
+    # Public output may also be injected into the analytical convenience APIs.
+    return frame.rename(columns={'UnderlyingTicker': 'UATicker', 'UnderlyingLastPrice': 'LastPrice-UA',
+                                 'OptionType': 'Type'})
 
 
 def _calculate_d1(s, k, t, r_f, sigma) -> float:
@@ -74,7 +138,7 @@ def ticker_info(ticker: str) -> pd.DataFrame:
     ua_ticker_instrument_info = requests.get(ua_ticker_instrument_info_url, timeout=30).json()['closingPriceInfo']
     ticker_info_df.loc[0, 'LastPrice-UA'] = ua_ticker_instrument_info['pDrCotVal']
 
-    return ticker_info_df
+    return _option_frame(ticker_info_df)
 
 
 def _calculate_row_wise_implied_volatility(row) -> float:
@@ -88,6 +152,8 @@ def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame = None, vo
 
     if _ticker_info_df is None:
         _ticker_info_df = ticker_info(ticker=ticker)
+
+    _ticker_info_df = _model_info(_ticker_info_df)
 
     if _ua_historical_data is None:
         try:
@@ -137,9 +203,9 @@ def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame = None, vo
 
     try:
         if option_type == 'Call':
-            ticker_implied_volatility = BS([s, k, r_f, t * 365], callPrice=premium)
+            ticker_implied_volatility = BS([s, k, r_f * 100, t * 365], callPrice=premium)
         elif option_type == 'Put':
-            ticker_implied_volatility = BS([s, k, r_f, t * 365], putPrice=premium)
+            ticker_implied_volatility = BS([s, k, r_f * 100, t * 365], putPrice=premium)
         else:
             print('Option type is not a valid one.')
             return None
@@ -156,6 +222,8 @@ def get_greeks(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_win
 
     if _ticker_info_df is None:
         _ticker_info_df = ticker_info(ticker=ticker)
+
+    _ticker_info_df = _model_info(_ticker_info_df)
 
     if _ua_historical_data is None:
         try:
@@ -225,13 +293,32 @@ def _calculate_row_wise_bsm(row) -> pd.Series:
 
 
 def _calculate_volatility(ua_historical_data, window_size) -> float:
-    log_returns = np.log(ua_historical_data['ClosePrice'] / ua_historical_data['ClosePrice'].shift(1))
-    volatility = np.sqrt(window_size) * log_returns.std()
-    return volatility
+    """Trailing sample daily log-return volatility, annualized with 252 sessions."""
+    data = ua_historical_data
+    for date in ('GregorianDate', 'JalaliDate', 'Date'):
+        if date in data:
+            data = data.sort_values(date)
+            break
+    else:
+        if data.index.name in ('JalaliDate', 'GregorianDate') or isinstance(data.index, pd.DatetimeIndex):
+            data = data.sort_index()
+    column = 'ClosingPrice' if 'ClosingPrice' in data else 'ClosePrice'
+    prices = number_series(data[column]).tail(window_size + 1)
+    if not (np.isfinite(prices) & (prices > 0)).all():
+        raise ValueError('Historical closing prices must be finite and positive for volatility.')
+    return float(np.log(prices).diff().std() * np.sqrt(252))
 
 
 def calculate_black_scholes_merton(s, k, t, sigma, r_f, option_type) \
-        -> Tuple[float, float]:
+        -> float:
+    """European option price; t in years, r_f and sigma in decimal annual units."""
+    if option_type not in ('Call', 'Put'):
+        raise ValueError(f"Unknown option type '{option_type}'. Expected 'Call' or 'Put'.")
+    if s <= 0 or k <= 0 or t < 0 or sigma < 0 or not np.isfinite([s, k, t, sigma, r_f]).all():
+        raise ValueError('Prices must be positive; time/volatility nonnegative; inputs finite.')
+    if t == 0 or sigma == 0:
+        discounted_strike = k * np.exp(-r_f * t)
+        return float(max(s - discounted_strike, 0) if option_type == 'Call' else max(discounted_strike - s, 0))
     d1 = _calculate_d1(s, k, t, r_f, sigma)
     d2 = _calculate_d2(s, k, t, r_f, sigma)
 
@@ -250,6 +337,8 @@ def black_scholes_merton(ticker: str, _ticker_info_df: pd.DataFrame = None, vola
 
     if _ticker_info_df is None:
         _ticker_info_df = ticker_info(ticker=ticker)
+
+    _ticker_info_df = _model_info(_ticker_info_df)
 
     if _ua_historical_data is None:
         try:
@@ -293,10 +382,6 @@ def black_scholes_merton(ticker: str, _ticker_info_df: pd.DataFrame = None, vola
     t = days_to_maturity / 365
     option_type = _ticker_info_df['Type'].values[0]
 
-    if sigma == 0 or t == 0:
-        print("Zero volatility or expired option. Returning price = 0.")
-        return 0, 0
-
     price = calculate_black_scholes_merton(s, k, t, sigma, r_f, option_type)
 
     return sigma, price
@@ -305,74 +390,45 @@ def black_scholes_merton(ticker: str, _ticker_info_df: pd.DataFrame = None, vola
 def download_all_underlying_assets(_all_options_market_watch: pd.DataFrame = None, market: str = 'All') -> pd.DataFrame:
     if _all_options_market_watch is None:
         _all_options_market_watch = download_market_watch(market=market, stack='Horizontal', j_date=True)
-    all_underlying_assets = _all_options_market_watch.loc[:, [column for column in _all_options_market_watch.columns if column.endswith('-UA')]]
-    all_underlying_assets.drop_duplicates(inplace=True)
-    all_underlying_assets.reset_index(inplace=True, drop=True)
-    all_underlying_assets.columns = [column.replace('-UA', '') for column in all_underlying_assets.columns]
-    return all_underlying_assets
+    columns = [column for column in _all_options_market_watch if column.startswith('Underlying')]
+    result = _all_options_market_watch[columns].drop_duplicates().reset_index(drop=True)
+    return result.rename(columns={column: column.removeprefix('Underlying') for column in columns})
 
 
 def download_historical_data(ticker: str, start_date: str = None, end_date: str = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Option and underlying raw daily history, filtered by optional Jalali bounds.
 
-    ticker_instrument_code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
-    ticker_historical_data_url = f'https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{ticker_instrument_code}/0'
-
-    response = requests.get(ticker_historical_data_url, timeout=30)
-    response.raise_for_status()
-
-    data = response.json()
-    ticker_historical_data = pd.json_normalize(data["closingPriceDaily"])
-
-    if ticker_historical_data.empty:
-        print(f'Couldn\'t download historical data for ticker: {ticker}')
-        return None, None
-
-    ticker_historical_data.columns = ['PriceChange', 'MinPrice', 'MaxPrice', 'YesterdayPrice', 'FirstPrice', 'Last', 'ID',
-                                      'InstrumentCode', 'Date', 'H', 'ClosePrice', 'I', 'Y', 'LastPrice', 'Quantity', 'Volume', 'Value']
-    ticker_historical_data = ticker_historical_data.loc[:, ['Date', 'Quantity', 'Volume', 'Value', 'MinPrice', 'MaxPrice',
-                                                            'FirstPrice', 'LastPrice', 'ClosePrice']]
-    ticker_historical_data['Date'] =  pd.to_datetime(ticker_historical_data['Date'].astype(str), format='%Y%m%d')
-    ticker_historical_data['Date'] = ticker_historical_data['Date'].dt.date
-    ticker_historical_data['Date'] = \
-        ticker_historical_data['Date'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
-
-    # underlying asset
-    ticker_info_url = f"https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/{ticker_instrument_code}"
-    underlying_asset_ticker = requests.get(url=ticker_info_url, timeout=30).json()['instrumentInfo']['lVal30'].split('-')[0].split(' ')[1]
-    ua_instrument_code = _find_instrument_code(search_key=underlying_asset_ticker, trade_type='Ordinary')
-    ua_ticker_historical_data_url = f'https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{ua_instrument_code}/0'
-    response = requests.get(url=ua_ticker_historical_data_url, timeout=30)
-    response.raise_for_status()
-    data = response.json()
-    ua_ticker_historical_data = pd.json_normalize(data["closingPriceDaily"])
-
-    if ua_ticker_historical_data.empty:
-        print(f'Couldn\'t download historical data for ticker: {ticker}')
-        return None, None
-
-    ua_ticker_historical_data.columns = ['PriceChange', 'MinPrice', 'MaxPrice', 'YesterdayPrice', 'FirstPrice', 'Last', 'ID',
-                                      'InstrumentCode', 'Date', 'H', 'ClosePrice', 'I', 'Y', 'LastPrice', 'Quantity', 'Volume', 'Value']
-    ua_ticker_historical_data = ua_ticker_historical_data.loc[:, ['Date', 'Quantity', 'Volume', 'Value', 'MinPrice', 'MaxPrice',
-                                                            'FirstPrice', 'LastPrice', 'ClosePrice']]
-    ua_ticker_historical_data['Date'] =  pd.to_datetime(ua_ticker_historical_data['Date'].astype(str), format='%Y%m%d')
-    ua_ticker_historical_data['Date'] = ua_ticker_historical_data['Date'].dt.date
-    ua_ticker_historical_data['Date'] = \
-        ua_ticker_historical_data['Date'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
-
-    if start_date is not None and end_date is not None:
-        start_date_year, start_date_month, start_date_day = [int(date) for date in start_date.split('-')]
-        start_date = jd.date(start_date_year, start_date_month, start_date_day)
-
-        end_date_year, end_date_month, end_date_day = [int(date) for date in end_date.split('-')]
-        end_date = jd.date(end_date_year, end_date_month, end_date_day)
-
-        ticker_historical_data = ticker_historical_data[(ticker_historical_data['Date'] >= start_date) & (ticker_historical_data['Date'] <= end_date)]
-        ua_ticker_historical_data = ua_ticker_historical_data[(ua_ticker_historical_data['Date'] >= start_date) & (ua_ticker_historical_data['Date'] <= end_date)]
-
-    ticker_historical_data.reset_index(inplace=True, drop=True)
-    ua_ticker_historical_data.reset_index(inplace=True, drop=True)
-
-    return ticker_historical_data, ua_ticker_historical_data
+    Returns two frames with JalaliDate strings, TransactionCount, TradeVolume,
+    TradeValue and distinct opening/low/high/last/closing prices. Prices/value
+    remain in source rial units. HTTP errors propagate; unavailable history
+    retains the legacy (None, None) result. Bounds are inclusive and independent.
+    """
+    code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
+    info = requests.get(f'https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/{code}', timeout=30)
+    info.raise_for_status()
+    underlying = info.json()['instrumentInfo']['lVal30'].split('-')[0].split(' ')[1]
+    ua_code = _find_instrument_code(search_key=underlying, trade_type='Ordinary')
+    mapping = {'dEven': 'GregorianDate', 'zTotTran': 'TransactionCount', 'qTotTran5J': 'TradeVolume',
+               'qTotCap': 'TradeValue', 'priceMin': 'LowPrice', 'priceMax': 'HighPrice',
+               'priceFirst': 'OpeningPrice', 'pDrCotVal': 'LastPrice', 'pClosing': 'ClosingPrice'}
+    frames = []
+    bounds = [jalali_date(x) if x is not None else None for x in (start_date, end_date)]
+    for instrument in (code, ua_code):
+        response = requests.get(f'https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/{instrument}/0', timeout=30)
+        response.raise_for_status()
+        frame = pd.DataFrame(response.json()['closingPriceDaily'])
+        if frame.empty:
+            return None, None
+        frame = frame[list(mapping)].rename(columns=mapping)
+        dates = pd.to_datetime(frame.pop('GregorianDate').astype(str), format='%Y%m%d')
+        frame.insert(0, 'JalaliDate', dates.map(lambda date: jd.date.fromgregorian(date=date.date()).isoformat()))
+        for column in frame.columns[1:]:
+            frame[column] = number_series(frame[column])
+        for bound, lower in zip(bounds, (True, False)):
+            if bound is not None:
+                frame = frame[frame.JalaliDate.ge(bound) if lower else frame.JalaliDate.le(bound)]
+        frames.append(frame.sort_values('JalaliDate').reset_index(drop=True))
+    return tuple(frames)
 
 
 def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bool = False, greeks: bool = False,
@@ -383,17 +439,7 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
         response.raise_for_status()
 
         data = response.json()
-        all_options_market_watch = pd.json_normalize(data["instrumentOptMarketWatch"])
-
-        all_options_market_watch.columns = ['InstrumentCode-P', 'InstrumentCode-C', 'ContractSize', 'InstrumentCode-UA',
-                                            'Ticker-P', 'Name-P', 'Volume-P', 'Quantity-P', 'Value-P', 'NotionalValue-P',
-                                            'ClosePrice-P', 'YesterdayPrice-P', 'OpenPositions-P', 'LastPrice-P',
-                                            'Ticker-UA', 'ClosePrice-UA', 'LastPrice-UA', 'YesterdayPrice-UA',
-                                            'BeginDate', 'EndDate', 'StrikePrice', 'DaysToMaturity', 'LastPrice-C', 'OpenPositions-C',
-                                            'ClosePrice-C', 'YesterdayPrice-C', 'NotionalValue-C', 'Value-C', 'Quantity-C',
-                                            'Volume-C', 'Name-C', 'Ticker-C', 'BidPrice-P', 'BidVolume-P', 'AskPrice-P',
-                                            'AskVolume-P', 'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C',
-                                            'YesterdayOpenPositions-C', 'YesterdayOpenPositions-P']
+        all_options_market_watch = _option_market_records(data["instrumentOptMarketWatch"])
         chain_contracts = all_options_market_watch[all_options_market_watch['Ticker-UA'] == underlying_ticker].copy()
 
         chain_contracts['URL-P'] = chain_contracts['InstrumentCode-P'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
@@ -423,13 +469,13 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
         default = 'ATM'
         chain_contracts['Status-P'] = np.select(conditions, choices, default=default)
 
-        call_chain_contracts_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'Volume-C', 'Quantity-C', 'Value-C',
+        call_chain_contracts_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'TransactionCount-C', 'TradeVolume-C', 'Value-C',
                                              'NotionalValue-C', 'OpenPositions-C', 'ClosePrice-C', 'LastPrice-C', 'YesterdayPrice-C',
                                              'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C', 'URL-C']
         ua_chain_contracts_columns = ['ContractSize', 'StrikePrice', 'DaysToMaturity', 'BeginDate', 'EndDate',
                                             'Ticker-UA', 'InstrumentCode-UA', 'ClosePrice-UA', 'LastPrice-UA',
                                             'YesterdayPrice-UA', 'URL-UA']
-        put_chain_contracts_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'Volume-P', 'Quantity-P', 'Value-P',
+        put_chain_contracts_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'TransactionCount-P', 'TradeVolume-P', 'Value-P',
                                              'NotionalValue-P', 'OpenPositions-P', 'ClosePrice-P', 'LastPrice-P', 'YesterdayPrice-P',
                                              'BidPrice-P', 'BidVolume-P', 'AskPrice-P', 'AskVolume-P', 'URL-P']
 
@@ -437,7 +483,7 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
         if bsm or greeks or implied_volatility:
             print(f'Downloading {underlying_ticker} historical data...')
             ua_historical_data = get_ticker_historical_data(
-                ticker=underlying_ticker).reset_index().rename(columns={'JDate': 'Date'}).loc[:, ['Date', 'ClosePrice']].copy()
+                ticker=underlying_ticker).reset_index().loc[:, ['JalaliDate', 'ClosingPrice']].copy()
             print(f'Historical data downloaded for {underlying_ticker}.')
 
             chain_contracts['HistoricalData-UA'] = None
@@ -494,7 +540,7 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
 
         chain_contracts.reset_index(inplace=True, drop=True)
         chain_contracts.sort_values(by=['EndDate', 'StrikePrice'], inplace=True, ignore_index=True)
-        return chain_contracts
+        return _option_frame(chain_contracts, j_date)
     except Exception as e:
         print(f"Failed to get the market watch with the error:\n {e}")
         return None
@@ -515,17 +561,7 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
         response.raise_for_status()
 
         data = response.json()
-        all_options_market_watch = pd.json_normalize(data["instrumentOptMarketWatch"])
-
-        all_options_market_watch.columns = ['InstrumentCode-P', 'InstrumentCode-C', 'ContractSize', 'InstrumentCode-UA',
-                                            'Ticker-P', 'Name-P', 'Volume-P', 'Quantity-P', 'Value-P', 'NotionalValue-P',
-                                            'ClosePrice-P', 'YesterdayPrice-P', 'OpenPositions-P', 'LastPrice-P',
-                                            'Ticker-UA', 'ClosePrice-UA', 'LastPrice-UA', 'YesterdayPrice-UA',
-                                            'BeginDate', 'EndDate', 'StrikePrice', 'DaysToMaturity', 'LastPrice-C', 'OpenPositions-C',
-                                            'ClosePrice-C', 'YesterdayPrice-C', 'NotionalValue-C', 'Value-C', 'Quantity-C',
-                                            'Volume-C', 'Name-C', 'Ticker-C', 'BidPrice-P', 'BidVolume-P', 'AskPrice-P',
-                                            'AskVolume-P', 'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C',
-                                            'YesterdayOpenPositions-C', 'YesterdayOpenPositions-P']
+        all_options_market_watch = _option_market_records(data["instrumentOptMarketWatch"])
         all_options_market_watch['URL-P'] = all_options_market_watch['InstrumentCode-P'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
         all_options_market_watch['URL-C'] = all_options_market_watch['InstrumentCode-C'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
         all_options_market_watch['URL-UA'] = all_options_market_watch['InstrumentCode-UA'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
@@ -553,25 +589,25 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
         default = 'ATM'
         all_options_market_watch['Status-P'] = np.select(conditions, choices, default=default)
 
-        call_options_market_watch_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'Volume-C', 'Quantity-C', 'Value-C',
+        call_options_market_watch_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'TransactionCount-C', 'TradeVolume-C', 'Value-C',
                                              'NotionalValue-C', 'OpenPositions-C', 'ClosePrice-C', 'LastPrice-C', 'YesterdayPrice-C',
                                              'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C', 'URL-C']
         ua_market_watch_columns = ['ContractSize', 'StrikePrice', 'DaysToMaturity', 'BeginDate', 'EndDate',
                                             'Ticker-UA', 'InstrumentCode-UA', 'ClosePrice-UA', 'LastPrice-UA',
                                             'YesterdayPrice-UA', 'URL-UA']
-        put_options_market_watch_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'Volume-P', 'Quantity-P', 'Value-P',
+        put_options_market_watch_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'TransactionCount-P', 'TradeVolume-P', 'Value-P',
                                              'NotionalValue-P', 'OpenPositions-P', 'ClosePrice-P', 'LastPrice-P', 'YesterdayPrice-P',
                                              'BidPrice-P', 'BidVolume-P', 'AskPrice-P', 'AskVolume-P', 'URL-P']
 
 
         if bsm or greeks or implied_volatility:
             uas_historical_data = {}
-            all_uas = download_all_underlying_assets(all_options_market_watch.copy(), market=market)
+            all_uas = all_options_market_watch[['Ticker-UA']].drop_duplicates().rename(columns={'Ticker-UA': 'Ticker'})
             print('Starting to download historical data for all tickers...')
             for ua in all_uas['Ticker']:
                 print(f'Downloading {ua} historical data...')
                 uas_historical_data[ua] = get_ticker_historical_data(
-                    ticker=ua).reset_index().rename(columns={'JDate': 'Date'}).loc[:, ['Date', 'ClosePrice']].copy()
+                    ticker=ua).reset_index().loc[:, ['JalaliDate', 'ClosingPrice']].copy()
             print('Historical data downloaded for all underlying assets.')
 
             all_options_market_watch['HistoricalData-UA'] = None
@@ -647,7 +683,7 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
 
         all_options_market_watch.reset_index(inplace=True, drop=True)
         all_options_market_watch.sort_values(by=['Ticker-UA', 'EndDate', 'StrikePrice'], inplace=True, ignore_index=True)
-        return all_options_market_watch
+        return _option_frame(all_options_market_watch, j_date)
 
     except Exception as e:
         print(f"Failed to get the market watch with the error:\n {e}")

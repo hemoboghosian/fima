@@ -10,8 +10,8 @@ from fima.TSETMC import get_ticker_historical_data, adjust_historical_prices
 history = get_ticker_historical_data(
     ticker_instrument_code="35425587644337450", adjust_prices=True,
 )
-prices = history[["ClosePrice", "LastPrice", "AdjustmentFactor",
-                  "AdjustedClosePrice", "AdjustedLastPrice"]]
+prices = history[["ClosingPrice", "LastPrice", "AdjustmentFactor",
+                  "AdjustedClosingPrice", "AdjustedLastPrice"]]
 
 # برای انتخاب تاریخ مبنای قدیمی‌تر، ابتدا دادهٔ خام را فیلتر کنید.
 import jdatetime as jd
@@ -22,20 +22,20 @@ as_of = adjust_historical_prices(raw.loc[raw.index <= jd.date(1403, 12, 29)])
 
 گزینهٔ `adjust_prices` فقط به‌صورت آرگومان نام‌دار پذیرفته می‌شود و مقدار پیش‌فرض آن
 `False` است؛ آرگومان‌های موقعیتی موجود، ستون‌های خام و نمایهٔ تاریخ شمسی سازگار
-می‌مانند. `ClosePrice` قیمت پایانی رسمی (`pClosing`) و `LastPrice` قیمت آخرین
+می‌مانند. `ClosingPrice` قیمت پایانی رسمی (`pClosing`) و `LastPrice` قیمت آخرین
 معامله (`pDrCotVal`) است. `YesterdayPrice` (`priceYesterday`) قیمت مرجع بورس
 است و ممکن است با قیمت پایانی مشاهدهٔ قبلی تفاوت داشته باشد.
 
 محاسبات در ترتیب صعودی تاریخ واقعی انجام می‌شود و نسبت هر ردیف برابر است با:
 
 ```text
-q[t] = YesterdayPrice[t] / ClosePrice[t-1]
+q[t] = YesterdayPrice[t] / ClosingPrice[t-1]
 ```
 
 مقدار `AdjustmentFactor[t]` حاصل‌ضرب نسبت‌های ردیف‌های بعدی تا آخرین تاریخ
 دادهٔ ورودی است؛ مقدار آن در آخرین ردیف زمانی عمداً برابر با ۱ است. ستون‌های
-`AdjustedClosePrice`، `AdjustedLastPrice`، `AdjustedFirstPrice`،
-`AdjustedMinPrice` و `AdjustedMaxPrice` از ضرب قیمت خام در این ضریب ساخته می‌شوند.
+`AdjustedClosingPrice`، `AdjustedLastPrice`، `AdjustedOpeningPrice`،
+`AdjustedLowPrice` و `AdjustedHighPrice` از ضرب قیمت خام در این ضریب ساخته می‌شوند.
 همهٔ ستون‌های خام، ردیف‌ها، برچسب‌های نمایه و ترتیب خروجی، از جمله روزهای بدون
 معامله، حفظ می‌شوند. حجم و ارزش معاملات، تعداد معاملات، تعداد سهام و ارزش بازار
 تغییر نمی‌کنند. مقادیر با دقت `float64` و بدون گردکردن محاسبه می‌شوند؛ برای
@@ -44,18 +44,18 @@ q[t] = YesterdayPrice[t] / ClosePrice[t-1]
 
 تابع `adjust_historical_prices` درخواست شبکه‌ای ندارد. در هر فراخوانی دادهٔ
 یک ابزار را با شش ستون قیمت و قیمت مرجع و یکی از این تاریخ‌ها وارد کنید:
-ستون میلادی `GDate`، ستون شمسی `JDate`، نمایهٔ `DatetimeIndex` یا نمایهٔ
-`JDate` خروجی fima. تاریخ‌ها باید مشخص و یکتا باشند و ستون شناسه، در صورت وجود،
+ستون میلادی `GregorianDate`، ستون شمسی `JalaliDate`، نمایهٔ `DatetimeIndex` یا نمایهٔ
+`JalaliDate` خروجی fima. تاریخ‌ها باید مشخص و یکتا باشند و ستون شناسه، در صورت وجود،
 باید یک ابزار مشخص را معرفی کند. ستون ناقص، تاریخ تکراری، ترکیب ابزارهای مختلف،
 محاسبات نامتناهی و قیمت نامعتبر با `ValueError` گزارش می‌شود. قیمت پایانی و
 قیمت مرجعِ استفاده‌شده در نسبت‌ها باید مثبت و متناهی باشند؛ قیمت مرجع قدیمی‌ترین
 ردیف در محاسبه استفاده نمی‌شود. مقدار مثبت ۱۰۰۰ برای قیمت مرجع معتبر است.
 
-منبع گاهی ستون `FirstPrice` را حتی در روز دارای معامله صفر برمی‌گرداند. این مقدار
-در ستون خام و `AdjustedFirstPrice` به همان صورت صفر حفظ می‌شود؛ نباید آن را
+منبع گاهی ستون `OpeningPrice` را حتی در روز دارای معامله صفر برمی‌گرداند. این مقدار
+در ستون خام و `AdjustedOpeningPrice` به همان صورت صفر حفظ می‌شود؛ نباید آن را
 قیمت واقعی معامله دانست و قیمت دیگری به‌طور حدسی جایگزین آن نمی‌شود. مقدار
 منفی یا نامتناهی و دادهٔ ناموجود در این ستون همچنان خطاست. صفر در ستون‌های
-`LastPrice`، `MinPrice` و `MaxPrice` فقط در ردیف دارای `TransactionNo == 0`
+`LastPrice`، `LowPrice` و `HighPrice` فقط در ردیف دارای `TransactionCount == 0`
 پذیرفته می‌شود. ورودی خالی با ستون‌های لازم، ستون‌های افزودهٔ خالی برمی‌گرداند؛
 ضریب ورودی تک‌ردیفی برابر با ۱ است.
 
@@ -86,7 +86,7 @@ Pinned sources inspected from the published wheels:
   [source repository](https://github.com/Glyphack/pytse-client).
 
 Finpy's `Final` and pytse's unadjusted `adjClose` correspond to fima's official
-`ClosePrice`. Finpy's `Close` and pytse's `close` correspond to `LastPrice`.
+`ClosingPrice`. Finpy's `Close` and pytse's `close` correspond to `LastPrice`.
 Column names alone do not establish adjustment status. Both implementations
 use successive exchange-reference/previous-official-close ratios. Finpy
 truncates adjusted values to integers; pytse rounds them to whole rials.
@@ -154,7 +154,7 @@ supplied 1,244. Responses varied in row coverage as well. These observations
 show that a zero opening field is not evidence of zero trades or a genuine
 zero execution price. The exact cause of the source discrepancy is unverified.
 
-Fima preserves the supplied zero in both `FirstPrice` and `AdjustedFirstPrice`
+Fima preserves the supplied zero in both `OpeningPrice` and `AdjustedOpeningPrice`
 without fetching or inferring a replacement. It does not use the opening price
 in adjustment ratios, so this source value must not reject the entire chain.
 Negative, missing and nonfinite opening values still fail validation. Closing

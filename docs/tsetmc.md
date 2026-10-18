@@ -9,14 +9,14 @@ from fima.TSETMC import get_ticker_historical_data, get_tickers
 
 tickers = get_tickers(tse=True, ifb=True, details=False)
 history = get_ticker_historical_data(ticker="فملی")
-print(history[["ClosePrice", "Volume"]].head())
+print(history[["ClosingPrice", "Volume"]].head())
 ```
 
 برای انتخاب بازارها، هر دو آرگومان `tse` و `ifb` را مشخص کنید. گزینهٔ `details=True` جزئیات بیشتری به فهرست نمادها اضافه می‌کند.
 
 در تاریخچه، نام نماد با آرگومان `ticker` انتخاب می‌شود. اگر کد ابزار را می‌دانید، می‌توانید به‌جای نام از آرگومان `ticker_instrument_code` استفاده کنید. خروجی یک جدول پانداس با نمایهٔ تاریخ شمسی است؛ تاریخچه در این تابع فیلتر تاریخی ندارد. ستون‌های قیمت، تعداد و حجم معاملات از منبع دریافت می‌شوند و ترتیب برگشتی حفظ می‌شود.
 
-ستون `ClosePrice` قیمت پایانی رسمی، ستون `LastPrice` آخرین قیمت معامله و ستون `YesterdayPrice` قیمت مرجع بورس است. قیمت مرجع الزاماً با قیمت پایانی ردیف قبلی برابر نیست.
+ستون `ClosingPrice` قیمت پایانی رسمی، ستون `LastPrice` آخرین قیمت معامله و ستون `YesterdayPrice` قیمت مرجع بورس است. قیمت مرجع الزاماً با قیمت پایانی ردیف قبلی برابر نیست.
 
 برای دریافت قیمت تعدیل‌شده، از گزینهٔ `adjust_prices=True` استفاده کنید. روش محاسبه، انتخاب تاریخ مبنا، ستون‌های افزوده و محدودیت‌ها در [راهنمای تعدیل قیمت](tsetmc-adjustment.md) آمده است.
 

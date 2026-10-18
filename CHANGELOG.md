@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Breaking public data normalization and confirmed financial mapping/calculation
+  corrections; see [complete migration notes](docs/data-migration.md) and
+  [data conventions](docs/data-conventions.md). No release/tag is created by
+  the audit.
+
 ## 0.8.0
 
 ### TGJU
