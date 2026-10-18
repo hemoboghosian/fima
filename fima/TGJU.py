@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup as _Soup
 import jdatetime as _jd
 import pandas as _pd
 import requests as _requests
+from ._data import gregorian_series as _gregorian_series, jalali_date as _jalali_date, time_string as _time_string
 
 __all__ = [
     'get_tgju_categories', 'get_tgju_instruments', 'get_tgju_market',
@@ -220,6 +221,32 @@ def _table(rows, columns, attrs=None):
     return frame
 
 
+def _public_table(frame):
+    names = {'Name': 'InstrumentName', 'Date': 'GregorianDate', 'JDate': 'JalaliDate',
+             'Open': 'OpeningPrice', 'High': 'HighPrice', 'Low': 'LowPrice', 'Close': 'ClosingPrice',
+             'Change': 'PriceChange', 'ChangePercent': 'PercentageChange'}
+    result = frame.rename(columns=names).copy()
+    for column in ('Price', 'OpeningPrice', 'HighPrice', 'LowPrice', 'ClosingPrice', 'PriceChange', 'PercentageChange'):
+        if column in result:
+            result[column] = _pd.to_numeric(result[column], errors='raise')
+    if 'GregorianDate' in result:
+        result['GregorianDate'] = _gregorian_series(result['GregorianDate'])
+    if 'JalaliDate' in result:
+        result['JalaliDate'] = result['JalaliDate'].map(_jalali_date)
+    if 'UpdateTime' in result:
+        result.insert(result.columns.get_loc('UpdateTime'), 'UpdateLabel', result['UpdateTime'])
+        result['UpdateTime'] = result['UpdateTime'].map(
+            lambda value: _time_string(value) if isinstance(value, str)
+            and _re.fullmatch(r'[0-9]{1,2}:[0-9]{2}:[0-9]{2}', value) else _pd.NA)
+    if 'UpdatedAt' in result:
+        result['UpdatedAt'] = _pd.to_datetime(result['UpdatedAt'])
+    if 'HasSnapshot' in result:
+        result['HasSnapshot'] = result['HasSnapshot'].astype(bool)
+    if 'Name' in result.attrs:
+        result.attrs['InstrumentName'] = result.attrs.pop('Name')
+    return result
+
+
 def _resolve(client, instrument, category):
     if not isinstance(instrument, str) or not instrument.strip():
         raise ValueError('instrument must be a nonempty name or symbol from get_tgju_instruments()')
@@ -290,7 +317,7 @@ def get_tgju_categories():
     پاسخ نامعتبر با ValueError گزارش می‌شوند. پارامتری ندارد.
     """
     with _Client() as client:
-        return _table(_categories(client), ['Category', 'Market', 'EnglishName'])
+        return _public_table(_table(_categories(client), ['Category', 'Market', 'EnglishName']))
 
 
 def get_tgju_instruments(category=None, *, search=None, page=1):
@@ -303,7 +330,7 @@ def get_tgju_instruments(category=None, *, search=None, page=1):
     """
     with _Client() as client:
         rows, attrs = _page(client, category, search, page)
-        return _table(rows, _INSTRUMENT_COLUMNS, attrs)
+        return _public_table(_table(rows, _INSTRUMENT_COLUMNS, attrs))
 
 
 def get_tgju_market(category=None, *, search=None, page=1):
@@ -345,7 +372,7 @@ def get_tgju_market(category=None, *, search=None, page=1):
                 ChangeDirection=direction, UpdateTime=_text(raw['t']) if raw.get('t') else None,
                 UpdatedAt=timestamp, Unit=None, HasSnapshot=bool(raw)))
         attrs['SourceURL'] = _API + 'widget/tmp'
-        return _table(result, _MARKET_COLUMNS, attrs)
+        return _public_table(_table(result, _MARKET_COLUMNS, attrs))
 
 
 def get_tgju_instrument_details(instrument, category=None):
@@ -357,7 +384,9 @@ def get_tgju_instrument_details(instrument, category=None):
     requests دارد. واحدها تبدیل نمی‌شوند؛ اطلاعات اعلام‌نشده None است.
     """
     with _Client() as client:
-        return _metadata(client, _resolve(client, instrument, category))
+        details = _metadata(client, _resolve(client, instrument, category))
+        details["InstrumentName"] = details.pop("Name")
+        return details
 
 
 def get_tgju_history(instrument, category=None, *, start_date=None, end_date=None, jalali=False):
@@ -427,4 +456,4 @@ def get_tgju_history(instrument, category=None, *, start_date=None, end_date=Non
                 table = table.loc[keep].reset_index(drop=True)
         table.attrs.update({key: details[key] for key in ('Symbol', 'Name', 'Currency', 'CurrencyName', 'Unit', 'ProfileURL')})
         table.attrs['SourceURL'] = url
-        return table
+        return _public_table(table)

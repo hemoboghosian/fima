@@ -70,7 +70,7 @@ def test_allocation_numeric_missing_and_top_five_name():
 def test_catalog_preserves_ids_missing_zero_and_unknown_investment_type(monkeypatch):
     item = dict(name="Fund", regNo="0007", fundType=6, typeOfInvest="FutureProviderCategory",
                 fundSize="۱٬۰۰۰", initiationDate=None, date="2026-10-17", dividendIntervalPeriod=0,
-                investedUnits="100", insCode="000001", stock=None, cash=0)
+                investedUnits="100", insCode="000001", stock=None, cash=0, statisticalNav="1,100")
     monkeypatch.setattr(funds, "_request", lambda *a, **k: response({"items": [item]}))
     monkeypatch.setattr(funds, "_get_fund_types", lambda: pd.DataFrame(
         [{"FundTypeID": 6, "FundTypeName": "Equity", "IsActive": True}]))
@@ -80,6 +80,7 @@ def test_catalog_preserves_ids_missing_zero_and_unknown_investment_type(monkeypa
     assert result.iloc[0].FundTypeID == "6"
     assert result.iloc[0].FundTypeName == "Equity"
     assert result.iloc[0].TotalNAV == 1000
+    assert result.iloc[0].StatisticalNAV == 1100
     assert result.iloc[0].DividendFrequencyMonths == 0
     assert result.iloc[0].InvestmentType == "FutureProviderCategory"
     assert pd.isna(result.iloc[0].InceptionJalaliDate)

@@ -38,9 +38,9 @@ def test_get_all_ime_physical_trades(start_date, end_date):
     assert isinstance(all_ime_physical_trades, pd.DataFrame)
     assert not all_ime_physical_trades.empty
 
-    expected_columns = ['GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'MinPrice', 'ClosePrice', 'MaxPrice',
-                        'SupplyVolume', 'SupplyBasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'ContractSize',
-                        'TransactionValue', 'Date', 'DeliveryDate', 'Warehouse', 'Supplier', 'SettlementDate', 'Broker',
+    expected_columns = ['GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'LowPrice', 'ClosingPrice', 'HighPrice',
+                        'SupplyVolume', 'SupplyBasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'TradeVolume',
+                        'TradeValue', 'JalaliDate', 'DeliveryJalaliDate', 'Warehouse', 'Supplier', 'SettlementJalaliDate', 'BrokerName',
                         'SupplyType', 'BuyType', 'Currency', 'Unit', 'ExchangeHall', 'PacketType', 'Settlement']
 
     assert all(column in all_ime_physical_trades.columns for column in expected_columns)
@@ -48,7 +48,7 @@ def test_get_all_ime_physical_trades(start_date, end_date):
     start_jd = parse_jdate(start_date, jd.date(1385, 1, 1))
     end_jd = clamp_end_date(end_date)
 
-    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_physical_trades['Date'] if pd.notna(date_column))
+    assert all(str(start_jd) <= date_column <= str(end_jd) for date_column in all_ime_physical_trades['JalaliDate'] if pd.notna(date_column))
 
 
 @pytest.mark.parametrize(["only_active", "start_date", "end_date"],
@@ -64,11 +64,11 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
     if only_active and all_ime_futures_trades.empty:
         return
     assert all(column in all_ime_futures_trades.columns for column in
-               ['ContractDay', 'ContractCode', 'ContractDescription', 'TradesVolume', 'TradesValue', 'MaxPrice',
-                'MinPrice', 'LastPrice', 'FirstPrice', 'OpenInterest', 'ChangeOpenInterest', 'ActiveCustomers',
+               ['ContractDay', 'ContractCode', 'ContractDescription', 'TradeVolume', 'TradeValue', 'HighPrice',
+                'LowPrice', 'LastPrice', 'OpeningPrice', 'OpenInterest', 'OpenInterestChange', 'ActiveCustomers',
                 'ActiveBrokers', 'CBuy', 'CSell', 'RetailBuyVolume', 'RetailBuyValue', 'RetailSellVolume',
-                'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice', 'SettlementPricePercent', 'Date',
-                'DeliveryDate', 'WeeklyOpenInterests', 'WeeklyOpenInterestsPercent', 'MonthlyOpenInterests',
+                'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice', 'SettlementPricePercent', 'JalaliDate',
+                'DeliveryJalaliDate', 'WeeklyOpenInterests', 'WeeklyOpenInterestsPercent', 'MonthlyOpenInterests',
                 'WeeklySettlementPrice', 'WeeklySettlementPricePercent', 'MonthlySettlementPrice',
                 'InstitutionalBuyVolume', 'InstitutionalBuyValue', 'MonthlyOpenInterestsPercent',
                 'MonthlySettlementPricePercent', 'InstitutionalSellVolume', 'InstitutionalSellValue'])
@@ -82,7 +82,7 @@ def test_get_all_ime_futures_trades(only_active, start_date, end_date):
         end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
     else:
         end_jd = jd.date.today()
-    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_futures_trades['Date'] if pd.notna(date_column))
+    assert all(str(start_jd) <= date_column <= str(end_jd) for date_column in all_ime_futures_trades['JalaliDate'] if pd.notna(date_column))
 
 
 @pytest.mark.parametrize(["option_type", "only_active", "start_date", "end_date"],
@@ -110,14 +110,14 @@ def test_get_all_ime_option_trades(option_type, only_active, start_date, end_dat
 
     expected_columns = [
         'ID', 'ContractID', 'ContractCode', 'ContractDescription', 'IsActive',
-        'TradesVolume', 'TradesValue', 'MaxPrice', 'MinPrice', 'LastPrice',
-        'FirstPrice', 'OpenInterest', 'ChangeOpenInterest', 'ActiveCustomers',
+        'TradeVolume', 'TradeValue', 'HighPrice', 'LowPrice', 'LastPrice',
+        'OpeningPrice', 'OpenInterest', 'OpenInterestChange', 'ActiveCustomers',
         'ActiveBrokers', 'CBuy', 'CSell', 'InstitutionalBuyVolume',
         'InstitutionalBuyValue', 'InstitutionalSellVolume',
         'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue',
         'RetailSellVolume', 'RetailSellValue', 'LastSettlementPrice',
-        'TodaySettlementPrice', 'SettlementPricePercent', 'Date', 'GDate',
-        'DeliveryDate', 'CreateDateTime'
+        'TodaySettlementPrice', 'SettlementPricePercent', 'JalaliDate', 'GregorianDate',
+        'DeliveryJalaliDate', 'CreateDateTime'
     ]
 
     assert all(column in all_ime_option_trades.columns for column in expected_columns)
@@ -126,8 +126,8 @@ def test_get_all_ime_option_trades(option_type, only_active, start_date, end_dat
     end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
 
     assert all(
-        start_jd <= date_column <= end_jd
-        for date_column in all_ime_option_trades['Date']
+        str(start_jd) <= date_column <= str(end_jd)
+        for date_column in all_ime_option_trades['JalaliDate']
         if pd.notna(date_column)
     )
 
@@ -153,9 +153,9 @@ def test_get_all_ime_export_trades(start_date, end_date):
     assert not all_ime_export_trades.empty
     assert isinstance(all_ime_export_trades, pd.DataFrame)
     assert all(column in all_ime_export_trades.columns for column in
-               ['BrokerName', 'ID', 'GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'DeliveryDate', 'MinPrice',
-                'Price', 'MaxPrice', 'Supply', 'BasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'Quantity',
-                'TotalPrice', 'BasketDetail', 'GroupName', 'SubGroupName', 'Warehouse', 'Date', 'MainGroupName',
+               ['BrokerName', 'ID', 'GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'DeliveryJalaliDate', 'LowPrice',
+                'ClosingPrice', 'HighPrice', 'SupplyVolume', 'BasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'TradeVolume',
+                'TradeValue', 'BasketDetail', 'GroupName', 'SubGroupName', 'Warehouse', 'JalaliDate', 'MainGroupName',
                 'SupplyBasePrice', 'Supplier', 'RingName', 'SupplyType', 'BuyType', 'FXRate', 'Currency', 'Unit',
                 'ExchangeHall'])
 
@@ -168,7 +168,7 @@ def test_get_all_ime_export_trades(start_date, end_date):
         end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
     else:
         end_jd = jd.date.today()
-    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_export_trades['Date'] if pd.notna(date_column))
+    assert all(str(start_jd) <= date_column <= str(end_jd) for date_column in all_ime_export_trades['JalaliDate'] if pd.notna(date_column))
 
 
 @pytest.mark.parametrize(["start_date", "end_date"],
@@ -179,9 +179,9 @@ def test_get_all_ime_cd_trades(start_date, end_date):
     assert not all_ime_cd_trades.empty
     assert isinstance(all_ime_cd_trades, pd.DataFrame)
     assert all(column in all_ime_cd_trades.columns for column in
-               ['ID', 'Code', 'Symbol', 'Date', 'Description', 'ClosePrice', 'LastPrice', 'TotalTransitions', 'Volume',
-                'Value', 'MinPrice', 'MaxPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',
-                'ClosePriceChangePrice', 'ClosePricePercentageChange', 'GDate'])
+               ['ID', 'Code', 'Symbol', 'JalaliDate', 'Description', 'ClosingPrice', 'LastPrice', 'TransactionCount', 'TradeVolume',
+                'TradeValue', 'LowPrice', 'HighPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',
+                'ClosingPriceChange', 'ClosingPricePercentageChange', 'GregorianDate'])
 
     if start_date is not None:
         start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
@@ -192,7 +192,7 @@ def test_get_all_ime_cd_trades(start_date, end_date):
         end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
     else:
         end_jd = jd.date.today()
-    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_cd_trades['Date'] if pd.notna(date_column))
+    assert all(str(start_jd) <= date_column <= str(end_jd) for date_column in all_ime_cd_trades['JalaliDate'] if pd.notna(date_column))
 
 
 @pytest.mark.parametrize(["producer", "start_date", "end_date"],
@@ -205,9 +205,9 @@ def test_get_producer_export_trades(producer, start_date, end_date):
     assert producer_export_trades is not None
     assert not producer_export_trades.empty
     assert all(column in producer_export_trades.columns for column in
-               ['BrokerName', 'ID', 'GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'DeliveryDate', 'MinPrice',
-                'Price', 'MaxPrice', 'Supply', 'BasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'Quantity',
-                'TotalPrice', 'BasketDetail', 'GroupName', 'SubGroupName', 'Warehouse', 'Date', 'MainGroupName',
+               ['BrokerName', 'ID', 'GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'DeliveryJalaliDate', 'LowPrice',
+                'ClosingPrice', 'HighPrice', 'SupplyVolume', 'BasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'TradeVolume',
+                'TradeValue', 'BasketDetail', 'GroupName', 'SubGroupName', 'Warehouse', 'JalaliDate', 'MainGroupName',
                 'SupplyBasePrice', 'Supplier', 'RingName', 'SupplyType', 'BuyType', 'FXRate', 'Currency', 'Unit',
                 'ExchangeHall'])
 
@@ -220,7 +220,7 @@ def test_get_producer_export_trades(producer, start_date, end_date):
         end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
     else:
         end_jd = jd.date.today()
-    assert all(start_jd <= date_column <= end_jd for date_column in producer_export_trades['Date'] if pd.notna(date_column))
+    assert all(str(start_jd) <= date_column <= str(end_jd) for date_column in producer_export_trades['JalaliDate'] if pd.notna(date_column))
 
 
 @pytest.mark.parametrize(["start_date", "end_date"],
@@ -231,9 +231,9 @@ def test_get_all_ime_salaf_trades(start_date, end_date):
     assert not all_ime_salaf_trades.empty
     assert isinstance(all_ime_salaf_trades, pd.DataFrame)
     assert all(column in all_ime_salaf_trades.columns for column in
-               ['ID', 'Code', 'Symbol', 'Date', 'Description', 'ClosePrice', 'LastPrice', 'TotalTransitions', 'Volume',
-                'Value', 'MinPrice', 'MaxPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',
-                'ClosePriceChangePrice', 'ClosePricePercentageChange', 'GDate'])
+               ['ID', 'Code', 'Symbol', 'JalaliDate', 'Description', 'ClosingPrice', 'LastPrice', 'TransactionCount', 'TradeVolume',
+                'TradeValue', 'LowPrice', 'HighPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',
+                'ClosingPriceChange', 'ClosingPricePercentageChange', 'GregorianDate'])
 
     if start_date is not None:
         start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
@@ -244,7 +244,7 @@ def test_get_all_ime_salaf_trades(start_date, end_date):
         end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
     else:
         end_jd = jd.date.today()
-    assert all(start_jd <= date_column <= end_jd for date_column in all_ime_salaf_trades['Date'] if pd.notna(date_column))
+    assert all(str(start_jd) <= date_column <= str(end_jd) for date_column in all_ime_salaf_trades['JalaliDate'] if pd.notna(date_column))
 
 
 @pytest.mark.parametrize(["contract_type", "start_date", "end_date"],
@@ -257,12 +257,12 @@ def test_get_gold_and_silver_cd_trades(contract_type, start_date, end_date):
     assert not gold_and_silver_cd_trades.empty
     assert isinstance(gold_and_silver_cd_trades, pd.DataFrame)
     assert all(column in gold_and_silver_cd_trades.columns for column in
-               ['ContractID', 'ContractCode', 'ContractDescription', 'TradesVolume', 'TradesValue', 'MaxPrice',
-                'MinPrice', 'LastPrice', 'FirstPrice', 'OpenInterest', 'OpenInterestChange', 'ActiveCustomers',
+               ['ContractID', 'ContractCode', 'ContractDescription', 'TradeVolume', 'TradeValue', 'HighPrice',
+                'LowPrice', 'LastPrice', 'OpeningPrice', 'OpenInterest', 'OpenInterestChange', 'ActiveCustomers',
                 'ActiveBrokers', 'CBuy', 'CSell', 'InstitutionalBuyVolume', 'InstitutionalBuyValue',
                 'InstitutionalSellVolume', 'InstitutionalSellValue', 'RetailBuyVolume', 'RetailBuyValue',
                 'RetailSellVolume', 'RetailSellValue', 'LastSettlementPrice', 'TodaySettlementPrice',
-                'SettlementPricePercent', 'GDate', 'JDate', 'DeliveryGDate', 'DeliveryJDate'])
+                'SettlementPricePercent', 'GregorianDate', 'JalaliDate', 'DeliveryGregorianDate', 'DeliveryJalaliDate'])
 
     if start_date is not None:
         start_jd = jd.date(int(start_date[:4]), int(start_date[5:7]), int(start_date[8:]))
@@ -273,7 +273,7 @@ def test_get_gold_and_silver_cd_trades(contract_type, start_date, end_date):
         end_jd = jd.date(int(end_date[:4]), int(end_date[5:7]), int(end_date[8:]))
     else:
         end_jd = jd.date.today()
-    assert all(start_jd <= date_column <= end_jd for date_column in gold_and_silver_cd_trades['JDate'] if pd.notna(date_column))
+    assert all(str(start_jd) <= date_column <= str(end_jd) for date_column in gold_and_silver_cd_trades['JalaliDate'] if pd.notna(date_column))
 
 
 def test_get_all_physical_producer_products():
@@ -283,7 +283,7 @@ def test_get_all_physical_producer_products():
     assert isinstance(all_producer_products, pd.DataFrame)
     assert all_producer_products is not None
     assert not all_producer_products.empty
-    assert all(column in all_producer_products.columns for column in ['Producer', 'Products'])
+    assert all(column in all_producer_products.columns for column in ['ProducerName', 'Products'])
 
 
 def test_get_all_export_producer_products():
@@ -291,4 +291,4 @@ def test_get_all_export_producer_products():
     assert isinstance(all_producer_products, pd.DataFrame)
     assert all_producer_products is not None
     assert not all_producer_products.empty
-    assert all(column in all_producer_products.columns for column in ['Producer', 'Products'])
+    assert all(column in all_producer_products.columns for column in ['ProducerName', 'Products'])

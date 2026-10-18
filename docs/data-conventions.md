@@ -2,7 +2,9 @@
 
 Public DataFrames use English PascalCase columns. Python function and parameter
 names use snake_case. These conventions describe parsed fima tables; explicitly
-raw provider dicts and nested payloads retain source keys and values.
+raw provider dicts and nested payloads retain source keys and values. The pure
+adjust_historical_prices helper preserves the caller's raw columns/index; downloaded
+tables use the canonical schemas.
 
 - Use `ClosingPrice` for the official/session closing price, `LastPrice` for the
   last trade, and `OpeningPrice`, `LowPrice`, `HighPrice` for session OHLC.

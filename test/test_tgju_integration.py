@@ -29,7 +29,7 @@ def test_live_snapshot_details_and_daily_history(monkeypatch, instrument, catego
     instruments = TGJU.get_tgju_instruments(category, search=instrument)
     assert not instruments.empty
     market = TGJU.get_tgju_market(category, search=instrument)
-    exact = market[market.Name.map(TGJU._norm) == TGJU._norm(instrument)]
+    exact = market[market.InstrumentName.map(TGJU._norm) == TGJU._norm(instrument)]
     assert len(exact) == 1
     quote = exact.iloc[0]
     assert quote.HasSnapshot and pd.notna(quote.Price)
@@ -37,13 +37,13 @@ def test_live_snapshot_details_and_daily_history(monkeypatch, instrument, catego
     assert any(TGJU._number(q.get('p')) == quote.Price for q in raw_quotes if TGJU._norm(q['title']) == TGJU._norm(instrument))
 
     history = TGJU.get_tgju_history(instrument, category, start_date=(dt.date.today() - dt.timedelta(days=30)))
-    assert not history.empty and history.Date.is_monotonic_increasing
+    assert not history.empty and history.GregorianDate.is_monotonic_increasing
     assert history.attrs['Currency'] == quote.Currency
     # TGJU currently leaves the crypto profile's volume unit blank.
     assert history.attrs['Unit'] is None or isinstance(history.attrs['Unit'], str)
     assert history.attrs['ProfileURL'].startswith('https://www.tgju.org/profile/')
     raw_rows = [r for url, result in captured if 'summary-table-data' in url for r in result['data']]
     for _, row in history.iterrows():
-        assert any(TGJU._date(raw[6]) == row.Date and
-                   [TGJU._number(value) for value in raw[:4]] == [row.Open,row.Low,row.High,row.Close]
+        assert any(pd.Timestamp(TGJU._date(raw[6])) == row.GregorianDate and
+                   [TGJU._number(value) for value in raw[:4]] == [row.OpeningPrice,row.LowPrice,row.HighPrice,row.ClosingPrice]
                    for raw in raw_rows)

@@ -93,3 +93,27 @@ institutions = get_all_institutions()
 ```
 
 Public table schemas and analytical model units follow [data conventions](data-conventions.md); see [unreleased migration notes](data-migration.md) before upgrading.
+
+
+The IFB tables expose YTM/SimpleReturn/CouponPercent in percentage points;
+get_risk_free_rate() retains a decimal annual rate for model inputs. IFB index
+histories share IndexValue/GregorianDate/JalaliDate, while each function still
+selects its own index. Event dates explicitly name the Jalali calendar. The
+get_ticker_info Section/Label/Value table intentionally keeps heterogeneous
+provider display values as text; payment amounts remain numeric.
+
+IME physical fields are mapped by source key: Quantity is TradeVolume, TotalPrice
+is TradeValue, Price is the provider's weighted ClosingPrice. Other IME prices,
+trade quantities, counts, date calendars and identifiers follow the shared
+conventions. CreateDateTime preserves the supplied timestamp, including time.
+Provider currency/quantity units remain unchanged; the physical report can display
+trade value in thousand rial and quantity/price bases can differ. Never assume
+that TradeValue equals price*quantity in unconverted unit systems. Export currency
+and unit metadata are retained. A successful empty gold/silver CDC response is an
+empty typed table, not a KeyError; empty data is not evidence that historical
+coverage or configured provider filters were independently verified.
+
+Institutions use InstitutionName, string NationalID/SEORegisterNo/CEOMobileNo and
+the provider's existing boolean Status. Other contact/metadata fields stay as
+provided. TLS verification remains enabled; the package's existing truststore
+integration can succeed where a standalone requests probe lacks the same roots.

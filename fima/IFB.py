@@ -1,3 +1,4 @@
+from ._data import jalali_date, gregorian_series, identifier_series, number_series
 import pandas as pd
 import numpy as np
 from bs4 import BeautifulSoup
@@ -138,6 +139,33 @@ def _ifb_clean_amount_columns(df, columns):
     return df
 
 
+def _public_frame(frame):
+    names = {'Date': 'JalaliDate', 'JDate': 'JalaliDate', 'GDate': 'GregorianDate',
+             'Buyer/Seller': 'TradeSide', 'LastTradedPrice': 'LastPrice',
+             'LastTradedDate': 'LastTradeJalaliDate', 'MaturityDate': 'MaturityJalaliDate',
+             'StartDate': 'StartJalaliDate', 'EndDate': 'EndJalaliDate',
+             'ActivityStartDate': 'ActivityStartJalaliDate', 'LicenseExpiryDate': 'LicenseExpiryJalaliDate',
+             'IssueDate': 'IssueJalaliDate', 'PaymentDate': 'PaymentJalaliDate'}
+    for name in ('EquallyWeightedTotalIndex', 'EquallyWeightedPriceIndex', 'PriceIndex', 'TotalIndex', 'TotalSukukIndex'):
+        if name in frame:
+            names[name] = 'IndexValue'
+    result = frame.rename(columns=names).copy()
+    for column in result:
+        if column.endswith('JalaliDate'):
+            result[column] = result[column].map(jalali_date)
+        elif column == 'GregorianDate':
+            result[column] = gregorian_series(result[column])
+        elif column in ('TickerID', 'NationalID', 'PhoneNumber'):
+            result[column] = identifier_series(result[column])
+        elif column in ('LastPrice', 'YTM', 'SimpleReturn', 'IndexValue', 'IssueVolume', 'AcceptVolume',
+                         'ParValue', 'CouponPercent', 'PaymentAmountPerUnit', 'Government', 'CentralBank',
+                         'Funds', 'Banks', 'Others', 'OpenMarketOperations', 'GovernmentSubscription'):
+            result[column] = number_series(result[column])
+            if column in ('YTM', 'SimpleReturn'):
+                result[column] *= 100
+    return result
+
+
 def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
     url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
     headers = {
@@ -181,7 +209,7 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
     ]
     raw = pd.DataFrame(rows, columns=raw_columns)
     if raw.empty:
-        return pd.DataFrame(columns=["Date", "Buyer/Seller", "Government", "CentralBank", "Funds", "Banks", "Others"])
+        return _public_frame(pd.DataFrame(columns=["Date", "Buyer/Seller", "Government", "CentralBank", "Funds", "Banks", "Others"]))
 
     raw["RowIndex"] = pd.to_numeric(raw["RowIndex"], errors="coerce")
     raw = raw.dropna(subset=["RowIndex"])
@@ -203,7 +231,7 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
     result["Date"] = result["Date"].apply(_ifb_parse_jdate)
     result = result[result["Date"] != jd.date(1278, 10, 10)].reset_index(drop=True)
     result = _ifb_clean_amount_columns(result, ["Government", "CentralBank", "Funds", "Banks", "Others"])
-    return result
+    return _public_frame(result)
 
 
 def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
@@ -244,7 +272,7 @@ def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
 
     result = pd.DataFrame(rows, columns=["RowIndex", "Date", "OpenMarketOperations", "GovernmentSubscription", "Others"])
     if result.empty:
-        return pd.DataFrame(columns=["Date", "OpenMarketOperations", "GovernmentSubscription", "Others"])
+        return _public_frame(pd.DataFrame(columns=["Date", "OpenMarketOperations", "GovernmentSubscription", "Others"]))
 
     result["RowIndex"] = pd.to_numeric(result["RowIndex"], errors="coerce")
     result = result.dropna(subset=["RowIndex"]).drop(columns="RowIndex")
@@ -252,7 +280,7 @@ def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
     result["Date"] = result["Date"].apply(_ifb_parse_jdate)
     result = result[result["Date"] != jd.date(1278, 10, 10)].reset_index(drop=True)
     result = _ifb_clean_amount_columns(result, ["OpenMarketOperations", "GovernmentSubscription", "Others"])
-    return result
+    return _public_frame(result)
 
 
 def get_all_crowdfunding_plans(include_descriptions=True, _max_workers=8) -> pd.DataFrame:
@@ -391,7 +419,7 @@ def get_all_crowdfunding_plans(include_descriptions=True, _max_workers=8) -> pd.
     all_crowdfunding_plans = pd.merge(all_crowdfunding_plans, all_crowdfunding_platforms, on="Domain", how="left")
     all_crowdfunding_plans = all_crowdfunding_plans.iloc[:, :-4]
     all_crowdfunding_plans.rename(columns={"Status_x": "Status"}, inplace=True)
-    return all_crowdfunding_plans
+    return _public_frame(all_crowdfunding_plans)
 
 
 def _clean_domain(url: str) -> str:
@@ -399,13 +427,18 @@ def _clean_domain(url: str) -> str:
     return parsed.netloc.replace("www.", "")
 
 
+def _yield_fraction(value):
+    text = _ifb_clean_text(value)
+    if text == 'سررسید شده':
+        return float('nan')
+    return number_series(pd.Series([text.replace('/', '.')])).iloc[0] / 100
+
+
 def get_risk_free_rate() -> float:
     all_bonds_without_coupons = get_all_bonds_without_coupons(deprecated=False)
     all_t_notes = all_bonds_without_coupons[all_bonds_without_coupons['Ticker'].str.contains('سخاب|اخزا')].copy()
-    today_date = jd.date.today()
-    all_t_notes['DaysTillMaturity'] = (all_t_notes['MaturityDate'] - today_date).apply(lambda delta: delta.days)
-    last_traded_t_notes = all_t_notes[all_t_notes['LastTradedDate'] == all_t_notes['LastTradedDate'].max()]
-    rf = last_traded_t_notes['YTM'].mean()
+    last_traded_t_notes = all_t_notes[all_t_notes['LastTradeJalaliDate'] == all_t_notes['LastTradeJalaliDate'].dropna().max()]
+    rf = last_traded_t_notes['YTM'].mean() / 100
     return rf
 
 
@@ -413,7 +446,7 @@ def get_all_bonds_without_coupons(deprecated: bool = True) -> pd.DataFrame:
     url = "https://ifb.ir/YTM.aspx"
 
     session = requests.Session()
-    response = session.get(url)
+    response = session.get(url, timeout=30)
 
     if response.status_code != 200:
         print(f"Failed to access page. Status code: {response.status_code}")
@@ -434,33 +467,24 @@ def get_all_bonds_without_coupons(deprecated: bool = True) -> pd.DataFrame:
 
     bonds_without_coupons.columns = ['Index', 'Ticker', 'LastTradedPrice', 'LastTradedDate', 'MaturityDate', 'YTM', 'SimpleReturn']
 
-    bonds_without_coupons['LastTradedDate'] = \
-        bonds_without_coupons['LastTradedDate'].apply(lambda str_date: jd.date(year=int(str_date[:4]),
-                                                                               month=int(str_date[5:7]),
-                                                                               day=int(str_date[8:])))
+    bonds_without_coupons['LastTradedDate'] = bonds_without_coupons['LastTradedDate'].map(_ifb_parse_jdate)
 
-    bonds_without_coupons['MaturityDate'] = \
-        bonds_without_coupons['MaturityDate'].apply(lambda str_date: jd.date(year=int(str_date[:4]),
-                                                                               month=int(str_date[5:7]),
-                                                                               day=int(str_date[8:])))
+    bonds_without_coupons['MaturityDate'] = bonds_without_coupons['MaturityDate'].map(_ifb_parse_jdate)
 
-    bonds_without_coupons['YTM'] = bonds_without_coupons['YTM'].apply(
-        lambda str_ytm: float(str_ytm.replace('/', '.').replace('%', '')) / 100 if str_ytm != 'سررسید شده' else None)
-    bonds_without_coupons['SimpleReturn'] = \
-        bonds_without_coupons['SimpleReturn'].apply(
-            lambda str_ytm: float(str_ytm.replace('/', '.').replace('%', '')) / 100 if str_ytm != 'سررسید شده' else None)
+    bonds_without_coupons['YTM'] = bonds_without_coupons['YTM'].map(_yield_fraction)
+    bonds_without_coupons['SimpleReturn'] = bonds_without_coupons['SimpleReturn'].map(_yield_fraction)
 
     bonds_without_coupons.drop('Index', inplace=True, axis=1)
     bonds_without_coupons.reset_index(inplace=True, drop=True)
 
-    return bonds_without_coupons
+    return _public_frame(bonds_without_coupons)
 
 
 def get_all_bonds_with_coupons(deprecated: bool = True) -> pd.DataFrame:
     url = "https://ifb.ir/YTM.aspx"
 
     session = requests.Session()
-    response = session.get(url)
+    response = session.get(url, timeout=30)
 
     if response.status_code != 200:
         print(f"Failed to access page. Status code: {response.status_code}")
@@ -481,19 +505,16 @@ def get_all_bonds_with_coupons(deprecated: bool = True) -> pd.DataFrame:
 
     bonds_with_coupons.columns = ['Index', 'Ticker', 'LastTradedPrice', 'LastTradedDate', 'MaturityDate', 'YTM']
 
-    bonds_with_coupons['LastTradedDate'] = bonds_with_coupons['LastTradedDate'].apply(
-        lambda str_date: jd.date(year=int(str_date[:4]), month=int(str_date[5:7]), day=int(str_date[8:])) if pd.notna(str_date) else np.nan)
+    bonds_with_coupons['LastTradedDate'] = bonds_with_coupons['LastTradedDate'].map(_ifb_parse_jdate)
 
-    bonds_with_coupons['MaturityDate'] = bonds_with_coupons['MaturityDate'].apply(
-        lambda str_date: jd.date(year=int(str_date[:4]), month=int(str_date[5:7]), day=int(str_date[8:])) if str_date != '0' else np.nan)
+    bonds_with_coupons['MaturityDate'] = bonds_with_coupons['MaturityDate'].map(_ifb_parse_jdate)
 
-    bonds_with_coupons['YTM'] = bonds_with_coupons['YTM'].apply(
-        lambda str_ytm: float(str_ytm.replace('/', '.').replace('%', '')) / 100 if (pd.notna(str_ytm) and str_ytm != 'سررسید شده') else np.nan)
+    bonds_with_coupons['YTM'] = bonds_with_coupons['YTM'].map(_yield_fraction)
 
     bonds_with_coupons.drop('Index', inplace=True, axis=1)
     bonds_with_coupons.reset_index(inplace=True, drop=True)
 
-    return bonds_with_coupons
+    return _public_frame(bonds_with_coupons)
 
 
 def get_ifb_equally_weighted_total_index_historical_data() -> pd.DataFrame:
@@ -504,13 +525,13 @@ def get_ifb_equally_weighted_total_index_historical_data() -> pd.DataFrame:
                "Origin": "https://ifb.ir", "Referer": "https://ifb.ir/IFBIndex.aspx"}
 
     try:
-        response = requests.post(url, headers=headers)
+        response = requests.post(url, headers=headers, timeout=30)
         result = pd.DataFrame(response.json()["d"], columns=["timestamp", "WeightedIndex"])
-        result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
+        result["GDate"] = pd.to_datetime(number_series(result["timestamp"]), unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
         result.rename(columns={'WeightedIndex': 'EquallyWeightedTotalIndex'}, inplace=True)
-        return result
+        return _public_frame(result)
 
     except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
@@ -524,13 +545,13 @@ def get_ifb_equally_weighted_price_index_historical_data() -> pd.DataFrame:
                "Origin": "https://ifb.ir", "Referer": "https://ifb.ir/IFBIndex.aspx"}
 
     try:
-        response = requests.post(url, headers=headers)
+        response = requests.post(url, headers=headers, timeout=30)
         result = pd.DataFrame(response.json()["d"], columns=["timestamp", "WeightedIndex"])
-        result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
+        result["GDate"] = pd.to_datetime(number_series(result["timestamp"]), unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
         result.rename(columns={'WeightedIndex': 'EquallyWeightedPriceIndex'}, inplace=True)
-        return result
+        return _public_frame(result)
 
     except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
@@ -544,13 +565,13 @@ def get_ifb_price_index_historical_data() -> pd.DataFrame:
                "Origin": "https://ifb.ir", "Referer": "https://ifb.ir/IFBIndex.aspx"}
 
     try:
-        response = requests.post(url, headers=headers)
+        response = requests.post(url, headers=headers, timeout=30)
         result = pd.DataFrame(response.json()["d"], columns=["timestamp", "WeightedIndex"])
-        result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
+        result["GDate"] = pd.to_datetime(number_series(result["timestamp"]), unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
         result.rename(columns={'WeightedIndex': 'PriceIndex'}, inplace=True)
-        return result
+        return _public_frame(result)
 
     except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
@@ -564,13 +585,13 @@ def get_ifb_total_index_historical_data() -> pd.DataFrame:
                "Origin": "https://ifb.ir", "Referer": "https://ifb.ir/IFBIndex.aspx"}
 
     try:
-        response = requests.post(url, headers=headers)
+        response = requests.post(url, headers=headers, timeout=30)
         result = pd.DataFrame(response.json()["d"], columns=["timestamp", "WeightedIndex"])
-        result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
+        result["GDate"] = pd.to_datetime(number_series(result["timestamp"]), unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
         result.rename(columns={'WeightedIndex': 'TotalIndex'}, inplace=True)
-        return result
+        return _public_frame(result)
 
     except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
@@ -584,13 +605,13 @@ def get_ifb_total_sukuk_index_historical_data() -> pd.DataFrame:
                "Origin": "https://ifb.ir", "Referer": "https://ifb.ir/IFBIndex.aspx"}
 
     try:
-        response = requests.post(url, headers=headers)
+        response = requests.post(url, headers=headers, timeout=30)
         result = pd.DataFrame(np.array(response.json()["d"])[0], columns=["timestamp", "WeightedIndex"])
-        result["GDate"] = pd.to_datetime(result["timestamp"], unit="ms").dt.date
+        result["GDate"] = pd.to_datetime(number_series(result["timestamp"]), unit="ms").dt.date
         result['JDate'] = result['GDate'].apply(lambda gdate: jd.date.fromgregorian(year=gdate.year, month=gdate.month, day=gdate.day))
         result.drop('timestamp', inplace=True, axis=1)
         result.rename(columns={'WeightedIndex': 'TotalSukukIndex'}, inplace=True)
-        return result
+        return _public_frame(result)
 
     except (requests.RequestException, KeyError, IndexError, ValueError):
         return pd.DataFrame()
@@ -668,7 +689,7 @@ def get_all_crowdfunding_platforms():
 
     all_crowdfunding_platforms["Domain"] = (all_crowdfunding_platforms["Domain"].apply(lambda domain: _clean_domain(domain)))
 
-    return all_crowdfunding_platforms
+    return _public_frame(all_crowdfunding_platforms)
 
 
 def get_all_standard_financing_instruments() -> pd.DataFrame:
@@ -806,7 +827,7 @@ def get_all_standard_financing_instruments() -> pd.DataFrame:
         all_standard_financing_instruments = \
             all_standard_financing_instruments.sort_values("Row").reset_index(drop=True)
         all_standard_financing_instruments.drop(columns='Row', inplace=True)
-    return all_standard_financing_instruments
+    return _public_frame(all_standard_financing_instruments)
 
 
 def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -970,7 +991,7 @@ def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     if not ticker_payments.empty:
         ticker_payments.sort_values(["PaymentDate", 'PaymentAmountPerUnit'], inplace=True, ignore_index=True)
 
-    return ticker_info, ticker_payments
+    return ticker_info, _public_frame(ticker_payments)
 
 
 def get_all_special_financing_instruments() -> pd.DataFrame:
@@ -1112,4 +1133,4 @@ def get_all_special_financing_instruments() -> pd.DataFrame:
         all_special_financing_instruments = \
             all_special_financing_instruments.sort_values("Row").reset_index(drop=True)
         all_special_financing_instruments.drop(columns='Row', inplace=True)
-    return all_special_financing_instruments
+    return _public_frame(all_special_financing_instruments)
