@@ -92,7 +92,7 @@ from fima.TSEInstitutions import get_all_institutions
 institutions = get_all_institutions()
 ```
 
-Public table schemas and analytical model units follow [data conventions](data-conventions.md); see [unreleased migration notes](data-migration.md) before upgrading.
+Public table schemas and analytical model units follow [data conventions](data-conventions.md); see [0.9.0 migration notes](data-migration.md) before upgrading.
 
 
 The IFB tables expose YTM/SimpleReturn/CouponPercent in percentage points;

@@ -168,4 +168,4 @@ python -m pytest test/test_tgju_integration.py -m integration
 
 در بررسی مستقیم ۲۰۲۶/۱۰/۱۷، هر چهار ستون OHLC در ۲۵ ردیف دلار، ۲۵ ردیف طلای ۱۸ عیار و ۲۶ ردیف برنت با جدول تاریخچهٔ سایت برابر بود؛ تاریخ، ترتیب و واحدها نیز بررسی شدند. این مقایسه تأیید دائمی صحت اقتصادی دادهٔ منبع نیست.
 
-The unreleased [migration](data-migration.md#tgju-ifb-ime-and-institutions) lists all renamed fields and dtypes. Provider `t` may contain a date label without a year; `UpdateLabel` preserves it and no date/year is guessed. `UpdatedAt` remains the independent provider timestamp.
+The 0.9.0 [migration](data-migration.md#tgju-ifb-ime-and-institutions) lists all renamed fields and dtypes. Provider `t` may contain a date label without a year; `UpdateLabel` preserves it and no date/year is guessed. `UpdatedAt` remains the independent provider timestamp.

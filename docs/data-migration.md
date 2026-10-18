@@ -1,6 +1,6 @@
-# Unreleased public-data migration
+# 0.9.0 public-data migration
 
-These changes are **breaking output contracts**, pending release review. No
+These changes are **breaking output contracts** introduced in fima 0.9.0. No
 function or public parameter has been renamed. Do not retain old and new columns
 in the same frame. Unlisted fields retain their meanings/units.
 
