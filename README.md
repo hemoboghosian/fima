@@ -1,5 +1,16 @@
 # fima
 
+**0.9.0 — breaking public data contracts:** DataFrame columns now use PascalCase;
+Gregorian dates use pandas datetime and Jalali dates use `YYYY-MM-DD` strings.
+Numeric/identifier dtypes and percentage-point scales are normalized. Corrections
+include TSETMC individual/institutional mappings and index high/low fields;
+Options/IME transaction counts and trade volumes; Funds per-unit NAV versus total
+assets; Mibian risk-free-rate scaling, volatility and pricing limits; complete
+IME timestamps; and TGJU display-date interpretation.
+Read the [exhaustive migration guide](https://github.com/hemoboghosian/fima/blob/v0.9.0/docs/data-migration.md)
+and [release notes](https://github.com/hemoboghosian/fima/releases/tag/v0.9.0)
+before upgrading. Analytical scalar rates/volatility still use decimal units.
+
 با این کتابخانهٔ پایتون می‌توانید داده‌های بازارهای مالی ایران را برای تحلیل و پژوهش دریافت کنید؛ از تاریخچهٔ سهام و اطلاعات صندوق‌ها تا قیمت طلا و ارز، اختیار معامله و معاملات بورس کالا.
 
 ## نصب

@@ -1,11 +1,33 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
-- Breaking public data normalization and confirmed financial mapping/calculation
-  corrections; see [complete migration notes](docs/data-migration.md) and
-  [data conventions](docs/data-conventions.md). No release/tag is created by
-  the audit.
+### Breaking public data contracts
+
+This minor release intentionally changes public DataFrame schemas, dtypes,
+percentage scales and some calculations. Read the [exhaustive migration
+guide](https://github.com/hemoboghosian/fima/blob/v0.9.0/docs/data-migration.md)
+before upgrading. Public Python function and parameter names are unchanged.
+
+- Standardize parsed DataFrame columns to PascalCase, Gregorian dates to pandas
+  datetime, and Jalali dates to `YYYY-MM-DD` strings.
+- Normalize numeric and identifier dtypes, preserving missing values, valid
+  zeros and source leading zeros. DataFrame percentages use percentage points;
+  analytical scalar rates and volatility retain decimal units.
+- Correct TSETMC individual/institutional mappings and index high/low fields.
+- Correct Options/IME transaction-count and trade-volume mappings using named
+  source fields instead of JSON positions.
+- Correct Funds NAV semantics: per-unit NAVs remain separate from total assets
+  and explicitly named subscription/redemption valuation totals.
+- Correct Mibian risk-free-rate scaling, trailing annualized volatility, and
+  zero-volatility/expiry pricing limits.
+- Preserve complete IME timestamps and interpret TGJU display-date labels
+  without inventing a year or treating dates as clock times.
+
+See [data conventions](docs/data-conventions.md) for units and exceptions.
+Unverified fund-provider semantics [#59](https://github.com/hemoboghosian/fima/issues/59)
+and IME CDC coverage [#62](https://github.com/hemoboghosian/fima/issues/62)
+remain unresolved; no speculative provider corrections are included.
 
 ## 0.8.0
 

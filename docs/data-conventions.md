@@ -45,4 +45,4 @@ tables use the canonical schemas.
   repaired by intuition. Raw provider metadata and heterogeneous display-value
   tables are documented exceptions to numeric conversion.
 
-See [migration notes](data-migration.md) for the unreleased schema/type changes.
+See [migration notes](data-migration.md) for the 0.9.0 schema/type changes.
