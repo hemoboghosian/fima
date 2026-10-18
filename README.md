@@ -18,10 +18,10 @@ pip install fima
 from fima import get_ticker_historical_data
 
 history = get_ticker_historical_data(ticker="فملی")
-print(history[["ClosePrice", "Volume"]].head())
+print(history[["ClosingPrice", "TradeVolume"]].head())
 ```
 
-خروجی یک جدول پانداس با نمایهٔ تاریخ شمسی است. ستون `ClosePrice` قیمت پایانی رسمی و ستون `Volume` حجم معاملات را نشان می‌دهد.
+خروجی یک جدول پانداس با نمایهٔ تاریخ شمسی است. ستون `ClosingPrice` قیمت پایانی رسمی و ستون `TradeVolume` حجم معاملات را نشان می‌دهد.
 
 ## چه داده‌هایی در دسترس است؟
 
@@ -43,7 +43,7 @@ print(history[["ClosePrice", "Volume"]].head())
 from fima import get_ticker_historical_data
 
 history = get_ticker_historical_data(ticker="فملی", adjust_prices=True)
-print(history[["ClosePrice", "AdjustedClosePrice"]].head())
+print(history[["ClosingPrice", "AdjustedClosingPrice"]].head())
 ```
 
 قیمت خام حفظ می‌شود. تعدیل بر پایهٔ قیمت مرجع بورس و با مبنای آخرین تاریخ برگشتی است؛ این خروجی، سری بازده کل تأییدشده نیست. روش محاسبه و انتخاب تاریخ مبنا در [راهنمای تعدیل](docs/tsetmc-adjustment.md) آمده است.
@@ -56,7 +56,7 @@ print(history[["ClosePrice", "AdjustedClosePrice"]].head())
 from fima import get_tgju_history
 
 usd = get_tgju_history("دلار", "ارز", start_date="2026-10-01", end_date="2026-10-15")
-print(usd[["Date", "Close"]].tail())
+print(usd[["GregorianDate", "ClosingPrice"]].tail())
 ```
 
 در این مثال، تاریخ‌های ورودی میلادی‌اند. برای تاریخ شمسی و یافتن نام دقیق ابزارها، [راهنمای طلا و ارز](docs/tgju.md) را ببینید. واحد هر سری در مشخصات خروجی قرار دارد؛ ریال و تومان به هم تبدیل نمی‌شوند.

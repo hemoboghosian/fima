@@ -126,3 +126,65 @@ NAV evidence includes live Rayan per-share keys, Noavaran
 [report](https://sepordeh.ebidar.com/), Nika's [unit-price display](https://atiyeh.mofidfund.com/)
 and API, and Mabna [fund reports](https://kianfunds10.ir/). Certificate failures
 and redirect/error pages at other fund sites remain provider/environment limits.
+
+
+## TGJU, IFB, IME and institutions
+
+| Old public name | New public name | Scope |
+| --- | --- | --- |
+| Name | InstrumentName | TGJU tables, parsed details dict and history attrs |
+| Date / JDate | GregorianDate / JalaliDate | TGJU history |
+| Open / Low / High / Close | OpeningPrice / LowPrice / HighPrice / ClosingPrice | TGJU snapshots/history (Close only history) |
+| Change / ChangePercent | PriceChange / PercentageChange | TGJU snapshots/history |
+| UpdateTime (mixed display text) | UpdateLabel | TGJU widget display; new UpdateTime contains only parsed clock times |
+| Date / JDate / GDate | JalaliDate / JalaliDate / GregorianDate | IFB and IME calendars |
+| Buyer/Seller | TradeSide | IFB sukuk buyer/seller table |
+| LastTradedPrice / LastTradedDate / MaturityDate | LastPrice / LastTradeJalaliDate / MaturityJalaliDate | IFB bonds |
+| StartDate / EndDate | StartJalaliDate / EndJalaliDate | IFB plans |
+| ActivityStartDate / LicenseExpiryDate | ActivityStartJalaliDate / LicenseExpiryJalaliDate | IFB platforms |
+| IssueDate / PaymentDate | IssueJalaliDate / PaymentJalaliDate | IFB financing/payment tables |
+| EquallyWeightedTotalIndex / EquallyWeightedPriceIndex / PriceIndex / TotalIndex / TotalSukukIndex | IndexValue | IFB index histories; function still identifies the index |
+| ClosePrice / FirstPrice / MinPrice / MaxPrice | ClosingPrice / OpeningPrice / LowPrice / HighPrice | IME price tables |
+| ContractSize | TradeVolume | IME physical: previously mislabeled source Quantity |
+| Quantity / Price / Supply | TradeVolume / ClosingPrice / SupplyVolume | IME export |
+| TransactionValue / TotalPrice / Value / TradesValue | TradeValue | IME physical/export/CD/salaf/derivatives as applicable |
+| Volume / TradesVolume | TradeVolume | IME CD/salaf/derivatives |
+| TotalTransitions | TransactionCount | IME CD/salaf source ZTotTran |
+| ClosePriceChangePrice / ClosePricePercentageChange | ClosingPriceChange / ClosingPricePercentageChange | IME CD/salaf |
+| ChangeOpenInterest | OpenInterestChange | IME futures/options |
+| DeliveryDate / SettlementDate | DeliveryJalaliDate / SettlementJalaliDate | IME physical/export/derivatives |
+| DeliveryGDate / DeliveryJDate | DeliveryGregorianDate / DeliveryJalaliDate | IME gold/silver |
+| Producer | ProducerName | IME producer/product tables |
+| Name / NationalId | InstitutionName / NationalID | Institutions |
+
+TGJU Gregorian dates change from Python dates to datetime64[ns]; Jalali dates
+change from jdatetime objects to canonical strings. Known numeric columns stay
+numeric even when empty/all missing; UpdatedAt is pandas datetime and HasSnapshot
+is boolean. UpdateLabel keeps incomplete source date labels without guessing a
+year. UpdateTime is HH:MM:SS or missing. Raw ProviderMetadata/ProviderInstrument
+payloads remain untouched; provider OHLC/change contradictions remain unchanged.
+
+IFB Gregorian index dates change from Python dates to datetime64[ns]; all listed
+Jalali event dates become canonical strings. Index levels, last prices and amount
+columns are numeric, including Persian digits/separators. YTM and SimpleReturn
+change from decimal fractions to percentage points (CouponPercent already uses
+points). The scalar risk-free function still returns a decimal rate. TickerID,
+NationalID and PhoneNumber are strings. The heterogeneous long display-value
+table remains textual; no financial type is guessed for its arbitrary labels.
+
+IME Jalali dates (including settlement strings) become canonical strings;
+Gregorian dates become datetime64[ns]. CreateDateTime keeps the complete pandas
+timestamp instead of discarding time. Quantities, prices and percentages parse
+formatted numbers; ID/ContractID/ContractCode/Code/Symbol are strings. IsActive,
+Fipiran IsCompleted and TSETMC Canceled use nullable boolean values (including
+explicit false and missing). Institutions' NationalID/SEORegisterNo/CEOMobileNo
+are strings, preserving source leading zeros. No source units are converted.
+
+The named physical mapping fixes key-order dependence and the misleading
+ContractSize label. Valid empty IME gold/silver CDC responses now return an empty
+typed core schema. Gregorian/Jalali conversions, market-cap multiplication and
+other raw provider price calculations are not redefined. IME evidence is the
+[official physical report](https://www.ime.co.ir/offer-stat.html), current named
+JSON records and representative export/derivatives responses.
+
+Unverified provider semantics/coverage remain separate follow-ups: [fund fields #59](https://github.com/hemoboghosian/fima/issues/59) and [IME CDC #62](https://github.com/hemoboghosian/fima/issues/62). Existing provider anomalies remain tracked in #49 (TGJU), #42 (TSETMC funds), #38/#33 (TSETMC history/adjustment validation), and #26/#27/#28 (fund-provider limitations/identity).

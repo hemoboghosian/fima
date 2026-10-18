@@ -6,12 +6,14 @@ from persian import convert_ar_characters
 from concurrent.futures import ThreadPoolExecutor
 from typing import Tuple, List, Literal
 import time
-from ._data import identifier_series, jalali_date, number_series, time_string
+from ._data import boolean_series, identifier_series, jalali_date, number_series, time_string
 
 
 def _public_frame(frame):
     for column in frame:
-        if column == "InstrumentCode":
+        if column == "Canceled":
+            frame[column] = boolean_series(frame[column])
+        elif column == "InstrumentCode":
             frame[column] = identifier_series(frame[column])
         elif column == "JalaliDate":
             frame[column] = frame[column].map(jalali_date)
@@ -604,7 +606,7 @@ def get_tickers(tse: bool, ifb: bool, details: bool = False) -> pd.DataFrame:
     tickers = pd.DataFrame(columns=['InstrumentCode', 'Ticker', 'InstrumentName', 'Market'])
     if tse:
         url = "https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/32097828799138957"
-        tse_tickers = pd.DataFrame(requests.get(url).json()['indexCompany'])
+        tse_tickers = pd.DataFrame(requests.get(url, timeout=15).json()['indexCompany'])
         tse_tickers.rename(columns={'insCode': 'InstrumentCode'}, inplace=True)
         tse_tickers['Ticker'] = tse_tickers['instrument'].apply(lambda instrument: instrument['lVal18AFC'])
         tse_tickers['InstrumentName'] = tse_tickers['instrument'].apply(lambda instrument: instrument['lVal30'])
@@ -613,7 +615,7 @@ def get_tickers(tse: bool, ifb: bool, details: bool = False) -> pd.DataFrame:
         tickers = pd.concat([tickers, tse_tickers], axis=0)
     if ifb:
         url = "https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/43685683301327984"
-        ifb_tickers = pd.DataFrame(requests.get(url).json()['indexCompany'])
+        ifb_tickers = pd.DataFrame(requests.get(url, timeout=15).json()['indexCompany'])
         ifb_tickers.rename(columns={'insCode': 'InstrumentCode'}, inplace=True)
         ifb_tickers['Ticker'] = ifb_tickers['instrument'].apply(lambda instrument: instrument['lVal18AFC'])
         ifb_tickers['InstrumentName'] = ifb_tickers['instrument'].apply(lambda instrument: instrument['lVal30'])
@@ -626,7 +628,7 @@ def get_tickers(tse: bool, ifb: bool, details: bool = False) -> pd.DataFrame:
         tickers.loc[:, ['FiscalYear', 'Auditor', 'Website', 'Capital', 'ActivitySubject']] = None
         for ticker in tickers.index:
             try:
-                ticker_info = requests.get(f"https://cdn.tsetmc.com/api/Codal/GetCodalPublisherBySymbol/{ticker}").json()['codalPublisher']
+                ticker_info = requests.get(f"https://cdn.tsetmc.com/api/Codal/GetCodalPublisherBySymbol/{ticker}", timeout=15).json()['codalPublisher']
                 tickers.loc[ticker, 'FiscalYear'] = ticker_info['financialYear']
                 tickers.loc[ticker, 'Auditor'] = ticker_info['auditorName']
                 tickers.loc[ticker, 'Website'] = ticker_info['website']

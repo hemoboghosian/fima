@@ -10,7 +10,7 @@ import re
 from email.utils import parsedate_to_datetime
 from contextvars import ContextVar
 from numbers import Integral, Real
-from ._data import identifier_series, jalali_date, number_series, gregorian_series, text_or_na
+from ._data import boolean_series, identifier_series, jalali_date, number_series, gregorian_series, text_or_na
 
 __all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation",
            "get_tsetmc_funds", "get_tsetmc_fund_details", "get_tsetmc_fund_types"]
@@ -63,7 +63,9 @@ def _catalog_frame(frame):
              "Others Weight": "OtherAssetsWeight", "Bank CDs Weight": "DepositWeight"}
     result = frame.rename(columns={c: names.get(c, _column_name(c)) for c in frame}).copy()
     for column in result:
-        if column in ("RegistrationNumber", "InstrumentCode", "GroupId", "FundTypeID") or column.endswith(("SeoRegisterNo", "SeoRegisterNumber")):
+        if column == "IsCompleted":
+            result[column] = boolean_series(result[column])
+        elif column in ("RegistrationNumber", "InstrumentCode", "GroupId", "FundTypeID") or column.endswith(("SeoRegisterNo", "SeoRegisterNumber")):
             result[column] = identifier_series(result[column])
         elif column.endswith("JalaliDate"):
             result[column] = result[column].map(jalali_date)
@@ -1637,7 +1639,7 @@ def get_all_funds(_set_website_developers: bool = False) -> pd.DataFrame:
         if all_funds.empty:
             raise ValueError("Fipiran fund catalog contains no fund-level records")
     for column, default in {"websiteAddress": None, "guarantor": None,
-                            "dividendIntervalPeriod": 0}.items():
+                            "dividendIntervalPeriod": float("nan")}.items():
         if column not in all_funds:
             all_funds[column] = default
     # all_funds.drop(['rankOf12Month', 'rankOf24Month', 'rankOf36Month', 'rankOf48Month', 'rankOf60Month',

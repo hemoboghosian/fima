@@ -186,3 +186,31 @@ def test_shared_parsers_preserve_missing_zero_and_identifier_digits():
 def test_at_the_money_expiry_and_zero_volatility_limit():
     assert opt.calculate_black_scholes_merton(100, 100, 0, .2, .05, "Call") == 0
     assert opt.calculate_black_scholes_merton(100, 100, 1, 0, .05, "Call") == pytest.approx(100 - 100 * np.exp(-.05))
+
+
+def test_market_cap_uses_official_close_and_share_count(monkeypatch):
+    monkeypatch.setattr(tse, "_find_instrument_code", lambda _: "123")
+    monkeypatch.setattr(tse, "get_ticker_historical_data", lambda **k: pd.DataFrame(
+        {"ClosingPrice": [100], "LastPrice": [110]}, index=pd.Index(["1405-07-25"], name="JalaliDate")))
+    monkeypatch.setattr(tse, "_fetch_shares_no_for_date", lambda args: (args[0], 10))
+    result = tse.get_ticker_historical_market_caps("TEST", _max_workers=1)
+    assert result.iloc[0].NumberOfShares == 10
+    assert result.iloc[0].MarketCap == 1000
+
+
+@pytest.mark.parametrize("kind,benchmark", [("Call", 10.450583572185565), ("Put", 5.573526022256971)])
+def test_model_price_benchmark_and_greek_finite_differences(kind, benchmark):
+    s, k, t, sigma, rate = 100, 100, 1, .2, .05
+    price = lambda s=s, t=t, sigma=sigma, rate=rate: opt.calculate_black_scholes_merton(s, k, t, sigma, rate, kind)
+    assert price() == pytest.approx(benchmark)
+    epsilon = .001
+    delta = (price(s=s + epsilon) - price(s=s - epsilon)) / (2 * epsilon)
+    gamma = (price(s=s + epsilon) - 2 * price() + price(s=s - epsilon)) / epsilon ** 2
+    vega = (price(sigma=sigma + epsilon) - price(sigma=sigma - epsilon)) / (2 * epsilon)
+    rho = (price(rate=rate + epsilon) - price(rate=rate - epsilon)) / (2 * epsilon)
+    theta = -(price(t=t + epsilon) - price(t=t - epsilon)) / (2 * epsilon)
+    assert opt.calculate_delta(s, k, t, rate, sigma, kind) == pytest.approx(delta, rel=1e-5)
+    assert opt.calculate_gamma(s, k, t, rate, sigma) == pytest.approx(gamma, rel=1e-5)
+    assert opt.calculate_vega(s, k, t, rate, sigma) == pytest.approx(vega, rel=1e-5)
+    assert opt.calculate_rho(s, k, t, rate, sigma, kind) == pytest.approx(rho, rel=1e-5)
+    assert opt.calculate_theta(s, k, t, rate, sigma, kind) == pytest.approx(theta, rel=1e-5)

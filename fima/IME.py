@@ -4,9 +4,46 @@ import jdatetime as jd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from ._data import boolean_series, identifier_series, jalali_date, gregorian_series, number_series
 
 
 _IME_THREAD_LOCAL = threading.local()
+
+
+def _public_frame(frame):
+    names = {'Date': 'JalaliDate', 'GDate': 'GregorianDate', 'JDate': 'JalaliDate',
+             'DeliveryDate': 'DeliveryJalaliDate', 'SettlementDate': 'SettlementJalaliDate',
+             'DeliveryGDate': 'DeliveryGregorianDate', 'DeliveryJDate': 'DeliveryJalaliDate',
+             'ClosePrice': 'ClosingPrice', 'FirstPrice': 'OpeningPrice', 'MinPrice': 'LowPrice',
+             'MaxPrice': 'HighPrice', 'Volume': 'TradeVolume', 'TradesVolume': 'TradeVolume',
+             'Value': 'TradeValue', 'TradesValue': 'TradeValue', 'TotalPrice': 'TradeValue',
+             'TransactionValue': 'TradeValue', 'TotalTransitions': 'TransactionCount',
+             'ClosePriceChangePrice': 'ClosingPriceChange', 'ClosePricePercentageChange': 'ClosingPricePercentageChange',
+             'ChangeOpenInterest': 'OpenInterestChange', 'Producer': 'ProducerName'}
+    result = frame.rename(columns={c: names.get(c, c[0].upper() + c[1:]) for c in frame}).copy()
+    quantities = {'TradeVolume', 'TradeValue', 'TransactionCount', 'ClosingPrice', 'OpeningPrice', 'LowPrice',
+                  'HighPrice', 'LastPrice', 'YesterdayPrice', 'LastPriceChange', 'LastPricePercentageChange',
+                  'ClosingPriceChange', 'ClosingPricePercentageChange', 'Supply', 'SupplyVolume', 'SupplyBasePrice',
+                  'SupplyMinPrice', 'Demand', 'DemandMaxPrice', 'BasePrice', 'FXRate', 'OpenInterest',
+                  'OpenInterestChange', 'ActiveCustomers', 'ActiveBrokers', 'CBuy', 'CSell',
+                  'LastSettlementPrice', 'TodaySettlementPrice', 'SettlementPricePercent', 'WeeklyOpenInterests',
+                  'WeeklyOpenInterestsPercent', 'MonthlyOpenInterests', 'MonthlyOpenInterestsPercent',
+                  'WeeklySettlementPrice', 'WeeklySettlementPricePercent', 'MonthlySettlementPrice',
+                  'MonthlySettlementPricePercent'}
+    for column in result:
+        if column == 'IsActive':
+            result[column] = boolean_series(result[column])
+        elif column.endswith('JalaliDate'):
+            result[column] = result[column].map(jalali_date)
+        elif column.endswith('GregorianDate'):
+            result[column] = gregorian_series(result[column])
+        elif column == 'CreateDateTime':
+            result[column] = pd.to_datetime(result[column], format='mixed', errors='coerce')
+        elif column in ('ID', 'ContractID', 'ContractCode', 'Code', 'Symbol'):
+            result[column] = identifier_series(result[column])
+        elif column in quantities or column.startswith(('Retail', 'Institutional')):
+            result[column] = number_series(result[column])
+    return result
 
 
 def _chunk_jalali_dates(start_s: str, end_s: str, chunk_size_days: int):
@@ -81,21 +118,19 @@ def _clean_ime_physical_records(records) -> pd.DataFrame:
     ime_physical_drop_columns = ['taghazavoroudi', 'xTalarReportPK', 'bArzehRadifTarSarresid', 'arzehPk', 'Category']
     all_data.drop(columns=ending_1_columns + ime_physical_drop_columns, errors='ignore', inplace=True)
 
-    ime_physical_columns = ['GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'MinPrice', 'ClosePrice', 'MaxPrice',
-                            'SupplyVolume', 'SupplyBasePrice', 'SupplyMinPrice', 'Demand', 'DemandMaxPrice',
-                            'ContractSize', 'TransactionValue', 'Date', 'DeliveryDate', 'Warehouse', 'Supplier',
-                            'SettlementDate', 'Broker', 'SupplyType', 'BuyType', 'Currency', 'Unit', 'ExchangeHall',
-                            'PacketType', 'Settlement']
-
-    if len(all_data.columns) != len(ime_physical_columns):
-        raise ValueError('IME physical trades schema changed. ' 
-                         f'Expected {len(ime_physical_columns)} columns after cleanup, got {len(all_data.columns)}. '
-                         f'Columns: {list(all_data.columns)}')
-
-    all_data.columns = ime_physical_columns
-    all_data['Date'] = all_data['Date'].map(_parse_ime_jdate)
-    all_data['DeliveryDate'] = all_data['DeliveryDate'].map(_parse_ime_jdate)
-    return all_data
+    mapping = {'GoodsName': 'GoodsName', 'Symbol': 'Symbol', 'ProducerName': 'ProducerName',
+               'ContractType': 'ContractType', 'MinPrice': 'LowPrice', 'Price': 'ClosingPrice', 'MaxPrice': 'HighPrice',
+               'arze': 'SupplyVolume', 'ArzeBasePrice': 'SupplyBasePrice', 'arzeMinPrice': 'SupplyMinPrice',
+               'taghaza': 'Demand', 'taghazaMaxPrice': 'DemandMaxPrice', 'Quantity': 'TradeVolume',
+               'TotalPrice': 'TradeValue', 'date': 'JalaliDate', 'DeliveryDate': 'DeliveryJalaliDate',
+               'Warehouse': 'Warehouse', 'ArzehKonandeh': 'Supplier', 'SettlementDate': 'SettlementJalaliDate',
+               'cBrokerSpcName': 'Broker', 'ModeDescription': 'SupplyType', 'MethodDescription': 'BuyType',
+               'Currency': 'Currency', 'Unit': 'Unit', 'Talar': 'ExchangeHall', 'PacketName': 'PacketType',
+               'Tasvieh': 'Settlement'}
+    missing = set(mapping) - set(all_data)
+    if missing:
+        raise ValueError(f'IME physical trades schema changed; missing fields: {sorted(missing)}')
+    return _public_frame(all_data[list(mapping)].rename(columns=mapping))
 
 
 def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 30, _max_workers: int = 2,
@@ -287,7 +322,7 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
             lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
             if pd.notna(str_j_date) else None)
         all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return all_data
+        return _public_frame(all_data)
     return pd.DataFrame(all_rows)
 
 
@@ -353,9 +388,8 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
         all_data['GDate'] = pd.to_datetime(all_data['GDate'])
         all_data['GDate'] = all_data['GDate'].dt.date
         all_data['CreateDateTime'] = pd.to_datetime(all_data['CreateDateTime'], format='mixed')
-        all_data['CreateDateTime'] = all_data['CreateDateTime'].dt.date
         all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return all_data
+        return _public_frame(all_data)
     return pd.DataFrame(all_rows)
 
 
@@ -364,11 +398,11 @@ def get_all_physical_producer_products(start_date: str = None, end_date: str = N
     if all_ime_physical_trades is None:
         all_ime_physical_trades = get_all_ime_physical_trades(start_date=start_date, end_date=end_date)
     if all_ime_physical_trades is None or all_ime_physical_trades.empty:
-        return pd.DataFrame(columns=['Producer', 'Products'])
+        return pd.DataFrame(columns=['ProducerName', 'Products'])
     producer_products = (all_ime_physical_trades.groupby('ProducerName')['GoodsName']
                          .agg(lambda x: list(sorted(set(x.dropna())))).reset_index()
                          .rename(columns={'GoodsName': 'Products', 'ProducerName': 'Producer'}))
-    return producer_products
+    return _public_frame(producer_products)
 
 
 def get_producer_physical_trades(producer: str, start_date: str = None, end_date: str = None,
@@ -382,13 +416,13 @@ def get_producer_physical_trades(producer: str, start_date: str = None, end_date
         return pd.DataFrame()
     producer_physical_trades = all_ime_physical_trades[all_ime_physical_trades['ProducerName'] == producer].copy()
     if start_date is not None:
-        start_jd = jd.date(year=int(str(start_date)[:4]), month=int(str(start_date)[5:7]), day=int(str(start_date)[8:10]))
-        producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] >= start_jd]
+        start_jd = jalali_date(start_date)
+        producer_physical_trades = producer_physical_trades[producer_physical_trades['JalaliDate'] >= start_jd]
     if end_date is not None:
-        end_jd = jd.date(year=int(str(end_date)[:4]), month=int(str(end_date)[5:7]), day=int(str(end_date)[8:10]))
-        producer_physical_trades = producer_physical_trades[producer_physical_trades['Date'] <= end_jd]
+        end_jd = jalali_date(end_date)
+        producer_physical_trades = producer_physical_trades[producer_physical_trades['JalaliDate'] <= end_jd]
     producer_physical_trades.reset_index(inplace=True, drop=True)
-    return producer_physical_trades
+    return _public_frame(producer_physical_trades)
 
 
 def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40,
@@ -427,7 +461,8 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
         all_data = pd.DataFrame(all_rows)
         all_data.drop(['TaghazaVoroudi', 'bArzehRadifTarSarresid', 'xKala_xGrouhAsliKalaPK', 'xKala_xGrouhKalaPK',
                        'xKala_xZirGrouhKalaPK', 'xNamad_xTolidKonandehPK', 'xRingPK', 'arzehPk'], axis=1, inplace=True)
-        all_data.rename({'cBrokerSpcName': 'BrokerName', 'arze': 'Supply', 'arzeMinPrice': 'SupplyMinPrice',
+        all_data.rename({'cBrokerSpcName': 'BrokerName', 'arze': 'SupplyVolume',
+                         'Price': 'ClosingPrice', 'Quantity': 'TradeVolume', 'arzeMinPrice': 'SupplyMinPrice',
                          'taghaza': 'Demand', 'taghazaMaxPrice': 'DemandMaxPrice', 'date': 'Date',
                          'typeName': 'MainGroupName', 'Talar': 'ExchangeHall', 'ArzeBasePrice': 'SupplyBasePrice',
                          'ArzehKonandeh': 'Supplier', 'xRingName': 'RingName', 'ModeDescription': 'SupplyType',
@@ -444,7 +479,7 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
 
         all_data.sort_values(by='Date', inplace=True, ignore_index=True)
 
-        return all_data
+        return _public_frame(all_data)
     return pd.DataFrame(all_rows)
 
 
@@ -497,7 +532,7 @@ def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_s
         all_data['GDate'] = pd.to_datetime(all_data['GDate'])
         all_data['GDate'] = all_data['GDate'].dt.date
         all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return all_data
+        return _public_frame(all_data)
     return pd.DataFrame(all_rows)
 
 
@@ -506,7 +541,7 @@ def get_all_export_producer_products() -> pd.DataFrame:
     producer_products = (all_ime_export_trades.groupby('ProducerName')
                          ['GoodsName'].agg(lambda x: list(sorted(set(x)))).reset_index()
                          .rename(columns={'GoodsName': 'Products', 'ProducerName': 'Producer'}))
-    return producer_products
+    return _public_frame(producer_products)
 
 
 def get_producer_export_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
@@ -514,13 +549,13 @@ def get_producer_export_trades(producer: str, start_date: str = None, end_date: 
     if producer in all_ime_export_trades['ProducerName'].unique():
         producer_export_trades = all_ime_export_trades[all_ime_export_trades['ProducerName'] == producer].copy()
         if start_date is not None:
-            start_date = jd.date(year=int(start_date[:4]), month=int(start_date[5:7]), day=int(start_date[8:]))
-            producer_export_trades = producer_export_trades[producer_export_trades['Date'] >= start_date]
+            start_date = jalali_date(start_date)
+            producer_export_trades = producer_export_trades[producer_export_trades['JalaliDate'] >= start_date]
         if end_date is not None:
-            end_date = jd.date(year=int(end_date[:4]), month=int(end_date[5:7]), day=int(end_date[8:]))
-            producer_export_trades = producer_export_trades[producer_export_trades['Date'] <= end_date]
+            end_date = jalali_date(end_date)
+            producer_export_trades = producer_export_trades[producer_export_trades['JalaliDate'] <= end_date]
         producer_export_trades.reset_index(inplace=True, drop=True)
-        return producer_export_trades
+        return _public_frame(producer_export_trades)
     else:
         print(f'Producer name you entered ({producer}) is not in the list of producers.')
         return pd.DataFrame()
@@ -575,7 +610,7 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
         all_data['GDate'] = pd.to_datetime(all_data['GDate'])
         all_data['GDate'] = all_data['GDate'].dt.date
         all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return all_data
+        return _public_frame(all_data)
     return pd.DataFrame(all_rows)
 
 
@@ -630,6 +665,9 @@ def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, en
         page += 1
         time.sleep(0.3)
 
+    if not all_data:
+        return _public_frame(pd.DataFrame(columns=['GregorianDate', 'JalaliDate', 'TradeVolume', 'TradeValue',
+                                                    'DeliveryGregorianDate', 'DeliveryJalaliDate']))
     all_data = pd.DataFrame(all_data)
 
     all_data['PersianDate'] = all_data['PersianDate'].apply(
@@ -646,4 +684,4 @@ def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, en
                'PersianDate': 'JDate', 'DeliveryDate': 'DeliveryGDate'}, inplace=True, axis=1)
     all_data['DeliveryJDate'] = all_data['DeliveryGDate'].apply(lambda delivery_g_date: jd.date.fromgregorian(date=delivery_g_date))
     all_data.sort_values(by='JDate', inplace=True, ignore_index=True)
-    return all_data
+    return _public_frame(all_data)

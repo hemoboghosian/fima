@@ -30,10 +30,23 @@ def identifier_series(values):
     """Keep identifiers as strings without decimal suffixes from nullable JSON numbers."""
     def clean(value):
         text = text_or_na(value)
-        if text is not pd.NA and re.fullmatch(r"\d+\.0", text):
+        if not isinstance(value, str) and text is not pd.NA and re.fullmatch(r"\d+\.0", text):
             text = text[:-2]
         return text
     return values.map(clean).astype("string")
+
+
+def boolean_series(values):
+    def clean(value):
+        text = text_or_na(value)
+        if text is pd.NA:
+            return pd.NA
+        if text.casefold() in ("true", "1", "1.0"):
+            return True
+        if text.casefold() in ("false", "0", "0.0"):
+            return False
+        raise ValueError(f"Invalid boolean value: {value!r}")
+    return values.map(clean).astype("boolean")
 
 
 def jalali_date(value):

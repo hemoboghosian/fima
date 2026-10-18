@@ -117,8 +117,8 @@ def test_catalog_combines_both_markets_and_preserves_distinct_identifiers(provid
 def test_snapshot_fields_signs_missing_values_and_provider_timestamp(provider):
     table = TGJU.get_tgju_market('ارز')
     row = table.iloc[0]
-    assert row.Price == 2638050 and row.Open == 2648000
-    assert row.Change == -40950 and row.ChangePercent == -1.55
+    assert row.Price == 2638050 and row.OpeningPrice == 2648000
+    assert row.PriceChange == -40950 and row.PercentageChange == -1.55
     assert row.UpdateTime == '14:20:48' and row.UpdatedAt == dt.datetime(2026, 10, 17, 14, 20, 48)
     assert row.ChangeDirection == 'low' and row.Currency == 'IRR'
     assert pd.isna(row.Unit)
@@ -178,10 +178,10 @@ def test_unknown_name_and_category(provider):
 def test_history_descending_provider_order_sorted_output_and_duplicates(provider):
     provider['history'] = [history_row(), history_row(), history_row('2026/10/14', '1405/07/22', direction='low')]
     table = TGJU.get_tgju_history('دلار', 'ارز')
-    assert len(table) == 2 and table.Date.is_monotonic_increasing
-    assert table.Date.iloc[-1] == dt.date(2026, 10, 15)
-    assert table.JDate.iloc[-1] == jd.date(1405, 7, 23)
-    assert table.Change.iloc[0] == -40000 and table.Close.iloc[-1] == 2679000
+    assert len(table) == 2 and table.GregorianDate.is_monotonic_increasing
+    assert table.GregorianDate.iloc[-1] == pd.Timestamp("2026-10-15")
+    assert table.JalaliDate.iloc[-1] == "1405-07-23"
+    assert table.PriceChange.iloc[0] == -40000 and table.ClosingPrice.iloc[-1] == 2679000
     assert table.attrs['Unit'] == 'اسکناس' and table.attrs['Currency'] == 'IRR'
     params = [c[1]['params'] for c in provider['calls'] if 'summary-table-data' in c[0]][0]
     assert params['order_col'] == 'timestamp' and params['order_dir'] == 'desc'
@@ -211,7 +211,7 @@ def test_invalid_dates_fail_before_http(provider, kwargs):
 def test_empty_history_has_stable_columns(provider):
     provider['history'] = []
     table = TGJU.get_tgju_history('دلار', 'ارز')
-    assert table.empty and list(table.columns) == TGJU._HISTORY_COLUMNS
+    assert table.empty and list(table.columns) == ['GregorianDate', 'JalaliDate', 'OpeningPrice', 'LowPrice', 'HighPrice', 'ClosingPrice', 'PriceChange', 'PercentageChange', 'ChangeDirection']
 
 
 def test_repeated_history_page_fails_instead_of_looping(provider, monkeypatch):
@@ -308,7 +308,7 @@ def test_null_history_values_are_preserved_as_missing(provider):
     row[0] = row[4] = row[5] = None
     provider['history'] = [row]
     table = TGJU.get_tgju_history('دلار', 'ارز')
-    assert table.Open.isna().all() and table.Change.isna().all() and table.ChangePercent.isna().all()
+    assert table.OpeningPrice.isna().all() and table.PriceChange.isna().all() and table.PercentageChange.isna().all()
 
 
 def test_profile_with_only_a_title_is_not_valid_metadata(provider):
@@ -321,8 +321,8 @@ def test_suspicious_provider_ohlc_is_preserved_without_repair(provider):
     provider['rows'] = [BRENT]
     provider['history'] = [['101.031','100.2','99.556','103.356','-','-','2026/10/08','1405/07/16']]
     history = TGJU.get_tgju_history('نفت برنت', 'انرژی')
-    assert history[['Open','Low','High','Close']].iloc[0].tolist() == [101.031,100.2,99.556,103.356]
-    assert history.High.iloc[0] < history.Low.iloc[0]
+    assert history[['OpeningPrice','LowPrice','HighPrice','ClosingPrice']].iloc[0].tolist() == [101.031,100.2,99.556,103.356]
+    assert history.HighPrice.iloc[0] < history.LowPrice.iloc[0]
 
 
 def test_commodity_with_null_grade_uses_public_symbol(provider):
@@ -349,3 +349,12 @@ def test_symbol_lookup_retries_readable_words_without_changing_selection(provide
     assert details['Symbol'] == 'commodity_canola_oil'
     queries = [kwargs['params']['q'] for url, kwargs in provider['calls'] if url.endswith('/newsearch')]
     assert queries == ['commodity_canola_oil', 'commodity canola oil']
+
+
+
+def test_snapshot_display_date_label_is_not_a_clock_time(provider):
+    provider['snapshots'] = [dict(snapshot(), t='2 \u0628\u0647\u0645\u0646')]
+    result = TGJU.get_tgju_market('currency')
+    assert result.iloc[0].UpdateLabel == '2 \u0628\u0647\u0645\u0646'
+    assert pd.isna(result.iloc[0].UpdateTime)
+    assert result.iloc[0].UpdatedAt == pd.Timestamp('2026-10-17 14:20:48')

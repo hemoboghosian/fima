@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 import truststore
+from ._data import identifier_series
 
 
 truststore.inject_into_ssl()
@@ -75,4 +76,8 @@ def get_all_institutions() -> pd.DataFrame:
     response.raise_for_status()
     institutions = pd.DataFrame(response.json().get("data", []))
     institutions.drop(columns=['InstituteTypeId', 'InstituteKindId', 'StateId', 'Id', 'InquiryStatus'], inplace=True)
+    institutions.rename(columns={'Name': 'InstitutionName', 'NationalId': 'NationalID'}, inplace=True)
+    for column in ('NationalID', 'SEORegisterNo', 'CEOMobileNo'):
+        if column in institutions:
+            institutions[column] = identifier_series(institutions[column])
     return institutions
