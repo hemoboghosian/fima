@@ -1,6 +1,7 @@
 include README.md
 include CHANGELOG.md
 include LICENSE
+include docs/tgju.md
 
 prune unreleased
 prune test

@@ -20,3 +20,5 @@ from .TSETMC import (get_ticker_historical_trades_client_type, get_index_compani
                      get_price_adjustments, get_index_last_intraday_data, adjust_historical_prices)
 from .Funds import (get_all_funds, get_daily_navs, get_daily_asset_allocation,
                     get_tsetmc_funds, get_tsetmc_fund_details, get_tsetmc_fund_types)
+from .TGJU import (get_tgju_categories, get_tgju_instruments, get_tgju_market,
+                   get_tgju_history, get_tgju_instrument_details)
