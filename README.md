@@ -1,16 +1,5 @@
 # fima
 
-**0.9.0 — breaking public data contracts:** DataFrame columns now use PascalCase;
-Gregorian dates use pandas datetime and Jalali dates use `YYYY-MM-DD` strings.
-Numeric/identifier dtypes and percentage-point scales are normalized. Corrections
-include TSETMC individual/institutional mappings and index high/low fields;
-Options/IME transaction counts and trade volumes; Funds per-unit NAV versus total
-assets; Mibian risk-free-rate scaling, volatility and pricing limits; complete
-IME timestamps; and TGJU display-date interpretation.
-Read the [exhaustive migration guide](https://github.com/hemoboghosian/fima/blob/v0.9.0/docs/data-migration.md)
-and [release notes](https://github.com/hemoboghosian/fima/releases/tag/v0.9.0)
-before upgrading. Analytical scalar rates/volatility still use decimal units.
-
 با این کتابخانهٔ پایتون می‌توانید داده‌های بازارهای مالی ایران را برای تحلیل و پژوهش دریافت کنید؛ از تاریخچهٔ سهام و اطلاعات صندوق‌ها تا قیمت طلا و ارز، اختیار معامله و معاملات بورس کالا.
 
 ## نصب
@@ -32,7 +21,7 @@ history = get_ticker_historical_data(ticker="فملی")
 print(history[["ClosingPrice", "TradeVolume"]].head())
 ```
 
-خروجی یک جدول پانداس با نمایهٔ تاریخ شمسی است. ستون `ClosingPrice` قیمت پایانی رسمی و ستون `TradeVolume` حجم معاملات را نشان می‌دهد.
+خروجی یک جدول پانداس با نمایهٔ `JalaliDate` است؛ تاریخ‌های شمسی به‌شکل رشته‌هایی مانند `1405-07-26` برمی‌گردند. قیمت پایانی رسمی در ستون `ClosingPrice` و حجم معاملات در ستون `TradeVolume` قرار دارد.
 
 ## چه داده‌هایی در دسترس است؟
 
@@ -93,15 +82,32 @@ print(funds[["FundName", "FundTypeName", "TotalNAV"]].head())
 from fima import get_tsetmc_funds, get_tsetmc_fund_details
 
 funds = get_tsetmc_funds("مختلط")
-print(funds[["mfName", "regNo"]].head())
-details = get_tsetmc_fund_details("آرمان سپهر آتی", fund_type="مختلط")
+print(funds[["FundName", "RegistrationNumber"]].head())
+details = get_tsetmc_fund_details(funds.iloc[0]["FundName"], fund_type="مختلط")
 print(details["mfName"])
 ```
 
-نام صندوق را از ستون `mfName` انتخاب کنید. اطلاعات این منبع ممکن است با وب‌سایت صندوق از نظر تاریخ و پوشش متفاوت باشد؛ [راهنمای صندوق‌های بورس](docs/tsetmc-funds.md) جزئیات بیشتری دارد.
+نام صندوق را از ستون `FundName` انتخاب کنید. جدول فهرست از قرارداد نام‌گذاری عمومی پیروی می‌کند، اما تابع جزئیات، دیکشنری خام منبع را برمی‌گرداند و کلیدهایی مانند `mfName` را حفظ می‌کند. اطلاعات این منبع ممکن است با وب‌سایت صندوق از نظر تاریخ و پوشش متفاوت باشد؛ [راهنمای صندوق‌های بورس](docs/tsetmc-funds.md) جزئیات بیشتری دارد.
+
+## قرارداد داده‌ها
+
+خروجی‌های عمومی نسخهٔ ۰٫۹ از یک قرارداد مشترک پیروی می‌کنند:
+
+- نام ستون‌های جدول‌ها انگلیسی و به‌شکل `PascalCase` است؛ نام توابع و پارامترهای پایتون به‌شکل `snake_case` باقی می‌ماند. مفهوم‌های مالی یکسان نیز تا جای ممکن نام یکسان دارند.
+- تاریخ‌های میلادی در جای مناسب به‌صورت datetime پانداس و تاریخ‌های شمسی به‌شکل رشتهٔ لاتین `YYYY-MM-DD` برمی‌گردند.
+- مقدارهای مالی قابل محاسبه عددی‌اند، اما شناسه‌هایی که کاربرد محاسباتی ندارند رشته باقی می‌مانند. مقدارهای ناموجود نیز با رفتار معمول داده‌های گمشده در پانداس نمایش داده می‌شوند.
+- درصدهای داخل جدول‌ها بر حسب واحد درصد هستند؛ برای نمونه `2.5` یعنی `2.5%`.
+- واحد پول و واحد فیزیکی اعلام‌شدهٔ ارائه‌دهنده بدون تبدیل حفظ می‌شود، مگر آنکه مستندات یک تابع صریحاً خلاف آن را بگویند.
+
+تعریف کامل نام‌ها، نوع داده‌ها و استثناها در [قرارداد داده‌های عمومی](docs/data-conventions.md) آمده است.
+
+## ارتقا به نسخهٔ ۰٫۹٫۰
+
+در نسخهٔ ۰٫۹٫۰ نام برخی ستون‌ها، نوع بعضی داده‌ها، مقیاس درصدهای جدولی و تعدادی محاسبه برای یکپارچگی و اصلاح معنی مالی تغییر کرده‌اند. اگر از نسخه‌ای قدیمی‌تر ارتقا می‌دهید، [راهنمای کامل مهاجرت](docs/data-migration.md) را پیش از به‌روزرسانی کد خود ببینید. نام توابع و پارامترهای عمومی تغییر نکرده است.
 
 ## مستندات بیشتر
 
+- [قرارداد داده‌های عمومی](docs/data-conventions.md) و [راهنمای مهاجرت نسخهٔ ۰٫۹٫۰](docs/data-migration.md)
 - [راهنمای سهام و شاخص‌ها](docs/tsetmc.md) و [روش تعدیل قیمت](docs/tsetmc-adjustment.md)
 - [راهنمای طلا، ارز و بازارهای جهانی](docs/tgju.md)
 - [راهنمای صندوق‌ها و تاریخچهٔ دارایی‌ها](docs/funds.md)
