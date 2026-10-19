@@ -9,7 +9,7 @@ from fima.TSETMC import get_ticker_historical_data, get_tickers
 
 tickers = get_tickers(tse=True, ifb=True, details=False)
 history = get_ticker_historical_data(ticker="فملی")
-print(history[["ClosingPrice", "Volume"]].head())
+print(history[["ClosingPrice", "TradeVolume"]].head())
 ```
 
 برای انتخاب بازارها، هر دو آرگومان `tse` و `ifb` را مشخص کنید. گزینهٔ `details=True` جزئیات بیشتری به فهرست نمادها اضافه می‌کند.

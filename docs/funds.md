@@ -8,7 +8,7 @@
 from fima import get_all_funds, get_daily_navs, get_daily_asset_allocation
 
 all_funds = get_all_funds()
-print(all_funds[["Name", "WebsiteAddress"]].head())
+print(all_funds[["FundName", "WebsiteAddress"]].head())
 
 fund_name = "ثروت آفرین تمدن"
 navs = get_daily_navs(fund_name)
