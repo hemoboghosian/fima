@@ -1,10 +1,22 @@
 # Public data conventions
 
-Public DataFrames use English PascalCase columns. Python function and parameter
-names use snake_case. These conventions describe parsed fima tables; explicitly
-raw provider dicts and nested payloads retain source keys and values. The pure
-adjust_historical_prices helper preserves the caller's raw columns/index; downloaded
-tables use the canonical schemas.
+Public DataFrame columns, ordinary dict keys, Series labels and metadata keys
+use English PascalCase. Python function and parameter names use snake_case.
+The fund-detail and pagination key corrections are unreleased after 0.9.0; see
+the [breaking migration](data-migration.md#unreleased-public-structured-keys).
+Explicit provenance containers have the following precise exceptions:
+
+- TSETMC fund `ProviderMetadata` preserves unknown/ambiguous source keys and
+  payloads, including unverified `fundProfits`, in details and snapshot cells.
+  Known `Stats` NAV records have normalized keys, not raw provider keys.
+- TGJU `ProviderMetadata` preserves profile labels and `ProviderInstrument`
+  preserves the catalog record for source inspection.
+- Funds `ProviderAssets` uses unrecognized source asset labels as data keys;
+  its record keys remain `Value` and `Weight`.
+
+No other ordinary dict-returning API has a raw-provider default. The pure
+adjust_historical_prices helper preserves caller-owned raw columns/index.
+Values in opaque metadata are not assigned guessed financial meanings.
 
 - Use `ClosingPrice` for the official/session closing price, `LastPrice` for the
   last trade, and `OpeningPrice`, `LowPrice`, `HighPrice` for session OHLC.
@@ -45,4 +57,8 @@ tables use the canonical schemas.
   repaired by intuition. Raw provider metadata and heterogeneous display-value
   tables are documented exceptions to numeric conversion.
 
-See [migration notes](data-migration.md) for the 0.9.0 schema/type changes.
+Fund details and nested `Stats` keep their existing JSON scalar values/types;
+this focused key correction adds no date/dtype or calculation conversion there.
+TGJU pagination attrs use `Page`, `HasMore` and `SourceURL`.
+
+See [migration notes](data-migration.md) for unreleased keys and 0.9.0 schema/type changes.
