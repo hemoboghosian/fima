@@ -75,8 +75,8 @@ def test_unknown_type_explains_discovery_before_http(monkeypatch):
 def test_name_lookup_without_type_searches_all_individual_groups(monkeypatch, name):
     calls = mock_catalogs(monkeypatch)
     result = Funds.get_tsetmc_fund_details(name)
-    assert result["regNo"] == 11172
-    assert result["stats"] == [] and result["futureField"] is None
+    assert result["RegistrationNumber"] == 11172
+    assert result["Stats"] == [] and result["ProviderMetadata"]["futureField"] is None
     assert {int(url.rsplit("/", 1)[1]) for url in calls[:-1]} == GROUPS
     assert len(calls) == len(GROUPS) + 1
     assert calls[-1].endswith("/GetFundInDetail/11172")
@@ -86,7 +86,7 @@ def test_name_lookup_without_type_searches_all_individual_groups(monkeypatch, na
 def test_keyword_name_and_type_limit_catalog_requests(monkeypatch):
     calls = mock_catalogs(monkeypatch)
     result = Funds.get_tsetmc_fund_details(fund_name="آرمان سپهر آتی", fund_type="مختلط")
-    assert result["regNo"] == 11172
+    assert result["RegistrationNumber"] == 11172
     assert [url.rsplit("/", 2)[1:] for url in calls] == [
         ["GetFunds", "7"], ["GetFundInDetail", "11172"],
     ]
@@ -101,13 +101,13 @@ def test_name_collision_requires_explicit_disambiguation(monkeypatch):
     with pytest.raises(ValueError, match="Multiple.*fund_type.*reg_no"):
         Funds.get_tsetmc_fund_details("نام تکراری")
     assert not any("GetFundInDetail" in url for url in calls)
-    assert Funds.get_tsetmc_fund_details("نام تکراری", fund_type="مختلط")["regNo"] == 11172
+    assert Funds.get_tsetmc_fund_details("نام تکراری", fund_type="مختلط")["RegistrationNumber"] == 11172
 
 
 def test_repeated_match_for_same_registration_is_one_fund(monkeypatch):
     row = {"regNo": 11172.0, "mfName": "آرمان سپهر آتی"}
     mock_catalogs(monkeypatch, {6: [row], 7: [row, dict(row)]})
-    assert Funds.get_tsetmc_fund_details("آرمان سپهر آتی")["regNo"] == 11172
+    assert Funds.get_tsetmc_fund_details("آرمان سپهر آتی")["RegistrationNumber"] == 11172
 
 
 def test_partial_or_missing_name_is_not_guessed(monkeypatch):
@@ -141,7 +141,7 @@ def test_missing_or_conflicting_selectors_fail_before_http(monkeypatch, kwargs):
 
 def test_previous_reg_no_keyword_bypasses_name_lookup(monkeypatch):
     calls = mock_catalogs(monkeypatch)
-    assert Funds.get_tsetmc_fund_details(reg_no="11172")["regNo"] == 11172
+    assert Funds.get_tsetmc_fund_details(reg_no="11172")["RegistrationNumber"] == 11172
     assert calls == ["https://cdn.tsetmc.com/api/Fund/GetFundInDetail/11172"]
 
 
@@ -149,12 +149,12 @@ def test_previous_reg_no_keyword_bypasses_name_lookup(monkeypatch):
 @pytest.mark.parametrize("label,code", [("سهامی", 6), ("مختلط", 7)])
 def test_live_named_fund_type(label, code):
     result = Funds.get_tsetmc_funds(label)
-    assert not result.empty and (result.fixIncome == code).all()
+    assert not result.empty and (result.FundTypeID == str(code)).all()
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize("fund_type", ["مختلط", None])
 def test_live_fund_by_name(fund_type):
     result = Funds.get_tsetmc_fund_details("آرمان سپهر آتی", fund_type=fund_type)
-    assert result["regNo"] == 11172
-    assert result["mfName"] == "آرمان سپهر آتی"
+    assert result["RegistrationNumber"] == 11172
+    assert result["FundName"] == "آرمان سپهر آتی"

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Breaking public structured keys
+
+- Normalize TSETMC fund-detail keys and nested `Stats` NAV records, sharing
+  verified snapshot meanings (`FundName`, `RegistrationNumber`, NAVs, totals,
+  returns and type codes). Snapshot `Stats` cells use the same nested keys.
+- Preserve unknown/ambiguous fields only inside explicit `ProviderMetadata`,
+  including `fundProfits` and unverified investor/unit-subtype fields. Do not
+  invent semantics or return duplicate source-key aliases. Detail/history
+  scalar values/types and ordering remain unchanged.
+- Rename TGJU pagination attrs to `Page`/`HasMore`. Public call parameters and
+  pagination behavior are unchanged. Existing explicit TGJU provenance and
+  Funds unknown-asset metadata remain documented exceptions.
+- See [the complete breaking-key migration](docs/data-migration.md#unreleased-public-structured-keys).
+  No version/tag/release is created by this correction.
+
 ## 0.9.0
 
 ### Breaking public data contracts

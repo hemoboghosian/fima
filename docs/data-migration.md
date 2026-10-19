@@ -1,4 +1,54 @@
-# 0.9.0 public-data migration
+# Public-data migration
+
+## Unreleased public structured keys
+
+These changes are on development master **after published 0.9.0**. They are
+breaking output-key corrections, not a new published release. Python function
+names and selectors are unchanged; no `raw` parameter or second raw API is added.
+
+- `get_tsetmc_fund_details()` now returns semantic public keys instead of a raw
+  provider dict. All explicit mappings in the TSETMC snapshot table under
+  [Funds](#funds) apply: `mfName` -> `FundName`, `regNo` -> `RegistrationNumber`,
+  `fixIncome` -> `FundTypeID`, `fundType` -> `ProviderFundTypeCode`, etc. Distinct
+  NAV/total concepts and provider type fields remain distinct.
+- `stats` -> `Stats`; its five verified record keys become `recordDate` ->
+  `UpdateGregorianDate`, `navSub` -> `SubscriptionNAV`, `navRed` -> `RedemptionNAV`,
+  `navStat` -> `StatisticalNAV`, `netAsset` -> `TotalNAV`. This also applies to
+  nested `Stats` records in `get_tsetmc_funds()` snapshot cells.
+- Other explicit detail mappings retain the existing snapshot names:
+  `units` -> `Units`; `custodian`/`custodianEN` -> `Custodian`/`CustodianEN`;
+  `guarantor`/`guarantorEN` -> `Guarantor`/`GuarantorEN`;
+  `manager`/`managerEN` -> `Manager`/`ManagerEN`;
+  `investmentManager`/`investmentManagerEN` -> `InvestmentManager`/`InvestmentManagerEN`;
+  `marketMaker`/`marketMakerEN` -> `MarketMaker`/`MarketMakerEN`;
+  `auditor`/`auditorEN` -> `Auditor`/`AuditorEN`;
+  `webSite`/`webSiteEN` -> `WebSite`/`WebSiteEN`;
+  `guaranteedEarningRate` -> `GuaranteedEarningRate`;
+  `estimatedEarningRate` -> `EstimatedEarningRate`.
+- Unverified source fields go inside `ProviderMetadata`, not mechanically
+  capitalized top-level fields. This includes `fundProfits`, future fields,
+  `unitsSub`, `unitsRed`, `retInvNo`, `insInvNo`, `retInvPercent`, `insInvPercent`,
+  `naturalPercent`, `legalPercent`; unknown fields in `Stats` get their own
+  record-level `ProviderMetadata`. Values remain intact and are not reinterpreted.
+  Snapshot consumers must therefore replace old `FundProfits`/`UnitsSub`/`UnitsRed`/
+  investor-field/future-field column access with explicit provenance access when
+  needed. For example, `row["ProviderMetadata"]["fundProfits"]`.
+- TGJU instrument/market DataFrame attrs rename `page` -> `Page`, `has_more` ->
+  `HasMore`. The Python `page=` parameter and pagination behavior are unchanged.
+
+Detail/history scalar types, ISO date strings, numeric registration values,
+history ordering, nulls and financial values are preserved. Recognized snapshot
+scalar fields retain their existing dtype conversion; metadata remains raw.
+Do not assume that `pd.DataFrame(details["Stats"])`
+applies snapshot dtype conversion. No duplicate old/wrong aliases are returned.
+
+The only intentional provider-native-key containers are TSETMC fund
+`ProviderMetadata`, TGJU `ProviderMetadata`/`ProviderInstrument`, and Funds
+`ProviderAssets` source labels (whose values use `Value`/`Weight`). The Options
+Greek Series already uses `Delta`, `Gamma`, `Theta`, `Vega`, `Rho`; tuple returns
+contain DataFrames or scalars and introduce no provider-key contract.
+
+## Published 0.9.0
 
 These changes are **breaking output contracts** introduced in fima 0.9.0. No
 function or public parameter has been renamed. Do not retain old and new columns
@@ -85,7 +135,8 @@ All remaining source snake_case fields in leveraged Mabna frames use PascalCase
 formed from the same words. No semantic renaming is inferred for unknown fields.
 The legacy Tadbir `Common` remains distinct and its subtype remains unspecified.
 
-TSETMC snapshot renames (the **detail dict is unchanged**):
+TSETMC snapshot renames in 0.9.0 (details were raw then; the unreleased correction
+above now applies the verified names to ordinary detail/history objects too):
 
 | Source/public old key | New column |
 | --- | --- |
@@ -99,8 +150,9 @@ TSETMC snapshot renames (the **detail dict is unchanged**):
 | dividentIntervalPeriod | DividendFrequencyMonths |
 | day1Return / day7Return / day30Return / day90Return / day180Return / day365Return / dayFirstReturn | DailyReturn / WeeklyReturn / MonthlyReturn / QuarterlyReturn / SemiAnnualReturn / AnnualReturn / ReturnFromInception |
 
-All other snapshot keys capitalize their existing initial letter (`stats` ?
-`Stats`, `fundProfits` ? `FundProfits`, etc.); nested payload keys stay raw. The
+In published 0.9.0, other snapshot keys capitalized their existing initial letter
+and nested payload keys stayed raw. The unreleased section supersedes that
+fallback for unknown fields and known nested NAV records. The
 source group `fixIncome` is not interchangeable with source `fundType` or with
 Fipiran identifiers. Type-discovery FundTypeID values are also strings; numeric
 and named function arguments remain accepted. Fipiran adds FundTypeID alongside

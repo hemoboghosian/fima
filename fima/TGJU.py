@@ -212,7 +212,7 @@ def _page(client, category, search, page):
         found, more, _ = _catalog_page(client, source, search, page)
         rows.extend(found)
         has_more |= more
-    return rows, {'page': page, 'has_more': has_more, 'SourceURL': _API + 'newsearch'}
+    return rows, {'Page': page, 'HasMore': has_more, 'SourceURL': _API + 'newsearch'}
 
 
 def _table(rows, columns, attrs=None):
@@ -324,7 +324,7 @@ def get_tgju_instruments(category=None, *, search=None, page=1):
     """یک صفحه از فهرست عمومی نمادها را با نام فارسی یا انگلیسی دریافت می‌کند.
 
     category نام گروه یا None برای هر دو بازار است؛ search جستجوی اختیاری
-    و page شماره صفحه از یک است. خروجی DataFrame است و attrs['has_more']
+    و page شماره صفحه از یک است. خروجی DataFrame است و attrs['HasMore']
     ادامه داشتن فهرست را نشان می‌دهد؛ خروجی به معنی فهرست کامل نیست.
     پارامتر یا پاسخ نامعتبر ValueError و خطاهای شبکه استثنای requests دارند.
     """

@@ -10,6 +10,7 @@ import re
 from email.utils import parsedate_to_datetime
 from contextvars import ContextVar
 from numbers import Integral, Real
+from copy import deepcopy
 from ._data import boolean_series, identifier_series, jalali_date, number_series, gregorian_series, text_or_na
 
 __all__ = ["get_all_funds", "get_daily_navs", "get_daily_asset_allocation",
@@ -80,20 +81,63 @@ def _catalog_frame(frame):
     return result
 
 
-def _tsetmc_fund_frame(frame):
-    names = {"regNo": "RegistrationNumber", "mfName": "FundName", "mfNameEng": "FundEnglishName",
-             "name": "ProviderName", "nameEN": "ProviderNameEN", "fixIncome": "FundTypeID",
-             "fundType": "ProviderFundTypeCode", "fundSize": "ProviderFundSize",
-             "recordDate": "UpdateGregorianDate", "initiationDate": "InceptionGregorianDate",
-             "navSub": "SubscriptionNAV", "navRed": "RedemptionNAV", "navStat": "StatisticalNAV",
-             "netAsset": "TotalNAV", "portfolioFiveBest": "TopFiveStocksWeight",
-             "portfolioStock": "StocksWeight", "portfolioBond": "BondsWeight",
-             "portfolioDeposit": "DepositWeight", "portfolioOther": "OtherAssetsWeight",
-             "portfolioCash": "CashWeight", "dividentIntervalPeriod": "DividendFrequencyMonths",
-             "day1Return": "DailyReturn", "day7Return": "WeeklyReturn", "day30Return": "MonthlyReturn",
-             "day90Return": "QuarterlyReturn", "day180Return": "SemiAnnualReturn",
-             "day365Return": "AnnualReturn", "dayFirstReturn": "ReturnFromInception"}
-    result = frame.rename(columns={c: names.get(c, _column_name(c)) for c in frame}).copy()
+_TSETMC_FUND_NAMES = {
+    "regNo": "RegistrationNumber", "mfName": "FundName", "mfNameEng": "FundEnglishName",
+    "name": "ProviderName", "nameEN": "ProviderNameEN", "fixIncome": "FundTypeID",
+    "fundType": "ProviderFundTypeCode", "fundSize": "ProviderFundSize",
+    "recordDate": "UpdateGregorianDate", "initiationDate": "InceptionGregorianDate",
+    "navSub": "SubscriptionNAV", "navRed": "RedemptionNAV", "navStat": "StatisticalNAV",
+    "netAsset": "TotalNAV", "portfolioFiveBest": "TopFiveStocksWeight",
+    "portfolioStock": "StocksWeight", "portfolioBond": "BondsWeight",
+    "portfolioDeposit": "DepositWeight", "portfolioOther": "OtherAssetsWeight",
+    "portfolioCash": "CashWeight", "dividentIntervalPeriod": "DividendFrequencyMonths",
+    "day1Return": "DailyReturn", "day7Return": "WeeklyReturn", "day30Return": "MonthlyReturn",
+    "day90Return": "QuarterlyReturn", "day180Return": "SemiAnnualReturn",
+    "day365Return": "AnnualReturn", "dayFirstReturn": "ReturnFromInception",
+    "units": "Units", "custodian": "Custodian", "custodianEN": "CustodianEN",
+    "guarantor": "Guarantor", "guarantorEN": "GuarantorEN",
+    "manager": "Manager", "managerEN": "ManagerEN",
+    "investmentManager": "InvestmentManager", "investmentManagerEN": "InvestmentManagerEN",
+    "marketMaker": "MarketMaker", "marketMakerEN": "MarketMakerEN",
+    "auditor": "Auditor", "auditorEN": "AuditorEN",
+    "webSite": "WebSite", "webSiteEN": "WebSiteEN",
+    "guaranteedEarningRate": "GuaranteedEarningRate",
+    "estimatedEarningRate": "EstimatedEarningRate",
+}
+
+# The official NAV chart uses these five fields. Other nested record types do
+# not inherit this mapping merely because their source keys look similar.
+_TSETMC_NAV_NAMES = {key: _TSETMC_FUND_NAMES[key] for key in
+                    ("recordDate", "navSub", "navRed", "navStat", "netAsset")}
+
+
+def _tsetmc_named_fields(record, names):
+    result, metadata = {}, {}
+    for key, value in record.items():
+        if key in names and not isinstance(value, (dict, list)):
+            result[names[key]] = deepcopy(value)
+        else:
+            metadata[key] = deepcopy(value)
+    if metadata:
+        result["ProviderMetadata"] = metadata
+    return result
+
+
+def _tsetmc_fund_object(record):
+    result = _tsetmc_named_fields({k: v for k, v in record.items() if k != "stats"},
+                                 _TSETMC_FUND_NAMES)
+    if "stats" in record:
+        history = record["stats"]
+        if history is not None and (not isinstance(history, list)
+                                    or any(not isinstance(row, dict) for row in history)):
+            raise ValueError("Invalid TSETMC fund stats: expected a list of NAV records or null")
+        result["Stats"] = (None if history is None else
+                           [_tsetmc_named_fields(row, _TSETMC_NAV_NAMES) for row in history])
+    return result
+
+
+def _tsetmc_fund_frame(records):
+    result = pd.DataFrame([_tsetmc_fund_object(record) for record in records])
     for column in result:
         if column in ("RegistrationNumber", "FundTypeID", "ProviderFundTypeCode"):
             result[column] = identifier_series(result[column])
@@ -341,7 +385,7 @@ def _tsetmc_fund_type(value):
 
 
 def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
-    """Return a normalized TSETMC fund-group snapshot (raw details remain separate).
+    """Return a normalized TSETMC fund-group snapshot.
 
     ``fund_type`` accepts a Persian/English group name (e.g. "سهامی",
     "مختلط", "equity", "mixed"); see get_tsetmc_fund_types() for options.
@@ -352,7 +396,8 @@ def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
 
     Return a DataFrame in provider order with canonical English columns,
     numeric NAV/amount/percentage values, string identifiers and pandas
-    Gregorian dates. Nested payloads retain provider keys; no flattening.
+    Gregorian dates. Nested Stats records use semantic public keys. Unverified
+    fields/payloads are preserved only inside explicit ProviderMetadata dicts.
     An explicit empty ``funds`` array returns an empty DataFrame without columns.
 
     Raises ValueError for invalid identifiers, JSON or record/envelope schema;
@@ -369,7 +414,7 @@ def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
     records = data.get("funds") if isinstance(data, dict) else None
     if not isinstance(records, list):
         raise ValueError(f"Invalid TSETMC funds response: {url}")
-    return _tsetmc_fund_frame(pd.DataFrame([_tsetmc_fund_record(record, url) for record in records]))
+    return _tsetmc_fund_frame([_tsetmc_fund_record(record, url) for record in records])
 
 
 def _resolve_tsetmc_fund_name(fund_name, fund_type):
@@ -392,7 +437,7 @@ def _resolve_tsetmc_fund_name(fund_name, fund_type):
 
 
 def get_tsetmc_fund_details(fund_name=None, *, fund_type=None, reg_no=None) -> dict:
-    """Return the complete TSETMC ``fund`` object selected by name or registration.
+    """Return a normalized TSETMC fund dict selected by name or registration.
 
     Supply a full ``fund_name`` positionally or by keyword. Resolve it against
     official catalogs using exact equality after Arabic/Persian letter, English
@@ -407,9 +452,13 @@ def get_tsetmc_fund_details(fund_name=None, *, fund_type=None, reg_no=None) -> d
     from TSETMC, not instrument codes. Do not combine registration selection
     with a fund name or type; conflicting selectors fail before HTTP.
 
-    All fields, including ``stats`` and ``fundProfits``, retain their JSON
-    structure and order. Histories are not sorted, filled or date-converted;
-    detail and list snapshots may have different dates and coverage.
+    Ordinary keys share snapshot meanings: FundName, RegistrationNumber,
+    SubscriptionNAV, RedemptionNAV, StatisticalNAV, TotalNAV, etc. Stats holds
+    NAV records with the same verified field names. Unknown/ambiguous fields
+    (including the unverified fundProfits payload) remain explicitly raw inside
+    ProviderMetadata. No duplicate provider-key aliases or raw option is added.
+    JSON scalar values and history order are preserved: histories are not sorted,
+    filled or date-converted. Detail and list dates/coverage can differ.
 
     Raises ValueError for invalid/conflicting selectors, missing/ambiguous names,
     invalid JSON, malformed records or mismatched registration; requests.RequestException subclasses
@@ -434,7 +483,7 @@ def get_tsetmc_fund_details(fund_name=None, *, fund_type=None, reg_no=None) -> d
     record = _tsetmc_fund_record(data.get("fund") if isinstance(data, dict) else None, url)
     if _tsetmc_fund_identifier(record["regNo"], f"TSETMC regNo at {url}") != reg_no:
         raise ValueError(f"TSETMC fund registration does not match reg_no: {url}")
-    return record
+    return _tsetmc_fund_object(record)
 
 
 def _records(response, key=None):

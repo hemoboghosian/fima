@@ -53,7 +53,7 @@ def mock_get(monkeypatch, data=None, *, status=200, text=None):
 
 
 @pytest.mark.parametrize("fund_type", [6, "6", np.int64(6), 6.0])
-def test_list_normalizes_columns_and_preserves_order_and_nested_values(monkeypatch, fund, fund_type):
+def test_list_normalizes_columns_and_preserves_order_and_explicit_metadata(monkeypatch, fund, fund_type):
     row = dict(fund, recordDate="2026-10-12T00:00:00", stats=None,
                futureField={"source": "unchanged"})
     rows = [row, dict(row, regNo=12250.0, mfName="صندوق دوم")]
@@ -63,7 +63,7 @@ def test_list_normalizes_columns_and_preserves_order_and_nested_values(monkeypat
 
     assert list(result.columns) == ["RegistrationNumber", "ProviderFundTypeCode", "FundTypeID", "FundName",
         "ProviderName", "WebSite", "UpdateGregorianDate", "SubscriptionNAV", "RedemptionNAV", "StatisticalNAV",
-        "DepositWeight", "FundProfits", "Stats", "FutureField"]
+        "DepositWeight", "ProviderMetadata", "Stats"]
     assert result.RegistrationNumber.tolist() == ["11172", "12250"]
     assert result.FundName.tolist() == [row["mfName"] for row in rows]
     assert result.loc[0, "ProviderFundTypeCode"] == "0"
@@ -72,21 +72,28 @@ def test_list_normalizes_columns_and_preserves_order_and_nested_values(monkeypat
     assert result.RedemptionNAV.tolist() == [61734, 61734]
     assert result.StatisticalNAV.tolist() == [61734, 61734]
     assert result.UpdateGregorianDate.tolist() == [pd.Timestamp("2026-10-12")] * 2
-    assert result.loc[0, "FutureField"] == {"source": "unchanged"}
+    assert result.loc[0, "ProviderMetadata"] == {
+        "fundProfits": [], "futureField": {"source": "unchanged"}}
     assert result.loc[0, "Stats"] is None
-    assert result.loc[0, "FundProfits"] == []
     assert calls == [(BASE_URL + "/GetFunds/6", {
         "timeout": 30, "verify": True, "allow_redirects": True,
     })]
 
 
 @pytest.mark.parametrize("reg_no", [11172, "11172", 11172.0, np.float64(11172), np.int64(11172)])
-def test_detail_preserves_full_object_and_unsorted_history(monkeypatch, fund, reg_no):
+def test_detail_normalizes_keys_and_preserves_unsorted_history(monkeypatch, fund, reg_no):
     fund["futureField"] = {"records": [1, None]}
     original = copy.deepcopy(fund)
     calls = mock_get(monkeypatch, {"fund": fund})
 
-    assert Funds.get_tsetmc_fund_details(reg_no) == original
+    result = Funds.get_tsetmc_fund_details(reg_no)
+    assert result["RegistrationNumber"] == original["regNo"]
+    assert result["FundName"] == original["mfName"]
+    assert result["FundTypeID"] == 7 and result["ProviderFundTypeCode"] == 0
+    assert result["SubscriptionNAV"] == original["navSub"]
+    assert [r["UpdateGregorianDate"] for r in result["Stats"]] == [r["recordDate"] for r in original["stats"]]
+    assert result["ProviderMetadata"] == {"fundProfits": [], "futureField": {"records": [1, None]}}
+    assert "regNo" not in result and "mfName" not in result
     assert fund == original
     assert calls[0][0] == BASE_URL + "/GetFundInDetail/11172"
     assert calls[0][1]["verify"] is True
@@ -165,7 +172,8 @@ def test_both_entry_points_export_new_functions():
 def test_optional_detail_fields_can_be_absent_or_null(monkeypatch):
     record = {"regNo": 11172.0, "mfName": None, "stats": None}
     mock_get(monkeypatch, {"fund": record})
-    assert Funds.get_tsetmc_fund_details(11172) == record
+    assert Funds.get_tsetmc_fund_details(11172) == {
+        "RegistrationNumber": 11172.0, "FundName": None, "Stats": None}
 
 
 @pytest.mark.integration
@@ -180,7 +188,7 @@ def test_live_tsetmc_fund_group(fund_type):
 @pytest.mark.integration
 def test_live_tsetmc_fund_detail():
     result = Funds.get_tsetmc_fund_details(11172)
-    assert result["regNo"] == 11172
-    assert result["mfName"]
-    assert isinstance(result["stats"], list) and result["stats"]
-    assert {"recordDate", "navSub", "navRed", "navStat", "netAsset"}.issubset(result["stats"][0])
+    assert result["RegistrationNumber"] == 11172
+    assert result["FundName"]
+    assert isinstance(result["Stats"], list) and result["Stats"]
+    assert {"UpdateGregorianDate", "SubscriptionNAV", "RedemptionNAV", "StatisticalNAV", "TotalNAV"}.issubset(result["Stats"][0])

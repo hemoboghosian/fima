@@ -101,7 +101,7 @@ def test_category_names_and_pagination(provider, category):
     table = TGJU.get_tgju_instruments(category, page=2)
     assert table.Symbol.tolist() == ['price_dollar_rl']
     assert table.Currency.tolist() == ['IRR']
-    assert table.attrs['has_more'] is True and table.attrs['page'] == 2
+    assert table.attrs['HasMore'] is True and table.attrs['Page'] == 2
     params = provider['calls'][-1][1]['params']
     assert params['batch'] == 'internal_currency' and params['page'] == 2
     assert all(call[1]['timeout'] == (10, 30) for call in provider['calls'])
