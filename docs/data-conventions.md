@@ -2,8 +2,8 @@
 
 Public DataFrame columns, ordinary dict keys, Series labels and metadata keys
 use English PascalCase. Python function and parameter names use snake_case.
-The fund-detail and pagination key corrections are unreleased after 0.9.0; see
-the [breaking migration](data-migration.md#unreleased-public-structured-keys).
+The fund-detail and pagination key corrections are published in 0.10.0; see
+the [breaking migration](data-migration.md#fima-0100-public-structured-keys).
 Explicit provenance containers have the following precise exceptions:
 
 - TSETMC fund `ProviderMetadata` preserves unknown/ambiguous source keys and
@@ -61,4 +61,4 @@ Fund details and nested `Stats` keep their existing JSON scalar values/types;
 this focused key correction adds no date/dtype or calculation conversion there.
 TGJU pagination attrs use `Page`, `HasMore` and `SourceURL`.
 
-See [migration notes](data-migration.md) for unreleased keys and 0.9.0 schema/type changes.
+See [migration notes](data-migration.md) for the 0.10.0 structured keys and 0.9.0 schema/type changes.

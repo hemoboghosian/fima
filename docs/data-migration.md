@@ -1,10 +1,10 @@
 # Public-data migration
 
-## Unreleased public structured keys
+## fima 0.10.0 public structured keys
 
-These changes are on development master **after published 0.9.0**. They are
-breaking output-key corrections, not a new published release. Python function
-names and selectors are unchanged; no `raw` parameter or second raw API is added.
+These **breaking output-key corrections** are published in fima 0.10.0. Python
+function names and selectors are unchanged; no `raw` parameter or second raw API
+is added.
 
 - `get_tsetmc_fund_details()` now returns semantic public keys instead of a raw
   provider dict. All explicit mappings in the TSETMC snapshot table under
@@ -135,8 +135,8 @@ All remaining source snake_case fields in leveraged Mabna frames use PascalCase
 formed from the same words. No semantic renaming is inferred for unknown fields.
 The legacy Tadbir `Common` remains distinct and its subtype remains unspecified.
 
-TSETMC snapshot renames in 0.9.0 (details were raw then; the unreleased correction
-above now applies the verified names to ordinary detail/history objects too):
+TSETMC snapshot renames in 0.9.0 (details were raw then; the 0.10.0 correction
+above applies the verified names to ordinary detail/history objects too):
 
 | Source/public old key | New column |
 | --- | --- |
@@ -151,7 +151,7 @@ above now applies the verified names to ordinary detail/history objects too):
 | day1Return / day7Return / day30Return / day90Return / day180Return / day365Return / dayFirstReturn | DailyReturn / WeeklyReturn / MonthlyReturn / QuarterlyReturn / SemiAnnualReturn / AnnualReturn / ReturnFromInception |
 
 In published 0.9.0, other snapshot keys capitalized their existing initial letter
-and nested payload keys stayed raw. The unreleased section supersedes that
+and nested payload keys stayed raw. The 0.10.0 section supersedes that
 fallback for unknown fields and known nested NAV records. The
 source group `fixIncome` is not interchangeable with source `fundType` or with
 Fipiran identifiers. Type-discovery FundTypeID values are also strings; numeric

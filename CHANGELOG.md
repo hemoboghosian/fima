@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 ### Breaking public structured keys
 
@@ -14,8 +14,9 @@
 - Rename TGJU pagination attrs to `Page`/`HasMore`. Public call parameters and
   pagination behavior are unchanged. Existing explicit TGJU provenance and
   Funds unknown-asset metadata remain documented exceptions.
-- See [the complete breaking-key migration](docs/data-migration.md#unreleased-public-structured-keys).
-  No version/tag/release is created by this correction.
+- See [the complete breaking-key migration](docs/data-migration.md#fima-0100-public-structured-keys).
+  The 0.9.0 DataFrame naming, dtype, date, percentage and calculation conventions
+  remain in effect.
 
 ## 0.9.0
 

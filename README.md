@@ -78,7 +78,7 @@ print(funds[["FundName", "FundTypeName", "TotalNAV"]].head())
 
 برای انتخاب صندوق از منبع `TSETMC`، نام گروه و نام کامل صندوق کافی است:
 
-نمونهٔ زیر از نام کلیدهای نسخهٔ در حال توسعه استفاده می‌کند؛ این اصلاح هنوز در نسخهٔ منتشرشدهٔ ۰٫۹٫۰ نیست. تفاوت‌ها در [تغییرات منتشرنشدهٔ راهنمای مهاجرت](docs/data-migration.md#unreleased-public-structured-keys) آمده‌اند.
+نمونهٔ زیر از نام کلیدهای نسخهٔ ۰٫۱۰٫۰ استفاده می‌کند. تفاوت‌های ناسازگار با نسخه‌های پیشین در [راهنمای مهاجرت](docs/data-migration.md#fima-0100-public-structured-keys) آمده‌اند.
 
 ```python
 from fima import get_tsetmc_funds, get_tsetmc_fund_details
