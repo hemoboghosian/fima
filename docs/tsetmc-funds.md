@@ -2,8 +2,8 @@
 
 [User guide](../README.md) | [Fund guide](funds.md) | [Migration](data-migration.md#funds)
 
-The normalized detail/nested keys below are **unreleased**, after PyPI 0.9.0.
-See [the breaking-key migration](data-migration.md#unreleased-public-structured-keys).
+The normalized detail/nested keys below are published in fima 0.10.0.
+See [the breaking-key migration](data-migration.md#fima-0100-public-structured-keys).
 
 ```python
 from fima import get_tsetmc_fund_types, get_tsetmc_funds, get_tsetmc_fund_details
