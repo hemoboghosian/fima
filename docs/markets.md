@@ -108,7 +108,7 @@ ets = get_cbi_ets_rates("USD", transaction_type="all")
 پیش‌فرض آخرین گزارش را می‌دهند؛ برای تاریخچه، هر دو تاریخ ابتدا و انتها را وارد
 کنید. معنی ستون‌ها، واحدها و محدودیت دسترسی منبع در [راهنمای CBI](cbi.md) آمده است.
 
-Public table schemas and analytical model units follow [data conventions](data-conventions.md); see [0.9.0 migration notes](data-migration.md) before upgrading.
+Public table schemas and analytical model units follow [data conventions](data-conventions.md); see the [migration guide](data-migration.md) before upgrading older code.
 
 
 The IFB tables expose YTM/SimpleReturn/CouponPercent in percentage points;
