@@ -109,4 +109,4 @@ schema, percentage units, calendar conversion and provider-access limitations.
 Only these four functions are exported by `from fima.CBI import *`; imports make no
 network requests.
 
-Parsed public data contracts: [conventions](data-conventions.md) and [0.9.0 migration](data-migration.md).
+Parsed public data contracts: [conventions](data-conventions.md) and [migration guide](data-migration.md).
