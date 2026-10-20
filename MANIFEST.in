@@ -2,6 +2,7 @@ include README.md
 include CHANGELOG.md
 include LICENSE
 include docs/tgju.md
+include docs/cbi.md
 
 prune unreleased
 prune test

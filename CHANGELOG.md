@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- New public `fima.CBI` module and package-level `get_cbi_policy_rates()` for
+  official CBI policy-rate history across every dynamically advertised year.
+  Sequential ASP.NET postbacks refresh hidden state; validated semantic headers
+  map interbank, repo cut-off, standing lending and standing deposit rates.
+- Normalized Jalali/Gregorian dates and numeric percentage-point rates, exact
+  deduplication and chronological ordering. Failed years or HTTP-200 CBI access
+  rejections raise clear errors rather than returning partial data.
+- Deterministic CBI tests, separate live validation, public-import verification
+  and a [CBI guide](docs/cbi.md) documenting intermittent provider restrictions.
+
 ## 0.10.0
 
 ### Breaking public structured keys

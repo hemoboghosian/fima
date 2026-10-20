@@ -22,3 +22,4 @@ from .Funds import (get_all_funds, get_daily_navs, get_daily_asset_allocation,
                     get_tsetmc_funds, get_tsetmc_fund_details, get_tsetmc_fund_types)
 from .TGJU import (get_tgju_categories, get_tgju_instruments, get_tgju_market,
                    get_tgju_history, get_tgju_instrument_details)
+from .CBI import get_cbi_policy_rates
