@@ -399,7 +399,7 @@ def _catalog(soup, ets):
         base, _ = _currency_code(code)
         label = cells[2].get_text(" ", strip=True)
         unit, name = _denomination(label, required=ets)
-        result.append(dict(code=code, base=base, name=name, unit=unit,
+        result.append(dict(code=code, base=base, name=name, label=label, unit=unit,
                            checkbox=checkbox["name"], value=checkbox.get("value", "on")))
     if not result or len({r["base"] for r in result}) != len(result):
         raise ValueError("CBI currency catalog is empty or ambiguous")
@@ -412,7 +412,7 @@ def _select_currencies(catalog, queries):
     selected = []
     for query in queries:
         matches = [r for r in catalog if query.strip().upper() in (r["code"], r["base"]) or
-                   _header(_denomination(query)[1]) == _header(r["name"])]
+                   _header(query) in (_header(r["name"]), _header(r["label"]))]
         if len(matches) != 1:
             raise ValueError(f"Unknown or ambiguous CBI currency: {query!r}")
         if matches[0] not in selected:

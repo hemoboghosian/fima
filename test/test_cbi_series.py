@@ -376,3 +376,17 @@ def test_missing_ets_buy_sell_selector_is_not_silently_ignored(provider):
     provider['advanced'] = advanced(True).replace('payPriceDropDown','unexpected')
     with pytest.raises(RuntimeError,match='payPriceDropDown'):
         CBI.get_cbi_ets_rates('USD','cash')
+
+
+@pytest.mark.parametrize('function', ['get_cbi_exchange_rates','get_cbi_ets_rates'])
+def test_unpublished_denomination_name_is_not_an_exact_match(provider,function):
+    with pytest.raises(ValueError,match='currency'):
+        getattr(CBI,function)('یکصد دلار آمریکا')
+    assert all(call[0] == 'get' for call in provider['calls'])
+
+
+def test_published_denomination_label_and_base_name_both_resolve(provider):
+    provider['currencies'] = [('JPY','hundred')]
+    quoted = CBI.get_cbi_ets_rates('یکصد ین ژاپن','cash')
+    base = CBI.get_cbi_ets_rates('ین ژاپن','cash')
+    pd.testing.assert_frame_equal(quoted,base)
