@@ -100,10 +100,13 @@
 ## `fima.CBI`
 
 - `get_cbi_policy_rates()` — complete official policy-rate history across all dynamically advertised years.
+- `get_cbi_inflation_rates(frequency="monthly")` — complete monthly or annual inflation series.
+- `get_cbi_exchange_rates(currency=None, start_date=None, end_date=None, *, jalali=False)` — normal exchange dataset, latest or bounded XML history.
+- `get_cbi_ets_rates(currency=None, transaction_type="all", start_date=None, end_date=None, *, jalali=False)` — separate cash/transfer dataset with buy/sell columns.
 
 Available from `fima` and `fima.CBI`. See the [CBI guide](cbi.md) for the exact
 schema, percentage units, calendar conversion and provider-access limitations.
-Only this function is exported by `from fima.CBI import *`; imports make no
+Only these four functions are exported by `from fima.CBI import *`; imports make no
 network requests.
 
 Parsed public data contracts: [conventions](data-conventions.md) and [0.9.0 migration](data-migration.md).

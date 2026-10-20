@@ -129,6 +129,15 @@ jobs:
           from fima.CBI import get_cbi_policy_rates as direct_cbi_policy_rates
 
           assert get_cbi_policy_rates is direct_cbi_policy_rates
+          from fima import get_cbi_inflation_rates, get_cbi_exchange_rates, get_cbi_ets_rates
+          from fima.CBI import (
+              get_cbi_inflation_rates as direct_cbi_inflation_rates,
+              get_cbi_exchange_rates as direct_cbi_exchange_rates,
+              get_cbi_ets_rates as direct_cbi_ets_rates,
+          )
+          assert get_cbi_inflation_rates is direct_cbi_inflation_rates
+          assert get_cbi_exchange_rates is direct_cbi_exchange_rates
+          assert get_cbi_ets_rates is direct_cbi_ets_rates
 
           installed_version = version("fima")
           expected_version = os.environ["RELEASE_TAG"].removeprefix("v")

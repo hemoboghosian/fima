@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Extend `fima.CBI` with `get_cbi_inflation_rates()` for complete dynamically
+  discovered monthly years and the published annual table, preserving period
+  labels, percentage-point values and base-year notes without invented dates.
+- Add separate `get_cbi_exchange_rates()` and `get_cbi_ets_rates()` APIs using
+  official advanced-search XML exports, latest-day defaults and explicit bounded
+  history. Preserve Iranian-rial quote values and foreign denominations; ETS
+  combines cash/transfer modes with faithful `BuyRate`/`SellRate` columns.
+- Add deterministic/live validation, exports and CBI documentation for units,
+  historical rate regimes, source-provided repeated dates and access limitations.
+  No calendar filling, rate conversion or daily crawling is performed.
+
 ## 0.11.0
 
 ### Added
