@@ -95,14 +95,18 @@ institutions = get_all_institutions()
 ### بانک مرکزی ایران
 
 ```python
-from fima import get_cbi_policy_rates
+from fima import get_cbi_policy_rates, get_cbi_inflation_rates, get_cbi_exchange_rates, get_cbi_ets_rates
 
 rates = get_cbi_policy_rates()
 print(rates.tail())
+inflation = get_cbi_inflation_rates()
+usd = get_cbi_exchange_rates("USD")
+ets = get_cbi_ets_rates("USD", transaction_type="all")
 ```
 
-تمام سال‌های اعلام‌شده به‌صورت خودکار دریافت می‌شوند. معنی ستون‌ها، واحد درصد
-و محدودیت دسترسی منبع در [راهنمای CBI](cbi.md) آمده است.
+سال‌های نرخ سیاستی و تورم به‌صورت خودکار دریافت می‌شوند. توابع ارز و ETS به‌طور
+پیش‌فرض آخرین گزارش را می‌دهند؛ برای تاریخچه، هر دو تاریخ ابتدا و انتها را وارد
+کنید. معنی ستون‌ها، واحدها و محدودیت دسترسی منبع در [راهنمای CBI](cbi.md) آمده است.
 
 Public table schemas and analytical model units follow [data conventions](data-conventions.md); see [0.9.0 migration notes](data-migration.md) before upgrading.
 

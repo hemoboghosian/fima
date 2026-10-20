@@ -267,7 +267,9 @@ def test_public_api_signature_exports_and_import_without_network():
     assert str(inspect.signature(CBI.get_cbi_policy_rates)) == '()'
     namespace = {}
     exec('from fima.CBI import *', namespace)
-    assert set(namespace) - {'__builtins__'} == {'get_cbi_policy_rates'}
+    assert set(namespace) - {'__builtins__'} == {
+        'get_cbi_policy_rates', 'get_cbi_inflation_rates',
+        'get_cbi_exchange_rates', 'get_cbi_ets_rates'}
     subprocess.run([sys.executable, '-c', '''
 import requests
 def fail(*args, **kwargs):
