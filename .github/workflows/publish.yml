@@ -124,6 +124,11 @@ jobs:
           from fima.TSEInstitutions import get_all_institutions
           from fima.TSETMC import get_tickers
           from fima import get_all_funds, get_daily_navs, get_daily_asset_allocation
+          import fima.CBI
+          from fima import get_cbi_policy_rates
+          from fima.CBI import get_cbi_policy_rates as direct_cbi_policy_rates
+
+          assert get_cbi_policy_rates is direct_cbi_policy_rates
 
           installed_version = version("fima")
           expected_version = os.environ["RELEASE_TAG"].removeprefix("v")

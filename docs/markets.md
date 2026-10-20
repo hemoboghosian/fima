@@ -92,6 +92,18 @@ from fima.TSEInstitutions import get_all_institutions
 institutions = get_all_institutions()
 ```
 
+### بانک مرکزی ایران
+
+```python
+from fima import get_cbi_policy_rates
+
+rates = get_cbi_policy_rates()
+print(rates.tail())
+```
+
+تمام سال‌های اعلام‌شده به‌صورت خودکار دریافت می‌شوند. معنی ستون‌ها، واحد درصد
+و محدودیت دسترسی منبع در [راهنمای CBI](cbi.md) آمده است.
+
 Public table schemas and analytical model units follow [data conventions](data-conventions.md); see [0.9.0 migration notes](data-migration.md) before upgrading.
 
 

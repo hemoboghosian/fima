@@ -97,4 +97,13 @@
 
 در `fima.Funds`، واردسازی با `*` و فراخوانی `dir()` فقط شش تابع عمومی بالا را نمایش می‌دهند. توابع کمکی و وابستگی‌های داخلی در این فهرست‌ها ظاهر نمی‌شوند، ولی دسترسی صریح به آن‌ها همچنان ممکن است؛ پایتون آن‌ها را خصوصی و غیرقابل دسترسی نمی‌کند. نمایش تکمیل خودکار در ویرایشگرها ممکن است متفاوت باشد. پارامتر `_set_website_developers` برای سازگاری حفظ شده و همچنان در امضای واقعی `get_all_funds` دیده می‌شود؛ برای دریافت فهرست صندوق‌ها کافی است `get_all_funds()` را فراخوانی کنید.
 
+## `fima.CBI`
+
+- `get_cbi_policy_rates()` — complete official policy-rate history across all dynamically advertised years.
+
+Available from `fima` and `fima.CBI`. See the [CBI guide](cbi.md) for the exact
+schema, percentage units, calendar conversion and provider-access limitations.
+Only this function is exported by `from fima.CBI import *`; imports make no
+network requests.
+
 Parsed public data contracts: [conventions](data-conventions.md) and [0.9.0 migration](data-migration.md).
