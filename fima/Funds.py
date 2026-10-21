@@ -193,7 +193,7 @@ def _fund_label(name):
     name = re.sub(r"^صندوق\s+", "", name)
     # Aghigh's verified provider name changed from مشترک to قابل معامله.
     name = re.sub(r"^(?:مشترک|قابل\s+معامله)\s+", "", name)
-    name = re.sub(r"^(?:در\s+اوراق\s+بهادار\s+)?با\s*درآمد\s+ثابت\s+", "", name)
+    name = re.sub(r"^(?:در\s+اوراق\s+بهادار\s+)?(?:با\s*)?در\s*آمد\s+ثابت\s+", "", name)
     name = re.sub(r"^اختصاصی\s+(?=بازار\s*گردانی)", "", name)
     return re.sub(r"\s|\u200c", "", name)
 
