@@ -48,7 +48,7 @@ def site(monkeypatch, options, *, title=NAME, defaults="var portfolioId = 8;"):
 
 
 @pytest.mark.parametrize("allocation", [False, True])
-@pytest.mark.parametrize("child", ["Unrelated child", "Child (AAA)"])
+@pytest.mark.parametrize("child", ["Unrelated child", "Child (AAA)", f"{NAME} (AAA)"])
 def test_canonical_parent_uses_published_default_not_ticker_or_catalog_group(monkeypatch, allocation, child):
     calls = site(monkeypatch, f'<option value="2">{child}</option>')
     download = Funds.get_daily_asset_allocation if allocation else Funds.get_daily_navs
@@ -81,5 +81,12 @@ def test_parent_identity_requires_matching_title_and_unambiguous_published_defau
 
 def test_canonical_default_does_not_hide_conflicting_named_selector_ids(monkeypatch):
     site(monkeypatch, f'<option value="7">{NAME}</option><option value="9">{NAME}</option>')
+    with pytest.raises(ValueError, match="Tadbir.*identity"):
+        Funds.get_daily_navs(NAME)
+
+
+@pytest.mark.parametrize("defaults", ["", "var portfolioId = -1;", "var portfolioId = 8; var portfolioId = -1;"])
+def test_invalid_parent_default_does_not_fall_back_to_a_child_ticker(monkeypatch, defaults):
+    site(monkeypatch, '<option value="2">Child (AAA)</option>', defaults=defaults)
     with pytest.raises(ValueError, match="Tadbir.*identity"):
         Funds.get_daily_navs(NAME)
