@@ -1,4 +1,4 @@
-﻿"""Observed fixed-income legal spellings identify the same provider fund."""
+"""Observed fixed-income legal spellings identify the same provider fund."""
 import pytest
 import fima.Funds as Funds
 from .test_funds_coverage import public_fund, mabna_nav, current_assets
