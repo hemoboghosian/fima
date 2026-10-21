@@ -18,9 +18,10 @@ MIGRATIONS = [
 def setup_site(monkeypatch, migration, allocation, *, registration=None, info=None, error=None):
     old, expected, current, name, ticker, display = migration
     public_fund(monkeypatch, "شرکت رایان هم افزا", name=name, kind="در سهام-بخشی")
+    instrument = "37828981835497620" if expected == "12093" else "42799209630949274"
     catalog = pd.DataFrame([{"FundName": name, "FundTypeName": "در سهام-بخشی", "FundTypeID": "21",
                              "WebsiteAddress": old, "RegistrationNumber": registration or expected,
-                             "GroupId": "0", "Ticker": ticker}])
+                             "GroupId": "0", "Ticker": ticker, "InstrumentCode": instrument}])
     monkeypatch.setattr(Funds, "get_all_funds", lambda **kwargs: catalog.copy())
     calls = []
     def get(url, **kwargs):
@@ -34,7 +35,8 @@ def setup_site(monkeypatch, migration, allocation, *, registration=None, info=No
                 raise error
             return response({"dsCode": expected} if info is None else info, url=url)
         if url.endswith("/fundItems"):
-            return response([{"fundId": 1, "fundName": display}], url=url)
+            return response([{"fundId": 1, "fundName": display,
+                              "tsetmcUrl": f"https://tsetmc.ir/InstInfo/{instrument}"}], url=url)
         if url.endswith("/dailyAssetStructure/1"):
             return response([allocation], url=url)
         assert url.endswith("/nav/1")
