@@ -177,6 +177,14 @@ NIKA_MANUAL_CONFIGS = \
 NO_PUBLIC_NAV_FUND_TYPES = {"جسورانه", "زمین و ساختمان", "خصوصی", "پروژه‌ای"}
 _fund_request_context = ContextVar("fund_request_context", default=None)
 
+# Official migrations independently verified against public SEO registrations.
+# Vista's manager links the replacement at vistaamc.ir/products/behinkhodro;
+# Agah's replacement publishes registration 12093 and its original instrument.
+_OFFICIAL_FUND_WEBSITES = {
+    ("12093", "petroagahfund.ir"): "agahsectorfund.ir",
+    ("12168", "vistakhodro.ir"): "vistasectorfund.ir",
+}
+
 # Labels/selectors verified against TSETMC's public fund menu.
 _TSETMC_FUND_TYPES = (
     (6, "سهامی", "equity"), (7, "مختلط", "mixed"),
@@ -1526,6 +1534,27 @@ def _build_nika_nav_url(website: str, start_date: str, end_date: str, page_size:
 
 
 # PUBLIC FUNCTIONS
+def _history_website(website, catalog):
+    context = _fund_request_context.get()
+    row = context["row"]
+    host = _normalize_website_host(website)
+    target = _OFFICIAL_FUND_WEBSITES.get((str(row.get("RegistrationNumber")), host))
+    if (target is None or str(row.get("FundTypeID")) == "11"
+            or row["FundTypeName"] == "اختصاصی بازارگردانی"):
+        return website
+    info = _safe_get_json(f"https://{target}/api/v1/public/siteInfo")
+    if not isinstance(info, dict) or str(info.get("dsCode")) != str(row["RegistrationNumber"]):
+        raise ValueError(f"Invalid fund-domain migration identity for {row['FundName']} | {target}")
+    # Keep the raw public catalog intact. Provider resolution uses the verified
+    # replacement consistently for this call, including catalog uniqueness.
+    resolved = catalog.copy()
+    resolved.loc[resolved["WebsiteAddress"].map(_normalize_website_host).eq(host), "WebsiteAddress"] = target
+    context["catalog"] = resolved
+    context["row"] = row.copy()
+    context["row"]["WebsiteAddress"] = target
+    return target
+
+
 def _get_fund_history(fund_name, allocation):
     all_funds = get_all_funds(_set_website_developers=False)
     row = _get_fund_row(fund_name, all_funds)
@@ -1538,6 +1567,7 @@ def _get_fund_history(fund_name, allocation):
     session = requests.Session()
     token = _fund_request_context.set({"row": row, "session": session})
     try:
+        website = _history_website(website, all_funds)
         developer = _detect_website_developer(website=website)
         if allocation:
             parsers = {
