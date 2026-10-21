@@ -45,5 +45,7 @@ print(asset_allocation.head())
 
 این پشتیبانی تضمین دانلود همه صندوق‌ها نیست: گواهی نامعتبر، سایت غیرقابل دسترس، نبودن داده عمومی، نام‌های متفاوت یا ارائه‌دهنده پشتیبانی‌نشده همچنان می‌توانند مانع دریافت شوند. بررسی HTTPS برای رفع این محدودیت‌ها غیرفعال نمی‌شود.
 
+اگر نشانی فیپیران قدیمی باشد، دریافت تاریخچه فقط برای انتقال‌های رسمی تأییدشده از نشانی جدید استفاده می‌کند و شماره ثبت نزد سازمان بورس را از اطلاعات عمومی مقصد دوباره کنترل می‌کند. ستون `WebsiteAddress` فهرست خام فیپیران تغییر نمی‌کند. انتقال رسمی دامنه با نادیده گرفتن خطای گواهی HTTPS تفاوت دارد؛ خطای گواهی یا شبکه مقصد نیز پنهان نمی‌شود.
+
 
 Public contracts now use `FundName`, `FundTypeName`, string identifiers and `JalaliDate` strings. NAV columns are per unit; aggregates are separate (`TotalSubscriptionNAV` for Mabna buy-basis totals). Weight columns have no spaces; TopFiveStocks denotes five holdings, not five percent. Unknown asset labels are preserved inside `ProviderAssets`. Missing amounts/weights remain missing. Full [migration](data-migration.md#funds) and [conventions](data-conventions.md) document breaking schemas and dtypes.
