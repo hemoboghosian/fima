@@ -356,6 +356,16 @@ def _tadbir_basket_id(website):
     return context["tadbir_id"]
 
 
+def _mabna_registered_page(website):
+    soup = BeautifulSoup(_request("GET", f"https://{website}").text, "html.parser")
+    text = text_or_na(soup.get_text(" ", strip=True))
+    registrations = set(re.findall(r"(?<![0-9])([0-9]{4,6})\s+نزد\s+سازمان\s+بورس\b", str(text)))
+    registrations.update(re.findall(
+        r"شماره\s+ثبت\s+نزد\s+سازمان\s+بورس(?:\s+و\s+اوراق\s+بهادار)?\s+([0-9]{4,6})\b", str(text)))
+    registration = _fund_request_context.get()["row"].get("RegistrationNumber")
+    return soup, pd.notna(registration) and registrations == {str(registration)}
+
+
 def _mabna_portfolio_id(website):
     context = _fund_request_context.get()
     if context is None:
@@ -368,7 +378,31 @@ def _mabna_portfolio_id(website):
             items = data.get("data") if isinstance(data, dict) else None
             if not isinstance(items, list) or not items:
                 raise ValueError("Invalid Mabna portfolio identity response")
-            context["mabna_id"] = _select_fund_id(items, "id", "name", "Mabna")
+            if any(not isinstance(item, dict) or "id" not in item or "name" not in item for item in items):
+                raise ValueError("Invalid Mabna portfolio identity response")
+            row = context["row"]
+            non_market_maker = str(row.get("FundTypeID")) != "11" and row["FundTypeName"] != "اختصاصی بازارگردانی"
+            if len(items) > 1 and non_market_maker:
+                soup, registered = _mabna_registered_page(website)
+                if soup.title is not None and _fund_label(soup.title.get_text(" ", strip=True)) == _fund_label(row["FundName"]):
+                    if not registered or not _unique_catalog_identity(website, "FundName"):
+                        raise ValueError(f"Invalid Mabna canonical fund identity for {row['FundName']}")
+                    # The public report initializes its symbol as undefined:
+                    # omitting portfolio_id selects the legal fund aggregate.
+                    context["mabna_id"] = None
+                    return None
+            try:
+                value = _select_fund_id(items, "id", "name", "Mabna")
+            except NotImplementedError:
+                if not non_market_maker or len(items) != 1 or not _unique_catalog_identity(website):
+                    raise
+                _, registered = _mabna_registered_page(website)
+                if not registered:
+                    raise
+                value = items[0]["id"]
+            if not re.fullmatch(r"[1-9]\d*", str(value)):
+                raise ValueError(f"Invalid Mabna fund identity: {value!r}")
+            context["mabna_id"] = int(value)
     return context["mabna_id"]
 
 
@@ -1263,9 +1297,15 @@ def _mabna_asset_frame(records, current):
 def _get_daily_asset_allocation_mabna(fund_name: str) -> pd.DataFrame:
     fund_website = _get_fund_website_address(fund_name)
     url = f"https://{fund_website}/api/v2/public/reports/daily-assets"
-    data = _mabna_report_records(url, {"portfolio_id": _mabna_portfolio_id(fund_website), "size": 1000000})
+    portfolio_id = _mabna_portfolio_id(fund_website)
+    params = {"size": 1000000}
+    if portfolio_id is not None:
+        params["portfolio_id"] = portfolio_id
+    data = _mabna_report_records(url, params)
     if data is not None:
         return _mabna_asset_frame(data, current=True)
+    if portfolio_id is None:
+        raise ValueError(f"No Mabna canonical asset report: {url}")
     url = f"https://{fund_website}/api/v1/overall/allassetsdaily.json"
     response = _request("GET", url)
     data = _records(response)[0]
@@ -1277,7 +1317,10 @@ def _get_daily_asset_allocation_mabna(fund_name: str) -> pd.DataFrame:
 def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     url = f"https://{website}/api/v2/public/reports/navps"
-    params = {**_mabna_nav_params(1000000), "portfolio_id": _mabna_portfolio_id(website)}
+    params = _mabna_nav_params(1000000)
+    portfolio_id = _mabna_portfolio_id(website)
+    if portfolio_id is not None:
+        params["portfolio_id"] = portfolio_id
     records = _mabna_report_records(url, params)
     if records is None:
         raise ValueError(f"No Mabna NAV report: {url}")
@@ -1297,7 +1340,8 @@ def _get_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
 def _get_leveraged_daily_navs_mabna(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     portfolio_id = _mabna_portfolio_id(website)
-    url = f"https://{website}/api/v2/public/fund/chart?portfolio_id={portfolio_id}"
+    query = "" if portfolio_id is None else f"?portfolio_id={portfolio_id}"
+    url = f"https://{website}/api/v2/public/fund/chart{query}"
     response = _request("GET", url)
     navs = pd.DataFrame(_records(response, "data"))
     navs['date_time'] = pd.to_datetime(navs['date_time']).dt.date
