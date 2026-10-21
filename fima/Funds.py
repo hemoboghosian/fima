@@ -236,6 +236,53 @@ def _select_fund_id(items, id_key, name_key, provider):
     return int(value)
 
 
+def _unique_catalog_identity(website, column=None):
+    context = _fund_request_context.get()
+    catalog = context.get("catalog")
+    identity = ["FundName", "RegistrationNumber", "GroupId"]
+    if catalog is None or any(key not in catalog for key in identity + ["WebsiteAddress"]):
+        return False
+    matches = catalog[catalog["WebsiteAddress"].map(_normalize_website_host).eq(_normalize_website_host(website))]
+    if column is not None:
+        value = context["row"].get(column)
+        if column not in matches or pd.isna(value):
+            return False
+        matches = matches[matches[column].eq(value).fillna(False)]
+    return len(matches[identity].drop_duplicates()) == 1
+
+
+def _rayan_instrument_id(items, website):
+    row = _fund_request_context.get()["row"]
+    code = row.get("InstrumentCode")
+    if not isinstance(code, str) or not re.fullmatch(r"[1-9]\d*", code):
+        return None
+    matches, has_instruments = set(), False
+    for item in items:
+        url = item.get("tsetmcUrl")
+        if url is not None and not isinstance(url, str):
+            raise ValueError("Invalid Rayan fund instrument reference")
+        reference = urlparse(url or "")
+        if (reference.scheme in ("http", "https") and reference.username is None
+                and reference.hostname in ("tsetmc.ir", "www.tsetmc.ir", "tsetmc.com", "www.tsetmc.com")
+                and re.fullmatch(r"/InstInfo/[1-9]\d*/?", reference.path)
+                and not reference.query and not reference.fragment):
+            has_instruments = True
+            if reference.path.rstrip("/") == f"/InstInfo/{code}":
+                matches.add(str(item["fundId"]))
+    if not matches:
+        if has_instruments:
+            raise NotImplementedError(f"Cannot resolve Rayan identity for fund {row['FundName']}; "
+                                      "the published instruments disagree with the catalog")
+        return None
+    if len(matches) != 1 or not _unique_catalog_identity(website, "InstrumentCode"):
+        named = [item for item in items if _fund_label(item["fundName"]) == _fund_label(row["FundName"])]
+        if named:
+            return _select_fund_id(named, "fundId", "fundName", "Rayan")
+        raise NotImplementedError(f"Cannot resolve Rayan identity for fund {row['FundName']}; "
+                                  "the instrument identifies multiple funds or unit classes")
+    return next(iter(matches))
+
+
 def _rayan_fund_id(website):
     context = _fund_request_context.get()
     if context is None:
@@ -247,7 +294,30 @@ def _rayan_fund_id(website):
         else:
             if not isinstance(data, list) or not data:
                 raise NotImplementedError(f"No Rayan identity for fund {context['row']['FundName']}")
-            context["rayan_id"] = _select_fund_id(data, "fundId", "fundName", "Rayan")
+            if any(not isinstance(item, dict) or "fundId" not in item or "fundName" not in item for item in data):
+                raise ValueError("Invalid Rayan fund identity response")
+            row = context["row"]
+            non_market_maker = str(row.get("FundTypeID")) != "11" and row["FundTypeName"] != "اختصاصی بازارگردانی"
+            value = _rayan_instrument_id(data, website) if non_market_maker else None
+            if value is None:
+                try:
+                    value = _select_fund_id(data, "fundId", "fundName", "Rayan")
+                except NotImplementedError:
+                    # dsCode is the SEO registration; submitCode is a different
+                    # company-registration number. A multi-fund default is not
+                    # sufficient evidence for a parent or another unit class.
+                    if not non_market_maker or len(data) != 1 or not _unique_catalog_identity(website):
+                        raise
+                    info = _safe_get_json(f"https://{website}/api/v1/public/siteInfo")
+                    registration = row.get("RegistrationNumber")
+                    if (pd.isna(registration) or not isinstance(info, dict)
+                            or str(info.get("dsCode")) != str(registration)
+                            or str(info.get("defaultFundId")) != str(data[0]["fundId"])):
+                        raise
+                    value = data[0]["fundId"]
+            if not re.fullmatch(r"[1-9]\d*", str(value)):
+                raise ValueError(f"Invalid Rayan fund identity: {value!r}")
+            context["rayan_id"] = int(value)
     return context["rayan_id"]
 
 
@@ -1565,7 +1635,7 @@ def _get_fund_history(fund_name, allocation):
         raise ValueError(f"Fund does not have {kind}: {fund_name}")
     website = row["WebsiteAddress"]
     session = requests.Session()
-    token = _fund_request_context.set({"row": row, "session": session})
+    token = _fund_request_context.set({"row": row, "catalog": all_funds, "session": session})
     try:
         website = _history_website(website, all_funds)
         developer = _detect_website_developer(website=website)
