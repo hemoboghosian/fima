@@ -440,6 +440,12 @@ def _request(method: str, url: str, timeout=30, **kwargs):
                 time.sleep(delay)
                 continue
         response.raise_for_status()
+        # Some public providers return an explicit rejection page with HTTP 200.
+        # Surface it without retrying or misclassifying it as an unknown API.
+        preview = response.content[:4096].lstrip()
+        if preview.startswith(b"<") and re.search(br"<title\s*>\s*WAF\s*</title\s*>", preview, re.IGNORECASE):
+            raise requests.RequestException(f"Funds provider access rejected (WAF): {url}",
+                                            request=response.request, response=response)
         return response
 
 
@@ -1535,6 +1541,62 @@ def _get_daily_asset_allocation_noavaran(fund_name: str) -> pd.DataFrame:
 
 
 # Nika
+def _get_daily_asset_allocation_nika(fund_name: str) -> pd.DataFrame:
+    row = _get_fund_row(fund_name)
+    try:
+        inception = jalali_date(row.get("InceptionJalaliDate"))
+        start = jd.date(*map(int, inception.split("-"))).togregorian()
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError(f"Invalid Nika inception date for {fund_name}") from exc
+    end = dt.date.today()
+    if start > end:
+        raise ValueError(f"Invalid future Nika inception date for {fund_name}")
+    config = _get_nika_config_by_host(row["WebsiteAddress"])
+    if not config or not config.get("oakPath") or not config.get("pamCode"):
+        raise NotImplementedError(f"No public Nika allocation configuration for {fund_name}")
+    api_path = config["apiPath"].replace("https://", "").replace("http://", "").strip("/")
+    url = f"https://{api_path}/{config['oakPath'].strip('/')}/portfolio-composition/daily-asset-percentage"
+    fields = {"top5Stock": "TopFiveStocks", "otherStock": "OtherStocks", "bond": "Bonds", "cd": "CDs",
+              "cashAndBank": "CashAndBank", "mutualFund": "FundUnits",
+              "goldAndBar": "GoldAndBar", "otherAssets": "OtherAssets"}
+    rows, seen = [], set()
+    # Oak rejects dates outside its fiscal history and large ranges time out.
+    # Query disjoint inclusive windows back to the catalog's actual inception.
+    while end >= start:
+        lower = max(start, end - dt.timedelta(days=89))
+        data = _decode_json(_request("GET", url, params={"pamCode": config["pamCode"],
+                            "fromDate": lower.isoformat(), "toDate": end.isoformat()}))
+        if not isinstance(data, list):
+            raise ValueError("Invalid Nika historical allocation records")
+        for item in data:
+            required = {"onDate", *fields, *(name + "Percent" for name in fields)}
+            if not isinstance(item, dict) or not required.issubset(item):
+                raise ValueError("Missing Nika historical allocation fields")
+            try:
+                value = item["onDate"]
+                if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:T.*)?", value):
+                    raise ValueError("Expected an ISO effective date")
+                date = pd.Timestamp(value).date()
+            except (ValueError, TypeError) as exc:
+                raise ValueError("Invalid Nika allocation effective date") from exc
+            if not lower <= date <= end or date in seen:
+                raise ValueError("Nika allocation dates repeat or fall outside the requested window")
+            seen.add(date)
+            result = {"Date": _gregorian_to_jalali(date)}
+            for name, target in fields.items():
+                result[target] = item[name]
+                result[target + " Weight"] = item[name + "Percent"]
+            rows.append(result)
+        end = lower - dt.timedelta(days=1)
+    if not rows:
+        raise ValueError(f"No Nika historical allocation data for {fund_name}")
+    frame = pd.DataFrame(rows)
+    for column in frame:
+        if column != "Date":
+            frame[column] = number_series(frame[column])
+    return frame.sort_values("Date", ascending=False).reset_index(drop=True)
+
+
 def _get_daily_navs_nika(fund_name: str) -> pd.DataFrame:
     fund_website = _get_fund_website_address(fund_name)
     url = _build_nika_nav_url(website=fund_website, start_date="2000-01-01", end_date=dt.date.today().isoformat(),
@@ -1612,9 +1674,11 @@ def _extract_nika_config_from_html(html: str):
     basket_id = find_value("basketId")
     fund_id = find_value("fundId")
     pam_code = find_value("pamCode")
+    oak_path = find_value("oakPath")
     if api_path and hive_path and basket_id and fund_id:
         return {"apiPath": api_path.strip("/"), "hivePath": hive_path.strip("/"), "basketId": str(basket_id),
-                "fundId": str(fund_id), "pamCode": pam_code}
+                "fundId": str(fund_id), "pamCode": pam_code,
+                **({"oakPath": oak_path.strip("/")} if oak_path else {})}
     return None
 
 
@@ -1624,10 +1688,15 @@ def _get_nika_config_by_host(host: str):
         return None
     if host in NIKA_MANUAL_CONFIGS:
         return NIKA_MANUAL_CONFIGS[host]
+    context = _fund_request_context.get()
+    if context is not None and host in context.get("nika_configs", {}):
+        return context["nika_configs"][host]
     for base_url in _build_base_urls(host):
         html = _safe_get_text(base_url)
         config = _extract_nika_config_from_html(html)
         if config is not None:
+            if context is not None:
+                context.setdefault("nika_configs", {})[host] = config
             return config
     return None
 
@@ -1691,6 +1760,7 @@ def _get_fund_history(fund_name, allocation):
                 "پیکاد": _get_daily_asset_allocation_pikad,
                 "راهکار حامی پرداز": _get_daily_asset_allocation_rahkar,
                 "نوآوران": _get_daily_asset_allocation_noavaran,
+                "سامانه هوشمند نیکا سرمایه": _get_daily_asset_allocation_nika,
             }
         else:
             leveraged = row["FundTypeName"] == "در سهام-سهامی اهرمی"
@@ -1777,6 +1847,8 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
         Existing provider units are preserved. Current Mabna reports also
         retain additional known asset amounts and Weight columns. Unknown
         source-language asset labels remain in ProviderAssets metadata.
+        Nika history uses effective onDate, rial amounts and percentage-point
+        weights; GoldAndBar preserves its distinct published asset category.
 
     Raises
     ------
@@ -1788,7 +1860,8 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
         exposing only market-maker baskets does not supply aggregate daily
         allocation for the parent fund.
     requests.RequestException
-        For connection, timeout, certificate, or HTTP errors from a provider.
+        For connection, timeout, certificate, HTTP errors or an explicit WAF
+        access-rejection page from a provider.
     """
     return _allocation_frame(_get_fund_history(fund_name, allocation=True))
 
