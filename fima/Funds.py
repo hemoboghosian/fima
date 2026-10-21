@@ -5,7 +5,7 @@ import datetime as dt
 from bs4 import BeautifulSoup
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import re
 from email.utils import parsedate_to_datetime
 from contextvars import ContextVar
@@ -1056,6 +1056,28 @@ def _get_daily_total_nav_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     return _tadbir_chart(_decode_json(_request("GET", url)), {"": "TotalNAV"})
 
 
+def _tadbir_asset_page_params(params, href):
+    """Keep the published date window and independently resolved basket."""
+    names = {name.casefold(): name for name in ("page", "basketId", "FromDate", "ToDate")}
+    query = {}
+    for name, values in parse_qs(urlparse(href or "").query, keep_blank_values=True).items():
+        key = names.get(name.casefold())
+        if key is not None:
+            if len(values) != 1 or key in query:
+                raise ValueError("Ambiguous Tadbir asset pagination parameters")
+            query[key] = values[0]
+    result = {**params, "page": params["page"] + 1}
+    for key in ("page", "basketId"):
+        if key in query and query[key] != str(result[key]):
+            raise ValueError("Tadbir asset pagination changes the basket or skips pages")
+    for key in ("FromDate", "ToDate"):
+        if key in query:
+            if key in params and params[key] != query[key]:
+                raise ValueError("Tadbir asset pagination changes the date window")
+            result[key] = query[key]
+    return result
+
+
 def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     website = _get_fund_website_address(fund_name)
     fund_id = _tadbir_basket_id(website)
@@ -1084,8 +1106,7 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
         # Check if there is a next page
         next_page_link = soup.select_one("tfoot .pager a[title='Next page']")
         if next_page_link:
-            # Update page number in query params
-            params["page"] += 1
+            params = _tadbir_asset_page_params(params, next_page_link.get("href"))
             time.sleep(0.3)  # be polite
         else:
             break
