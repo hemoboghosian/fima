@@ -211,18 +211,22 @@ def _select_fund_id(items, id_key, name_key, provider):
     row = context["row"]
     name = _fund_label(row["FundName"])
     ticker = row.get("Ticker")
-    matches = set()
+    matches, aliases, ticker_matches = set(), set(), set()
     for item in items:
         if not isinstance(item, dict) or name_key not in item or id_key not in item:
             raise ValueError(f"Invalid {provider} fund identity response")
         label = str(item[name_key])
         base_name = re.sub(r"\([^()]*\)\s*$", "", label)
         tickers = re.findall(r"\(([^()]*)\)", label)
-        if (_fund_label(label) == name or _fund_label(base_name) == name
-                or isinstance(ticker, str) and ticker.strip()
+        if _fund_label(label) == name:
+            matches.add(str(item[id_key]))
+        elif _fund_label(base_name) == name:
+            aliases.add(str(item[id_key]))
+        elif (isinstance(ticker, str) and ticker.strip()
                 and (_fund_label(ticker) == _fund_label(label)
                      or any(_fund_label(ticker) == _fund_label(t) for t in tickers))):
-            matches.add(str(item[id_key]))
+            ticker_matches.add(str(item[id_key]))
+    matches = matches or aliases or ticker_matches
     if len(matches) != 1:
         raise NotImplementedError(f"Cannot resolve {provider} identity for fund {row['FundName']}; "
                                   "the website may expose only underlying baskets")
@@ -261,6 +265,20 @@ def _tadbir_basket_id(website):
             options = {(option.get("value"), option.get_text(strip=True))
                        for selector in selectors for option in selector.select("option")}
             items = [{"id": value, "name": name} for value, name in options]
+            row = context["row"]
+            name = _fund_label(row["FundName"])
+            # The canonical parent can be omitted from every selector, while
+            # a child shares its ticker or its name followed by that ticker.
+            # Only a matching page title and one explicit positive default
+            # identify that parent; neither GroupId nor an arbitrary ID does.
+            if (str(row.get("FundTypeID")) != "11" and row["FundTypeName"] != "اختصاصی بازارگردانی"
+                    and not any(_fund_label(item["name"]) == name for item in items)
+                    and soup.title is not None and _fund_label(soup.title.get_text(" ", strip=True)) == name):
+                defaults = {value.strip() for script in soup.select("script:not([src])")
+                            for value in re.findall(r"\bvar\s+portfolioId\s*=\s*([^;]+);", script.get_text())}
+                if len(defaults) != 1 or not re.fullmatch(r"[1-9]\d*", next(iter(defaults))):
+                    raise ValueError(f"Tadbir canonical fund identity is missing or ambiguous for {row['FundName']}")
+                items.append({"id": next(iter(defaults)), "name": row["FundName"]})
             try:
                 context["tadbir_id"] = _select_fund_id(items, "id", "name", "Tadbir")
             except NotImplementedError as exc:
