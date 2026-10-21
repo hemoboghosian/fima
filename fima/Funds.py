@@ -174,7 +174,6 @@ NIKA_MANUAL_CONFIGS = \
     }
 
 
-NO_PUBLIC_NAV_FUND_TYPES = {"جسورانه", "زمین و ساختمان", "خصوصی", "پروژه‌ای"}
 _fund_request_context = ContextVar("fund_request_context", default=None)
 
 # Official migrations independently verified against public SEO registrations.
@@ -1639,11 +1638,8 @@ def _autoset_website_developers(all_funds: pd.DataFrame, max_workers: int = 10) 
     results = {}
     def safe_detect(row):
         address = row.get("WebsiteAddress")
-        fund_type = row.get("FundTypeName")
         if pd.isna(address):
             return "No Address"
-        if fund_type in NO_PUBLIC_NAV_FUND_TYPES:
-            return "No Public NAV"
         return _detect_website_developer(address)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {executor.submit(safe_detect, row): index for index, row in all_funds.iterrows()}
@@ -1742,8 +1738,6 @@ def _get_fund_history(fund_name, allocation):
     all_funds = get_all_funds(_set_website_developers=False)
     row = _get_fund_row(fund_name, all_funds)
     kind = "daily asset allocations" if allocation else "daily NAVs"
-    if row["FundTypeName"] in NO_PUBLIC_NAV_FUND_TYPES:
-        raise ValueError(f"Fund type does not have {kind}: {row['FundTypeName']}")
     if fund_name == "صندوق تثبیت بازار سرمایه":
         raise ValueError(f"Fund does not have {kind}: {fund_name}")
     website = row["WebsiteAddress"]

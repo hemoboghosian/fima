@@ -110,7 +110,7 @@ def test_get_daily_asset_allocation_invalid_fund_name_raises(monkeypatch):
         Funds.get_daily_asset_allocation("__INVALID_FUND_NAME__")
 
 
-def test_get_daily_asset_allocation_no_public_nav_type_raises(monkeypatch):
+def test_get_daily_asset_allocation_unsupported_provider_raises(monkeypatch):
     fake_funds = pd.DataFrame(
         [
             {
@@ -127,7 +127,8 @@ def test_get_daily_asset_allocation_no_public_nav_type_raises(monkeypatch):
         lambda _set_website_developers=False: fake_funds,
     )
 
-    with pytest.raises(ValueError):
+    monkeypatch.setattr(Funds, "_detect_website_developer", lambda website: "Unknown")
+    with pytest.raises(NotImplementedError, match="Unknown"):
         Funds.get_daily_asset_allocation("Fund A")
 
 
