@@ -177,6 +177,14 @@ NIKA_MANUAL_CONFIGS = \
 NO_PUBLIC_NAV_FUND_TYPES = {"جسورانه", "زمین و ساختمان", "خصوصی", "پروژه‌ای"}
 _fund_request_context = ContextVar("fund_request_context", default=None)
 
+# Official migrations independently verified against public SEO registrations.
+# Vista's manager links the replacement at vistaamc.ir/products/behinkhodro;
+# Agah's replacement publishes registration 12093 and its original instrument.
+_OFFICIAL_FUND_WEBSITES = {
+    ("12093", "petroagahfund.ir"): "agahsectorfund.ir",
+    ("12168", "vistakhodro.ir"): "vistasectorfund.ir",
+}
+
 # Labels/selectors verified against TSETMC's public fund menu.
 _TSETMC_FUND_TYPES = (
     (6, "سهامی", "equity"), (7, "مختلط", "mixed"),
@@ -203,18 +211,22 @@ def _select_fund_id(items, id_key, name_key, provider):
     row = context["row"]
     name = _fund_label(row["FundName"])
     ticker = row.get("Ticker")
-    matches = set()
+    matches, aliases, ticker_matches = set(), set(), set()
     for item in items:
         if not isinstance(item, dict) or name_key not in item or id_key not in item:
             raise ValueError(f"Invalid {provider} fund identity response")
         label = str(item[name_key])
         base_name = re.sub(r"\([^()]*\)\s*$", "", label)
         tickers = re.findall(r"\(([^()]*)\)", label)
-        if (_fund_label(label) == name or _fund_label(base_name) == name
-                or isinstance(ticker, str) and ticker.strip()
+        if _fund_label(label) == name:
+            matches.add(str(item[id_key]))
+        elif _fund_label(base_name) == name:
+            aliases.add(str(item[id_key]))
+        elif (isinstance(ticker, str) and ticker.strip()
                 and (_fund_label(ticker) == _fund_label(label)
                      or any(_fund_label(ticker) == _fund_label(t) for t in tickers))):
-            matches.add(str(item[id_key]))
+            ticker_matches.add(str(item[id_key]))
+    matches = matches or aliases or ticker_matches
     if len(matches) != 1:
         raise NotImplementedError(f"Cannot resolve {provider} identity for fund {row['FundName']}; "
                                   "the website may expose only underlying baskets")
@@ -323,6 +335,20 @@ def _tadbir_basket_id(website):
             options = {(option.get("value"), option.get_text(strip=True))
                        for selector in selectors for option in selector.select("option")}
             items = [{"id": value, "name": name} for value, name in options]
+            row = context["row"]
+            name = _fund_label(row["FundName"])
+            # The canonical parent can be omitted from every selector, while
+            # a child shares its ticker or its name followed by that ticker.
+            # Only a matching page title and one explicit positive default
+            # identify that parent; neither GroupId nor an arbitrary ID does.
+            if (str(row.get("FundTypeID")) != "11" and row["FundTypeName"] != "اختصاصی بازارگردانی"
+                    and not any(_fund_label(item["name"]) == name for item in items)
+                    and soup.title is not None and _fund_label(soup.title.get_text(" ", strip=True)) == name):
+                defaults = {value.strip() for script in soup.select("script:not([src])")
+                            for value in re.findall(r"\bvar\s+portfolioId\s*=\s*([^;]+);", script.get_text())}
+                if len(defaults) != 1 or not re.fullmatch(r"[1-9]\d*", next(iter(defaults))):
+                    raise ValueError(f"Tadbir canonical fund identity is missing or ambiguous for {row['FundName']}")
+                items.append({"id": next(iter(defaults)), "name": row["FundName"]})
             try:
                 context["tadbir_id"] = _select_fund_id(items, "id", "name", "Tadbir")
             except NotImplementedError as exc:
@@ -1578,6 +1604,27 @@ def _build_nika_nav_url(website: str, start_date: str, end_date: str, page_size:
 
 
 # PUBLIC FUNCTIONS
+def _history_website(website, catalog):
+    context = _fund_request_context.get()
+    row = context["row"]
+    host = _normalize_website_host(website)
+    target = _OFFICIAL_FUND_WEBSITES.get((str(row.get("RegistrationNumber")), host))
+    if (target is None or str(row.get("FundTypeID")) == "11"
+            or row["FundTypeName"] == "اختصاصی بازارگردانی"):
+        return website
+    info = _safe_get_json(f"https://{target}/api/v1/public/siteInfo")
+    if not isinstance(info, dict) or str(info.get("dsCode")) != str(row["RegistrationNumber"]):
+        raise ValueError(f"Invalid fund-domain migration identity for {row['FundName']} | {target}")
+    # Keep the raw public catalog intact. Provider resolution uses the verified
+    # replacement consistently for this call, including catalog uniqueness.
+    resolved = catalog.copy()
+    resolved.loc[resolved["WebsiteAddress"].map(_normalize_website_host).eq(host), "WebsiteAddress"] = target
+    context["catalog"] = resolved
+    context["row"] = row.copy()
+    context["row"]["WebsiteAddress"] = target
+    return target
+
+
 def _get_fund_history(fund_name, allocation):
     all_funds = get_all_funds(_set_website_developers=False)
     row = _get_fund_row(fund_name, all_funds)
@@ -1590,6 +1637,7 @@ def _get_fund_history(fund_name, allocation):
     session = requests.Session()
     token = _fund_request_context.set({"row": row, "catalog": all_funds, "session": session})
     try:
+        website = _history_website(website, all_funds)
         developer = _detect_website_developer(website=website)
         if allocation:
             parsers = {
