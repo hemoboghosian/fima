@@ -70,8 +70,11 @@ def test_single_renamed_fund_requires_its_published_seo_registration(monkeypatch
     assert calls[-1][1]["params"]["portfolio_id"] == 8
 
 
-def test_seo_registration_can_follow_its_explicit_authority_label(monkeypatch):
-    page = "<title>Other display name</title><p>شماره ثبت نزد سازمان بورس و اوراق بهادار ۱۲۲۳۴</p><p>شماره ثبت نزد مرجع ثبت شرکت‌ها ۵۶۸۴۸</p>"
+@pytest.mark.parametrize("page", [
+    "<title>Other display name</title><p>شماره ثبت نزد سازمان بورس و اوراق بهادار ۱۲۲۳۴</p><p>شماره ثبت نزد مرجع ثبت شرکت‌ها ۵۶۸۴۸</p>",
+    "<title>Other display name</title><p>ثبت شده به شماره۱۲۲۳۴ نزد سازمان بورس و اوراق بهادار</p>",
+])
+def test_seo_registration_layouts_keep_the_explicit_authority_label(monkeypatch, page):
     calls = setup_site(monkeypatch, items=[{"id": "8", "name": "Other"}], page=page)
     assert Funds.get_daily_navs(PARENT).SubscriptionNAV.tolist() == [18]
     assert calls[-1][1]["params"]["portfolio_id"] == 8

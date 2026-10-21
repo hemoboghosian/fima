@@ -359,7 +359,7 @@ def _tadbir_basket_id(website):
 def _mabna_registered_page(website):
     soup = BeautifulSoup(_request("GET", f"https://{website}").text, "html.parser")
     text = text_or_na(soup.get_text(" ", strip=True))
-    registrations = set(re.findall(r"\b([0-9]{4,6})\s+نزد\s+سازمان\s+بورس\b", str(text)))
+    registrations = set(re.findall(r"(?<![0-9])([0-9]{4,6})\s+نزد\s+سازمان\s+بورس\b", str(text)))
     registrations.update(re.findall(
         r"شماره\s+ثبت\s+نزد\s+سازمان\s+بورس(?:\s+و\s+اوراق\s+بهادار)?\s+([0-9]{4,6})\b", str(text)))
     registration = _fund_request_context.get()["row"].get("RegistrationNumber")
