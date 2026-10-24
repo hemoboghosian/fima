@@ -12,14 +12,17 @@ from .test_funds_rayan import allocation
 MIGRATIONS = [
     ("petroagahfund.ir", "12093", "agahsectorfund.ir", "بخشی صنایع آگاه", "پتروآگاه", "پترو آگاه"),
     ("vistakhodro.ir", "12168", "vistasectorfund.ir", "بخشی صنایع ویستا", "بهین رو", "قابل معامله بخشی صنایع ویستا"),
+    ("etebarsaham.com", "11706", "www.etebarsahamfund.com", "اعتبار سهام ایرانیان", "اعتبارسهام", "صندوق سرمایه گذاری اعتبار سهام ایرانیان"),
 ]
 
 
 def setup_site(monkeypatch, migration, allocation, *, registration=None, info=None, error=None):
     old, expected, current, name, ticker, display = migration
-    public_fund(monkeypatch, "شرکت رایان هم افزا", name=name, kind="در سهام-بخشی")
-    instrument = "37828981835497620" if expected == "12093" else "42799209630949274"
-    catalog = pd.DataFrame([{"FundName": name, "FundTypeName": "در سهام-بخشی", "FundTypeID": "21",
+    kind, type_id = ("در سهام", "6") if expected == "11706" else ("در سهام-بخشی", "21")
+    public_fund(monkeypatch, "شرکت رایان هم افزا", name=name, kind=kind)
+    instrument = {"12093": "37828981835497620", "12168": "42799209630949274",
+                  "11706": "55761294311886451"}[expected]
+    catalog = pd.DataFrame([{"FundName": name, "FundTypeName": kind, "FundTypeID": type_id,
                              "WebsiteAddress": old, "RegistrationNumber": registration or expected,
                              "GroupId": "0", "Ticker": ticker, "InstrumentCode": instrument}])
     monkeypatch.setattr(Funds, "get_all_funds", lambda **kwargs: catalog.copy())

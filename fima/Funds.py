@@ -182,6 +182,7 @@ _fund_request_context = ContextVar("fund_request_context", default=None)
 _OFFICIAL_FUND_WEBSITES = {
     ("12093", "petroagahfund.ir"): "agahsectorfund.ir",
     ("12168", "vistakhodro.ir"): "vistasectorfund.ir",
+    ("11706", "etebarsaham.com"): "www.etebarsahamfund.com",
 }
 
 # Labels/selectors verified against TSETMC's public fund menu.

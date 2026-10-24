@@ -61,5 +61,7 @@ print(asset_allocation.head())
 
 اگر نشانی فیپیران قدیمی باشد، دریافت تاریخچه فقط برای انتقال‌های رسمی تأییدشده از نشانی جدید استفاده می‌کند و شماره ثبت نزد سازمان بورس را از اطلاعات عمومی مقصد دوباره کنترل می‌کند. ستون `WebsiteAddress` فهرست خام فیپیران تغییر نمی‌کند. انتقال رسمی دامنه با نادیده گرفتن خطای گواهی HTTPS تفاوت دارد؛ خطای گواهی یا شبکه مقصد نیز پنهان نمی‌شود.
 
+برای نمونه، نشانی قدیمی `etebarsaham.com` برای صندوق اعتبار سهام ایرانیان با شماره ثبت `11706` به `www.etebarsahamfund.com` منتقل شده است؛ دریافت تاریخچه از نشانی جدید همچنان به تطابق شماره ثبت مقصد وابسته است.
+
 
 Public contracts now use `FundName`, `FundTypeName`, string identifiers and `JalaliDate` strings. NAV columns are per unit; aggregates are separate (`TotalSubscriptionNAV` for Mabna buy-basis totals). Weight columns have no spaces; TopFiveStocks denotes five holdings, not five percent. Unknown asset labels are preserved inside `ProviderAssets`. Missing amounts/weights remain missing. Full [migration](data-migration.md#funds) and [conventions](data-conventions.md) document breaking schemas and dtypes.
