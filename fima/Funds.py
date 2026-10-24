@@ -320,6 +320,12 @@ def _rayan_fund_id(website):
     return context["rayan_id"]
 
 
+def _tadbir_numbered_compartment(label):
+    """Separate a ticker prefix only from an explicit numbered legal name."""
+    match = re.fullmatch(r"[^-]+-\s*(صندوق\s+.+\s+\d+\s*-\s*بخشی)", str(label).strip())
+    return _fund_label(match[1]) if match else None
+
+
 def _tadbir_basket_id(website):
     context = _fund_request_context.get()
     if context is None:
@@ -336,6 +342,14 @@ def _tadbir_basket_id(website):
             items = [{"id": value, "name": name} for value, name in options]
             row = context["row"]
             name = _fund_label(row["FundName"])
+            compartment = _tadbir_numbered_compartment(row["FundName"])
+            if (compartment is not None and str(row.get("FundTypeID")) != "11"
+                    and row["FundTypeName"] != "اختصاصی بازارگردانی"
+                    and not any(_fund_label(item["name"]) == name for item in items)):
+                # A changed ticker prefix must not override the identical,
+                # numbered legal compartment or select a shared-ticker child.
+                items = [{"id": item["id"], "name": row["FundName"]} for item in items
+                         if _tadbir_numbered_compartment(item["name"]) == compartment]
             # The canonical parent can be omitted from every selector, while
             # a child shares its ticker or its name followed by that ticker.
             # Only a matching page title and one explicit positive default
