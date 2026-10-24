@@ -1760,6 +1760,12 @@ def _history_website(website, catalog):
     info = _safe_get_json(f"https://{target}/api/v1/public/siteInfo")
     if not isinstance(info, dict) or str(info.get("dsCode")) != str(row["RegistrationNumber"]):
         raise ValueError(f"Invalid fund-domain migration identity for {row['FundName']} | {target}")
+    # These verified destinations expose Rayan's native contract. Validate it
+    # before dispatch, without probing unrelated legacy provider hostnames.
+    native_nav = _safe_get_json(f"https://{target}/api/v1/public/nav/1")
+    if not _is_valid_rayan_hamafza_nav_response(native_nav):
+        raise ValueError(f"Invalid fund-domain migration NAV response for {row['FundName']} | {target}")
+    context["history_developer"] = "شرکت رایان هم افزا"
     # Keep the raw public catalog intact. Provider resolution uses the verified
     # replacement consistently for this call, including catalog uniqueness.
     resolved = catalog.copy()
@@ -1781,7 +1787,8 @@ def _get_fund_history(fund_name, allocation):
     token = _fund_request_context.set({"row": row, "catalog": all_funds, "session": session})
     try:
         website = _history_website(website, all_funds)
-        developer = _detect_website_developer(website=website)
+        developer = (_fund_request_context.get().get("history_developer")
+                     or _detect_website_developer(website=website))
         if allocation:
             parsers = {
                 "گروه رایانه تدبیر پرداز": _get_daily_asset_allocation_tadbirpardaz,

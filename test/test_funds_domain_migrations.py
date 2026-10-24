@@ -16,7 +16,8 @@ MIGRATIONS = [
 ]
 
 
-def setup_site(monkeypatch, migration, allocation, *, registration=None, info=None, error=None):
+def setup_site(monkeypatch, migration, allocation, *, registration=None, info=None, error=None,
+               nav_data=None, nav_error=None):
     old, expected, current, name, ticker, display = migration
     kind, type_id = ("در سهام", "6") if expected == "11706" else ("در سهام-بخشی", "21")
     public_fund(monkeypatch, "شرکت رایان هم افزا", name=name, kind=kind)
@@ -43,9 +44,11 @@ def setup_site(monkeypatch, migration, allocation, *, registration=None, info=No
         if url.endswith("/dailyAssetStructure/1"):
             return response([allocation], url=url)
         assert url.endswith("/nav/1")
+        if nav_error is not None:
+            raise nav_error
         return response([{"jalaliDate": "1405/07/19", "purchaseNAVPerShare": 3,
                           "sellNAVPerShare": 2, "statisticalNAVPerShare": 2,
-                          "units": 10, "nav": 20}], url=url)
+                          "units": 10, "nav": 20}] if nav_data is None else nav_data, url=url)
     monkeypatch.setattr(Funds.requests, "get", get)
     return catalog, calls
 
@@ -83,3 +86,28 @@ def test_replacement_tls_error_is_not_downgraded_or_hidden(monkeypatch, allocati
     with pytest.raises(requests.exceptions.SSLError, match="target certificate"):
         Funds.get_daily_navs(MIGRATIONS[0][3])
     assert len(calls) == 1 and calls[0][0].startswith("https://agahsectorfund.ir")
+
+
+@pytest.mark.parametrize("assets", [False, True])
+def test_verified_native_migration_avoids_unrelated_legacy_discovery(monkeypatch, allocation, assets):
+    setup_site(monkeypatch, MIGRATIONS[2], allocation)
+
+    def legacy_probe(**kwargs):
+        raise requests.ConnectionError("unrelated legacy hostname closed the connection")
+
+    monkeypatch.setattr(Funds, "_detect_website_developer", legacy_probe)
+    result = (Funds.get_daily_asset_allocation if assets else Funds.get_daily_navs)(MIGRATIONS[2][3])
+    assert result.JalaliDate.tolist() == ["1405-07-19"]
+
+
+def test_registration_alone_cannot_accept_a_non_rayan_migration_response(monkeypatch, allocation):
+    setup_site(monkeypatch, MIGRATIONS[2], allocation, nav_data={"unrelated": []})
+    with pytest.raises(ValueError, match="migration.*NAV"):
+        Funds.get_daily_navs(MIGRATIONS[2][3])
+
+
+def test_migration_preserves_native_nav_transport_errors(monkeypatch, allocation):
+    setup_site(monkeypatch, MIGRATIONS[2], allocation,
+               nav_error=requests.ReadTimeout("canonical NAV unavailable"))
+    with pytest.raises(requests.ReadTimeout, match="canonical NAV unavailable"):
+        Funds.get_daily_asset_allocation(MIGRATIONS[2][3])
