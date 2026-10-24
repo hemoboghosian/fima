@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.13.0
+
+### Funds coverage and identity
+
+- Substantially improve complete-history coverage for `get_daily_navs()` and
+  `get_daily_asset_allocation()`, especially sector funds. In the fixed 516-row
+  non-market-maker audit, correct NAV coverage increased from 320 to 389 and
+  allocation coverage from 348 to 418; sector coverage increased from 36 to 59
+  of 62 known-reachable funds for both histories.
+- Correct 18 known wrong-child cases using verified registration, instrument
+  identifiers, canonical parent selection and exact numbered legal compartments
+  across Tadbir, Rayan and Mabna. Shared tickers do not substitute child histories.
+- Preserve Tadbir's published date filters and basket identity across allocation
+  pagination, and resolve verified fund-domain migrations without changing the
+  raw catalog or weakening target identity and HTTPS checks.
+- Check actual published reports instead of refusing entire fund categories;
+  support verified legal-name variants and Nika's historical allocation contract
+  with disjoint date windows, effective dates and source amounts/weights.
+
+### Compatibility and provider limitations
+
+- Public signatures and documented data contracts remain compatible. Provider
+  conflicts, unavailable sources, incompatible periodic reports and incomplete
+  history remain explicit failures; no failed page/window is silently omitted.
+- Nika supplied no complete allocation history in the 13-fund live validation.
+  The known Tadbir NAV and Kian allocation conflicts remain unresolved. Provider
+  availability and valid HTTPS certificates are still required; not all funds
+  are downloadable. See the [Funds guide](docs/funds.md) and
+  [complete audit](https://github.com/hemoboghosian/fima/issues/82#issuecomment-6383302421).
+
 ## 0.12.0
 
 ### Added
