@@ -28,7 +28,9 @@ def _option_market_records(data):
             'pMeOf': 'AskPrice', 'qTitMeOf': 'AskVolume', 'yesterdayOP': 'YesterdayOpenPositions',
         }.items():
             mapping[source + '_' + side] = target + '-' + side
-    frame = pd.DataFrame(data)
+    if not isinstance(data, list):
+        raise ValueError('TSETMC option market response must be a list of records.')
+    frame = pd.DataFrame(data) if data else pd.DataFrame(columns=list(mapping))
     missing = set(mapping) - set(frame)
     if missing:
         raise ValueError(f'TSETMC option market response missing fields: {sorted(missing)}')
@@ -71,6 +73,12 @@ def _model_info(frame):
     # Public output may also be injected into the analytical convenience APIs.
     return frame.rename(columns={'UnderlyingTicker': 'UATicker', 'UnderlyingLastPrice': 'LastPrice-UA',
                                  'OptionType': 'Type'})
+
+
+def _apply_option_rows(frame, function, columns):
+    if frame.empty:
+        return pd.DataFrame(index=frame.index, columns=columns, dtype=float)
+    return frame.apply(function, axis=1)
 
 
 def _calculate_d1(s, k, t, r_f, sigma) -> float:
@@ -433,121 +441,134 @@ def download_historical_data(ticker: str, start_date: str = None, end_date: str 
 
 def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bool = False, greeks: bool = False,
                              implied_volatility: bool = False) -> pd.DataFrame:
-    try:
-        url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
+    """Return the current option chain for an exact underlying ticker.
 
-        data = response.json()
-        all_options_market_watch = _option_market_records(data["instrumentOptMarketWatch"])
-        chain_contracts = all_options_market_watch[all_options_market_watch['Ticker-UA'] == underlying_ticker].copy()
+    ``j_date`` selects Jalali string or Gregorian datetime event dates. Optional
+    analytics use the underlying history. An unmatched ticker returns an empty
+    table. Request/HTTP, JSON, schema and analytical errors propagate instead
+    of returning ``None``. Prices and trade values retain provider rial units.
+    """
+    url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
 
-        chain_contracts['URL-P'] = chain_contracts['InstrumentCode-P'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
-        chain_contracts['URL-C'] = chain_contracts['InstrumentCode-C'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
-        chain_contracts['URL-UA'] = chain_contracts['InstrumentCode-UA'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
+    data = response.json()
+    all_options_market_watch = _option_market_records(data["instrumentOptMarketWatch"])
+    chain_contracts = all_options_market_watch[all_options_market_watch['Ticker-UA'] == underlying_ticker].copy()
 
-        chain_contracts['BeginDate'] =  pd.to_datetime(chain_contracts['BeginDate'].astype(str), format='%Y%m%d')
-        chain_contracts['BeginDate'] = chain_contracts['BeginDate'].dt.date
-        chain_contracts['EndDate'] =  pd.to_datetime(chain_contracts['EndDate'].astype(str), format='%Y%m%d')
-        chain_contracts['EndDate'] = chain_contracts['EndDate'].dt.date
+    chain_contracts['URL-P'] = chain_contracts['InstrumentCode-P'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
+    chain_contracts['URL-C'] = chain_contracts['InstrumentCode-C'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
+    chain_contracts['URL-UA'] = chain_contracts['InstrumentCode-UA'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
 
-        if j_date:
-            chain_contracts['BeginDate'] = \
-                chain_contracts['BeginDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
-            chain_contracts['EndDate'] = \
-                chain_contracts['EndDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+    chain_contracts['BeginDate'] =  pd.to_datetime(chain_contracts['BeginDate'].astype(str), format='%Y%m%d')
+    chain_contracts['BeginDate'] = chain_contracts['BeginDate'].dt.date
+    chain_contracts['EndDate'] =  pd.to_datetime(chain_contracts['EndDate'].astype(str), format='%Y%m%d')
+    chain_contracts['EndDate'] = chain_contracts['EndDate'].dt.date
 
-        conditions = [chain_contracts['LastPrice-UA'] > chain_contracts['StrikePrice'],
-                      chain_contracts['LastPrice-UA'] < chain_contracts['StrikePrice']]
-        choices = ['ITM', 'OTM']
-        default = 'ATM'
-        chain_contracts['Status-C'] = np.select(conditions, choices, default=default)
+    if j_date:
+        chain_contracts['BeginDate'] = \
+            chain_contracts['BeginDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+        chain_contracts['EndDate'] = \
+            chain_contracts['EndDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
 
-        conditions = [chain_contracts['LastPrice-UA'] > chain_contracts['StrikePrice'],
-                      chain_contracts['LastPrice-UA'] < chain_contracts['StrikePrice']]
-        choices = ['OTM', 'ITM']
-        default = 'ATM'
-        chain_contracts['Status-P'] = np.select(conditions, choices, default=default)
+    conditions = [chain_contracts['LastPrice-UA'] > chain_contracts['StrikePrice'],
+                  chain_contracts['LastPrice-UA'] < chain_contracts['StrikePrice']]
+    choices = ['ITM', 'OTM']
+    default = 'ATM'
+    chain_contracts['Status-C'] = np.select(conditions, choices, default=default)
 
-        call_chain_contracts_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'TransactionCount-C', 'TradeVolume-C', 'Value-C',
-                                             'NotionalValue-C', 'OpenPositions-C', 'ClosePrice-C', 'LastPrice-C', 'YesterdayPrice-C',
-                                             'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C', 'URL-C']
-        ua_chain_contracts_columns = ['ContractSize', 'StrikePrice', 'DaysToMaturity', 'BeginDate', 'EndDate',
-                                            'Ticker-UA', 'InstrumentCode-UA', 'ClosePrice-UA', 'LastPrice-UA',
-                                            'YesterdayPrice-UA', 'URL-UA']
-        put_chain_contracts_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'TransactionCount-P', 'TradeVolume-P', 'Value-P',
-                                             'NotionalValue-P', 'OpenPositions-P', 'ClosePrice-P', 'LastPrice-P', 'YesterdayPrice-P',
-                                             'BidPrice-P', 'BidVolume-P', 'AskPrice-P', 'AskVolume-P', 'URL-P']
+    conditions = [chain_contracts['LastPrice-UA'] > chain_contracts['StrikePrice'],
+                  chain_contracts['LastPrice-UA'] < chain_contracts['StrikePrice']]
+    choices = ['OTM', 'ITM']
+    default = 'ATM'
+    chain_contracts['Status-P'] = np.select(conditions, choices, default=default)
+
+    call_chain_contracts_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'TransactionCount-C', 'TradeVolume-C', 'Value-C',
+                                         'NotionalValue-C', 'OpenPositions-C', 'ClosePrice-C', 'LastPrice-C', 'YesterdayPrice-C',
+                                         'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C', 'URL-C']
+    ua_chain_contracts_columns = ['ContractSize', 'StrikePrice', 'DaysToMaturity', 'BeginDate', 'EndDate',
+                                        'Ticker-UA', 'InstrumentCode-UA', 'ClosePrice-UA', 'LastPrice-UA',
+                                        'YesterdayPrice-UA', 'URL-UA']
+    put_chain_contracts_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'TransactionCount-P', 'TradeVolume-P', 'Value-P',
+                                         'NotionalValue-P', 'OpenPositions-P', 'ClosePrice-P', 'LastPrice-P', 'YesterdayPrice-P',
+                                         'BidPrice-P', 'BidVolume-P', 'AskPrice-P', 'AskVolume-P', 'URL-P']
 
 
-        if bsm or greeks or implied_volatility:
+    if bsm or greeks or implied_volatility:
+        ua_historical_data = pd.DataFrame(columns=['JalaliDate', 'ClosingPrice'])
+        if not chain_contracts.empty:
             print(f'Downloading {underlying_ticker} historical data...')
             ua_historical_data = get_ticker_historical_data(
                 ticker=underlying_ticker).reset_index().loc[:, ['JalaliDate', 'ClosingPrice']].copy()
             print(f'Historical data downloaded for {underlying_ticker}.')
 
-            chain_contracts['HistoricalData-UA'] = None
-            for index, row in chain_contracts.iterrows():
-                chain_contracts.at[index, 'HistoricalData-UA'] = ua_historical_data.copy()
-            ua_chain_contracts_columns.append('HistoricalData-UA')
+        chain_contracts['HistoricalData-UA'] = None
+        for index, row in chain_contracts.iterrows():
+            chain_contracts.at[index, 'HistoricalData-UA'] = ua_historical_data.copy()
+        ua_chain_contracts_columns.append('HistoricalData-UA')
 
-            call_chain_contracts = chain_contracts.loc[:, call_chain_contracts_columns + ua_chain_contracts_columns].copy()
-            put_chain_contracts = chain_contracts.loc[:, put_chain_contracts_columns + ua_chain_contracts_columns].copy()
-            call_chain_contracts['Type'] = 'Call'
-            call_chain_contracts.columns = call_chain_contracts.columns.map(lambda column: column.replace('-C', ''))
-            call_chain_contracts_columns.append('Type')
-            put_chain_contracts['Type'] = 'Put'
-            put_chain_contracts.columns = put_chain_contracts.columns.map(lambda column: column.replace('-P', ''))
-            put_chain_contracts_columns.append('Type')
+        call_chain_contracts = chain_contracts.loc[:, call_chain_contracts_columns + ua_chain_contracts_columns].copy()
+        put_chain_contracts = chain_contracts.loc[:, put_chain_contracts_columns + ua_chain_contracts_columns].copy()
+        call_chain_contracts['Type'] = 'Call'
+        call_chain_contracts.columns = call_chain_contracts.columns.map(lambda column: column.replace('-C', ''))
+        call_chain_contracts_columns.append('Type')
+        put_chain_contracts['Type'] = 'Put'
+        put_chain_contracts.columns = put_chain_contracts.columns.map(lambda column: column.replace('-P', ''))
+        put_chain_contracts_columns.append('Type')
 
-            risk_free_rate = get_risk_free_rate()
-            call_chain_contracts['RiskFreeRate'] = risk_free_rate
-            put_chain_contracts['RiskFreeRate'] = risk_free_rate
-            ua_chain_contracts_columns.append('RiskFreeRate')
+        risk_free_rate = get_risk_free_rate() if not chain_contracts.empty else np.nan
+        call_chain_contracts['RiskFreeRate'] = risk_free_rate
+        put_chain_contracts['RiskFreeRate'] = risk_free_rate
+        ua_chain_contracts_columns.append('RiskFreeRate')
 
-            if bsm:
-                call_chain_contracts[['Volatility', 'BSMPrice']] = call_chain_contracts.apply(_calculate_row_wise_bsm, axis=1)
-                call_chain_contracts_columns.append(['Volatility', 'BSMPrice'])
-                put_chain_contracts[['Volatility', 'BSMPrice']] = put_chain_contracts.apply(_calculate_row_wise_bsm, axis=1)
-                put_chain_contracts_columns.append(['Volatility', 'BSMPrice'])
+        if bsm:
+            call_chain_contracts[['Volatility', 'BSMPrice']] = _apply_option_rows(call_chain_contracts, _calculate_row_wise_bsm, ['Volatility', 'BSMPrice'])
+            call_chain_contracts_columns.append(['Volatility', 'BSMPrice'])
+            put_chain_contracts[['Volatility', 'BSMPrice']] = _apply_option_rows(put_chain_contracts, _calculate_row_wise_bsm, ['Volatility', 'BSMPrice'])
+            put_chain_contracts_columns.append(['Volatility', 'BSMPrice'])
 
-            if greeks:
-                call_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = call_chain_contracts.apply(_calculate_row_wise_greeks, axis=1)
-                call_chain_contracts_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
-                put_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = put_chain_contracts.apply(_calculate_row_wise_greeks, axis=1)
-                put_chain_contracts_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+        if greeks:
+            call_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = _apply_option_rows(call_chain_contracts, _calculate_row_wise_greeks, ['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+            call_chain_contracts_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+            put_chain_contracts[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = _apply_option_rows(put_chain_contracts, _calculate_row_wise_greeks, ['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+            put_chain_contracts_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
 
-            if implied_volatility:
-                call_chain_contracts['ImpliedVolatility'] = call_chain_contracts.apply(_calculate_row_wise_implied_volatility, axis=1)
-                call_chain_contracts_columns.append(['ImpliedVolatility'])
-                put_chain_contracts['ImpliedVolatility'] = put_chain_contracts.apply(_calculate_row_wise_implied_volatility, axis=1)
-                put_chain_contracts_columns.append(['ImpliedVolatility'])
+        if implied_volatility:
+            call_chain_contracts['ImpliedVolatility'] = _apply_option_rows(call_chain_contracts, _calculate_row_wise_implied_volatility, ['ImpliedVolatility'])
+            call_chain_contracts_columns.append(['ImpliedVolatility'])
+            put_chain_contracts['ImpliedVolatility'] = _apply_option_rows(put_chain_contracts, _calculate_row_wise_implied_volatility, ['ImpliedVolatility'])
+            put_chain_contracts_columns.append(['ImpliedVolatility'])
 
-            call_chain_contracts.drop('HistoricalData-UA', inplace=True, axis=1)
-            put_chain_contracts.drop('HistoricalData-UA', inplace=True, axis=1)
-            ua_chain_contracts_columns.remove('HistoricalData-UA')
+        call_chain_contracts.drop('HistoricalData-UA', inplace=True, axis=1)
+        put_chain_contracts.drop('HistoricalData-UA', inplace=True, axis=1)
+        ua_chain_contracts_columns.remove('HistoricalData-UA')
 
-            call_chain_contracts.columns = [f"{column}-C" for column in call_chain_contracts.columns]
-            put_chain_contracts.columns = [f"{column}-P" for column in put_chain_contracts.columns]
-            chain_contracts = pd.merge(call_chain_contracts, put_chain_contracts,
-                                                left_index=True, right_index=True, how='inner')
-            chain_contracts.drop([f"{column}-P" for column in ua_chain_contracts_columns], axis=1, inplace=True)
-            chain_contracts.columns = [column.replace('-C', '')
-                                                if column[:-2] in ua_chain_contracts_columns else column for column in chain_contracts.columns]
-            chain_contracts.drop(['Type-C', 'Type-P'], axis=1, inplace=True)
-        else:
-            chain_contracts = chain_contracts.loc[:, call_chain_contracts_columns + ua_chain_contracts_columns + put_chain_contracts_columns]
+        call_chain_contracts.columns = [f"{column}-C" for column in call_chain_contracts.columns]
+        put_chain_contracts.columns = [f"{column}-P" for column in put_chain_contracts.columns]
+        chain_contracts = pd.merge(call_chain_contracts, put_chain_contracts,
+                                            left_index=True, right_index=True, how='inner')
+        chain_contracts.drop([f"{column}-P" for column in ua_chain_contracts_columns], axis=1, inplace=True)
+        chain_contracts.columns = [column.replace('-C', '')
+                                            if column[:-2] in ua_chain_contracts_columns else column for column in chain_contracts.columns]
+        chain_contracts.drop(['Type-C', 'Type-P'], axis=1, inplace=True)
+    else:
+        chain_contracts = chain_contracts.loc[:, call_chain_contracts_columns + ua_chain_contracts_columns + put_chain_contracts_columns]
 
-        chain_contracts.reset_index(inplace=True, drop=True)
-        chain_contracts.sort_values(by=['EndDate', 'StrikePrice'], inplace=True, ignore_index=True)
-        return _option_frame(chain_contracts, j_date)
-    except Exception as e:
-        print(f"Failed to get the market watch with the error:\n {e}")
-        return None
+    chain_contracts.reset_index(inplace=True, drop=True)
+    chain_contracts.sort_values(by=['EndDate', 'StrikePrice'], inplace=True, ignore_index=True)
+    return _option_frame(chain_contracts, j_date)
 
 
 def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date: bool = True,
                           bsm: str = False, greeks: bool = False, implied_volatility: bool = False) -> pd.DataFrame:
+    """Return TSETMC options for ``All``, ``TSE`` or ``IFB``.
+
+    ``stack='Horizontal'`` pairs Call/Put columns; ``Vertical`` returns one row
+    per side with ``OptionType``. ``j_date`` selects Jalali string or Gregorian
+    datetime event dates. Optional analytics use the underlying history.
+    Request/HTTP, JSON, schema and analytical errors propagate; a valid empty
+    provider list returns an empty table. Prices/values retain source rial units.
+    """
 
     if market == 'TSE':
         url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/1"
@@ -556,65 +577,116 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
     else:       # 'All'
         url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"
 
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
 
-        data = response.json()
-        all_options_market_watch = _option_market_records(data["instrumentOptMarketWatch"])
-        all_options_market_watch['URL-P'] = all_options_market_watch['InstrumentCode-P'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
-        all_options_market_watch['URL-C'] = all_options_market_watch['InstrumentCode-C'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
-        all_options_market_watch['URL-UA'] = all_options_market_watch['InstrumentCode-UA'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
+    data = response.json()
+    all_options_market_watch = _option_market_records(data["instrumentOptMarketWatch"])
+    all_options_market_watch['URL-P'] = all_options_market_watch['InstrumentCode-P'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
+    all_options_market_watch['URL-C'] = all_options_market_watch['InstrumentCode-C'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
+    all_options_market_watch['URL-UA'] = all_options_market_watch['InstrumentCode-UA'].apply(lambda ins_code: f'https://tsetmc.ir/instInfo/{ins_code}')
 
-        all_options_market_watch['BeginDate'] =  pd.to_datetime(all_options_market_watch['BeginDate'].astype(str), format='%Y%m%d')
-        all_options_market_watch['BeginDate'] = all_options_market_watch['BeginDate'].dt.date
-        all_options_market_watch['EndDate'] =  pd.to_datetime(all_options_market_watch['EndDate'].astype(str), format='%Y%m%d')
-        all_options_market_watch['EndDate'] = all_options_market_watch['EndDate'].dt.date
+    all_options_market_watch['BeginDate'] =  pd.to_datetime(all_options_market_watch['BeginDate'].astype(str), format='%Y%m%d')
+    all_options_market_watch['BeginDate'] = all_options_market_watch['BeginDate'].dt.date
+    all_options_market_watch['EndDate'] =  pd.to_datetime(all_options_market_watch['EndDate'].astype(str), format='%Y%m%d')
+    all_options_market_watch['EndDate'] = all_options_market_watch['EndDate'].dt.date
 
-        if j_date:
-            all_options_market_watch['BeginDate'] = \
-                all_options_market_watch['BeginDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
-            all_options_market_watch['EndDate'] = \
-                all_options_market_watch['EndDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+    if j_date:
+        all_options_market_watch['BeginDate'] = \
+            all_options_market_watch['BeginDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
+        all_options_market_watch['EndDate'] = \
+            all_options_market_watch['EndDate'].apply(lambda g_date: jd.date.fromgregorian(year=g_date.year, month=g_date.month, day=g_date.day))
 
-        conditions = [all_options_market_watch['LastPrice-UA'] > all_options_market_watch['StrikePrice'],
-                      all_options_market_watch['LastPrice-UA'] < all_options_market_watch['StrikePrice']]
-        choices = ['ITM', 'OTM']
-        default = 'ATM'
-        all_options_market_watch['Status-C'] = np.select(conditions, choices, default=default)
+    conditions = [all_options_market_watch['LastPrice-UA'] > all_options_market_watch['StrikePrice'],
+                  all_options_market_watch['LastPrice-UA'] < all_options_market_watch['StrikePrice']]
+    choices = ['ITM', 'OTM']
+    default = 'ATM'
+    all_options_market_watch['Status-C'] = np.select(conditions, choices, default=default)
 
-        conditions = [all_options_market_watch['LastPrice-UA'] > all_options_market_watch['StrikePrice'],
-                      all_options_market_watch['LastPrice-UA'] < all_options_market_watch['StrikePrice']]
-        choices = ['OTM', 'ITM']
-        default = 'ATM'
-        all_options_market_watch['Status-P'] = np.select(conditions, choices, default=default)
+    conditions = [all_options_market_watch['LastPrice-UA'] > all_options_market_watch['StrikePrice'],
+                  all_options_market_watch['LastPrice-UA'] < all_options_market_watch['StrikePrice']]
+    choices = ['OTM', 'ITM']
+    default = 'ATM'
+    all_options_market_watch['Status-P'] = np.select(conditions, choices, default=default)
 
-        call_options_market_watch_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'TransactionCount-C', 'TradeVolume-C', 'Value-C',
-                                             'NotionalValue-C', 'OpenPositions-C', 'ClosePrice-C', 'LastPrice-C', 'YesterdayPrice-C',
-                                             'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C', 'URL-C']
-        ua_market_watch_columns = ['ContractSize', 'StrikePrice', 'DaysToMaturity', 'BeginDate', 'EndDate',
-                                            'Ticker-UA', 'InstrumentCode-UA', 'ClosePrice-UA', 'LastPrice-UA',
-                                            'YesterdayPrice-UA', 'URL-UA']
-        put_options_market_watch_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'TransactionCount-P', 'TradeVolume-P', 'Value-P',
-                                             'NotionalValue-P', 'OpenPositions-P', 'ClosePrice-P', 'LastPrice-P', 'YesterdayPrice-P',
-                                             'BidPrice-P', 'BidVolume-P', 'AskPrice-P', 'AskVolume-P', 'URL-P']
+    call_options_market_watch_columns = ['Ticker-C', 'Name-C', 'InstrumentCode-C', 'Status-C', 'TransactionCount-C', 'TradeVolume-C', 'Value-C',
+                                         'NotionalValue-C', 'OpenPositions-C', 'ClosePrice-C', 'LastPrice-C', 'YesterdayPrice-C',
+                                         'BidPrice-C', 'BidVolume-C', 'AskPrice-C', 'AskVolume-C', 'URL-C']
+    ua_market_watch_columns = ['ContractSize', 'StrikePrice', 'DaysToMaturity', 'BeginDate', 'EndDate',
+                                        'Ticker-UA', 'InstrumentCode-UA', 'ClosePrice-UA', 'LastPrice-UA',
+                                        'YesterdayPrice-UA', 'URL-UA']
+    put_options_market_watch_columns = ['Ticker-P', 'Name-P', 'InstrumentCode-P', 'Status-P', 'TransactionCount-P', 'TradeVolume-P', 'Value-P',
+                                         'NotionalValue-P', 'OpenPositions-P', 'ClosePrice-P', 'LastPrice-P', 'YesterdayPrice-P',
+                                         'BidPrice-P', 'BidVolume-P', 'AskPrice-P', 'AskVolume-P', 'URL-P']
 
 
-        if bsm or greeks or implied_volatility:
-            uas_historical_data = {}
-            all_uas = all_options_market_watch[['Ticker-UA']].drop_duplicates().rename(columns={'Ticker-UA': 'Ticker'})
-            print('Starting to download historical data for all tickers...')
-            for ua in all_uas['Ticker']:
-                print(f'Downloading {ua} historical data...')
-                uas_historical_data[ua] = get_ticker_historical_data(
-                    ticker=ua).reset_index().loc[:, ['JalaliDate', 'ClosingPrice']].copy()
-            print('Historical data downloaded for all underlying assets.')
+    if bsm or greeks or implied_volatility:
+        uas_historical_data = {}
+        all_uas = all_options_market_watch[['Ticker-UA']].drop_duplicates().rename(columns={'Ticker-UA': 'Ticker'})
+        print('Starting to download historical data for all tickers...')
+        for ua in all_uas['Ticker']:
+            print(f'Downloading {ua} historical data...')
+            uas_historical_data[ua] = get_ticker_historical_data(
+                ticker=ua).reset_index().loc[:, ['JalaliDate', 'ClosingPrice']].copy()
+        print('Historical data downloaded for all underlying assets.')
 
-            all_options_market_watch['HistoricalData-UA'] = None
-            for index, row in all_options_market_watch.iterrows():
-                all_options_market_watch.at[index, 'HistoricalData-UA'] = uas_historical_data[row['Ticker-UA']].copy()
-            ua_market_watch_columns.append('HistoricalData-UA')
+        all_options_market_watch['HistoricalData-UA'] = None
+        for index, row in all_options_market_watch.iterrows():
+            all_options_market_watch.at[index, 'HistoricalData-UA'] = uas_historical_data[row['Ticker-UA']].copy()
+        ua_market_watch_columns.append('HistoricalData-UA')
 
+        call_options_market_watch = all_options_market_watch.loc[:, call_options_market_watch_columns + ua_market_watch_columns].copy()
+        put_options_market_watch = all_options_market_watch.loc[:, put_options_market_watch_columns + ua_market_watch_columns].copy()
+        call_options_market_watch['Type'] = 'Call'
+        call_options_market_watch.columns = call_options_market_watch.columns.map(lambda column: column.replace('-C', ''))
+        call_options_market_watch_columns.append('Type')
+        put_options_market_watch['Type'] = 'Put'
+        put_options_market_watch.columns = put_options_market_watch.columns.map(lambda column: column.replace('-P', ''))
+        put_options_market_watch_columns.append('Type')
+
+        risk_free_rate = get_risk_free_rate() if not all_options_market_watch.empty else np.nan
+        call_options_market_watch['RiskFreeRate'] = risk_free_rate
+        put_options_market_watch['RiskFreeRate'] = risk_free_rate
+        ua_market_watch_columns.append('RiskFreeRate')
+
+        if bsm:
+            print('\n\nCalculating BSMs...')
+            call_options_market_watch[['Volatility', 'BSMPrice']] = _apply_option_rows(call_options_market_watch, _calculate_row_wise_bsm, ['Volatility', 'BSMPrice'])
+            call_options_market_watch_columns.append(['Volatility', 'BSMPrice'])
+            put_options_market_watch[['Volatility', 'BSMPrice']] = _apply_option_rows(put_options_market_watch, _calculate_row_wise_bsm, ['Volatility', 'BSMPrice'])
+            put_options_market_watch_columns.append(['Volatility', 'BSMPrice'])
+
+        if greeks:
+            print('\n\nCalculating Greeks...')
+            call_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = _apply_option_rows(call_options_market_watch, _calculate_row_wise_greeks, ['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+            call_options_market_watch_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+            put_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = _apply_option_rows(put_options_market_watch, _calculate_row_wise_greeks, ['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+            put_options_market_watch_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
+
+        if implied_volatility:
+            print('\n\nCalculating IVs...')
+            call_options_market_watch['ImpliedVolatility'] = _apply_option_rows(call_options_market_watch, _calculate_row_wise_implied_volatility, ['ImpliedVolatility'])
+            call_options_market_watch_columns.append(['ImpliedVolatility'])
+            put_options_market_watch['ImpliedVolatility'] = _apply_option_rows(put_options_market_watch, _calculate_row_wise_implied_volatility, ['ImpliedVolatility'])
+            put_options_market_watch_columns.append(['ImpliedVolatility'])
+
+        call_options_market_watch.drop('HistoricalData-UA', inplace=True, axis=1)
+        put_options_market_watch.drop('HistoricalData-UA', inplace=True, axis=1)
+        ua_market_watch_columns.remove('HistoricalData-UA')
+
+        if stack == 'Vertical':
+            all_options_market_watch = pd.concat([call_options_market_watch, put_options_market_watch], axis=0, ignore_index=True)
+        else:   # 'Horizontal'
+            call_options_market_watch.columns = [f"{column}-C" for column in call_options_market_watch.columns]
+            put_options_market_watch.columns = [f"{column}-P" for column in put_options_market_watch.columns]
+            all_options_market_watch = pd.merge(call_options_market_watch, put_options_market_watch,
+                                                left_index=True, right_index=True, how='inner')
+            all_options_market_watch.drop([f"{column}-P" for column in ua_market_watch_columns], axis=1, inplace=True)
+            all_options_market_watch.columns = [column.replace('-C', '')
+                                                if column[:-2] in ua_market_watch_columns else column for column in all_options_market_watch.columns]
+            all_options_market_watch.drop(['Type-C', 'Type-P'], axis=1, inplace=True)
+    else:
+        if stack == 'Vertical':
             call_options_market_watch = all_options_market_watch.loc[:, call_options_market_watch_columns + ua_market_watch_columns].copy()
             put_options_market_watch = all_options_market_watch.loc[:, put_options_market_watch_columns + ua_market_watch_columns].copy()
             call_options_market_watch['Type'] = 'Call'
@@ -623,68 +695,12 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
             put_options_market_watch['Type'] = 'Put'
             put_options_market_watch.columns = put_options_market_watch.columns.map(lambda column: column.replace('-P', ''))
             put_options_market_watch_columns.append('Type')
+            all_options_market_watch = pd.concat([call_options_market_watch, put_options_market_watch], axis=0, ignore_index=True)
+        else:   # Horizontal
+            all_options_market_watch = all_options_market_watch.loc[:, call_options_market_watch_columns +
+                                                                       ua_market_watch_columns +
+                                                                       put_options_market_watch_columns]
 
-            risk_free_rate = get_risk_free_rate()
-            call_options_market_watch['RiskFreeRate'] = risk_free_rate
-            put_options_market_watch['RiskFreeRate'] = risk_free_rate
-            ua_market_watch_columns.append('RiskFreeRate')
-
-            if bsm:
-                print('\n\nCalculating BSMs...')
-                call_options_market_watch[['Volatility', 'BSMPrice']] = call_options_market_watch.apply(_calculate_row_wise_bsm, axis=1)
-                call_options_market_watch_columns.append(['Volatility', 'BSMPrice'])
-                put_options_market_watch[['Volatility', 'BSMPrice']] = put_options_market_watch.apply(_calculate_row_wise_bsm, axis=1)
-                put_options_market_watch_columns.append(['Volatility', 'BSMPrice'])
-
-            if greeks:
-                print('\n\nCalculating Greeks...')
-                call_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = call_options_market_watch.apply(_calculate_row_wise_greeks, axis=1)
-                call_options_market_watch_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
-                put_options_market_watch[['Delta', 'Gamma', 'Theta', 'Vega', 'Rho']] = put_options_market_watch.apply(_calculate_row_wise_greeks, axis=1)
-                put_options_market_watch_columns.append(['Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
-
-            if implied_volatility:
-                print('\n\nCalculating IVs...')
-                call_options_market_watch['ImpliedVolatility'] = call_options_market_watch.apply(_calculate_row_wise_implied_volatility, axis=1)
-                call_options_market_watch_columns.append(['ImpliedVolatility'])
-                put_options_market_watch['ImpliedVolatility'] = put_options_market_watch.apply(_calculate_row_wise_implied_volatility, axis=1)
-                put_options_market_watch_columns.append(['ImpliedVolatility'])
-
-            call_options_market_watch.drop('HistoricalData-UA', inplace=True, axis=1)
-            put_options_market_watch.drop('HistoricalData-UA', inplace=True, axis=1)
-            ua_market_watch_columns.remove('HistoricalData-UA')
-
-            if stack == 'Vertical':
-                all_options_market_watch = pd.concat([call_options_market_watch, put_options_market_watch], axis=0, ignore_index=True)
-            else:   # 'Horizontal'
-                call_options_market_watch.columns = [f"{column}-C" for column in call_options_market_watch.columns]
-                put_options_market_watch.columns = [f"{column}-P" for column in put_options_market_watch.columns]
-                all_options_market_watch = pd.merge(call_options_market_watch, put_options_market_watch,
-                                                    left_index=True, right_index=True, how='inner')
-                all_options_market_watch.drop([f"{column}-P" for column in ua_market_watch_columns], axis=1, inplace=True)
-                all_options_market_watch.columns = [column.replace('-C', '')
-                                                    if column[:-2] in ua_market_watch_columns else column for column in all_options_market_watch.columns]
-                all_options_market_watch.drop(['Type-C', 'Type-P'], axis=1, inplace=True)
-        else:
-            if stack == 'Vertical':
-                call_options_market_watch = all_options_market_watch.loc[:, call_options_market_watch_columns + ua_market_watch_columns].copy()
-                put_options_market_watch = all_options_market_watch.loc[:, put_options_market_watch_columns + ua_market_watch_columns].copy()
-                call_options_market_watch['Type'] = 'Call'
-                call_options_market_watch.columns = call_options_market_watch.columns.map(lambda column: column.replace('-C', ''))
-                call_options_market_watch_columns.append('Type')
-                put_options_market_watch['Type'] = 'Put'
-                put_options_market_watch.columns = put_options_market_watch.columns.map(lambda column: column.replace('-P', ''))
-                put_options_market_watch_columns.append('Type')
-                all_options_market_watch = pd.concat([call_options_market_watch, put_options_market_watch], axis=0, ignore_index=True)
-            else:   # Horizontal
-                all_options_market_watch = all_options_market_watch.loc[:, call_options_market_watch_columns +
-                                                                           ua_market_watch_columns +
-                                                                           put_options_market_watch_columns]
-
-        all_options_market_watch.reset_index(inplace=True, drop=True)
-        all_options_market_watch.sort_values(by=['Ticker-UA', 'EndDate', 'StrikePrice'], inplace=True, ignore_index=True)
-        return _option_frame(all_options_market_watch, j_date)
-
-    except Exception as e:
-        print(f"Failed to get the market watch with the error:\n {e}")
-        return None
+    all_options_market_watch.reset_index(inplace=True, drop=True)
+    all_options_market_watch.sort_values(by=['Ticker-UA', 'EndDate', 'StrikePrice'], inplace=True, ignore_index=True)
+    return _option_frame(all_options_market_watch, j_date)
