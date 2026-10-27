@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Parse both compact and slash-separated TSETMC option expiry dates in
+  `ticker_info()`, reject unknown option types and surface metadata HTTP errors.
+  Restore its optional `j_date` selector on the current metadata output.
 - Options market-watch and chain downloads now propagate request, HTTP, JSON,
   schema and analytical failures instead of printing an error and returning
   `None`. Valid empty provider lists return the public empty table schema,

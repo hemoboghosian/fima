@@ -125,28 +125,57 @@ def calculate_rho(s, k, t, r_f, sigma, option_type) -> float:
     return None
 
 
-def ticker_info(ticker: str) -> pd.DataFrame:
+def ticker_info(ticker: str, j_date: bool = True) -> pd.DataFrame:
+    """Return option metadata and last prices for an exact option ticker.
+
+    The seven columns are UnderlyingTicker, StrikePrice, MaturityJalaliDate
+    (or MaturityGregorianDate when ``j_date=False``), DaysToMaturity,
+    OptionType, LastPrice and UnderlyingLastPrice. Prices remain source rials.
+    Request/HTTP and JSON errors propagate; invalid provider option names raise
+    ValueError. The restored date selector does not restore the pre-0.4 full
+    market-watch row; use ``download_market_watch(stack='Vertical')`` for that.
+    """
     ticker_info_df = pd.DataFrame(columns=['UATicker', 'StrikePrice', 'MaturityDate', 'DaysToMaturity', 'Type'], index=[0])
     ticker_instrument_code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
     ticker_info_url = f"https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/{ticker_instrument_code}"
-    instrument_code_info = requests.get(url=ticker_info_url, timeout=30).json()['instrumentInfo']
-    ticker_info_df.loc[0, 'UATicker'] = instrument_code_info['lVal30'].split('-')[0].split(' ')[1]
-    ticker_info_df.loc[0, 'StrikePrice'] = int(instrument_code_info['lVal30'].split('-')[1])
-    maturity_date = instrument_code_info['lVal30'].split('-')[2].split('/')
-    ticker_info_df.loc[0, 'MaturityDate'] = jd.date(year=int(maturity_date[0]), month=int(maturity_date[1]), day=int(maturity_date[2]))
+    response = requests.get(url=ticker_info_url, timeout=30)
+    response.raise_for_status()
+    instrument_code_info = response.json()['instrumentInfo']
+    name = instrument_code_info['lVal30']
+    try:
+        header, strike, expiry = name.rsplit('-', 2)
+        kind, underlying = header.split(maxsplit=1)
+        if kind[-1] not in ('خ', 'ف'):
+            raise ValueError('Unknown option type')
+        maturity = jalali_date(expiry)
+        if pd.isna(maturity):
+            raise ValueError('Missing expiry')
+        maturity_date = jd.date(*map(int, maturity.split('-')))
+        strike_price = int(strike)
+    except (ValueError, IndexError) as error:
+        raise ValueError(f'Invalid TSETMC option instrument name: {name!r}') from error
+    ticker_info_df.loc[0, 'UATicker'] = underlying.strip()
+    ticker_info_df.loc[0, 'StrikePrice'] = strike_price
+    ticker_info_df.loc[0, 'MaturityDate'] = maturity_date
     ticker_info_df.loc[0, 'DaysToMaturity'] = (ticker_info_df.loc[0, 'MaturityDate'] - jd.date.today()).days
-    ticker_info_df.loc[0, 'Type'] = 'Call' if instrument_code_info['lVal30'].split('-')[0].split(' ')[0][-1] == 'خ' else 'Put'
+    ticker_info_df.loc[0, 'Type'] = 'Call' if kind[-1] == 'خ' else 'Put'
 
     ticker_instrument_info_url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceInfo/{ticker_instrument_code}"
-    ticker_instrument_info = requests.get(ticker_instrument_info_url, timeout=30).json()['closingPriceInfo']
+    response = requests.get(ticker_instrument_info_url, timeout=30)
+    response.raise_for_status()
+    ticker_instrument_info = response.json()['closingPriceInfo']
     ticker_info_df.loc[0, 'LastPrice'] = ticker_instrument_info['pDrCotVal']
 
     ua_ticker_instrument_code = _find_instrument_code(search_key=ticker_info_df.loc[0, 'UATicker'], trade_type='Ordinary')
     ua_ticker_instrument_info_url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceInfo/{ua_ticker_instrument_code}"
-    ua_ticker_instrument_info = requests.get(ua_ticker_instrument_info_url, timeout=30).json()['closingPriceInfo']
+    response = requests.get(ua_ticker_instrument_info_url, timeout=30)
+    response.raise_for_status()
+    ua_ticker_instrument_info = response.json()['closingPriceInfo']
     ticker_info_df.loc[0, 'LastPrice-UA'] = ua_ticker_instrument_info['pDrCotVal']
 
-    return _option_frame(ticker_info_df)
+    if not j_date:
+        ticker_info_df['MaturityDate'] = ticker_info_df['MaturityDate'].map(lambda date: date.togregorian())
+    return _option_frame(ticker_info_df, j_date)
 
 
 def _calculate_row_wise_implied_volatility(row) -> float:
