@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use absolute README documentation links for PyPI and document verified options
+  API/schema migrations, current columns, provider failures and unreleased fixes.
 - Parse both compact and slash-separated TSETMC option expiry dates in
   `ticker_info()`, reject unknown option types and surface metadata HTTP errors.
   Restore its optional `j_date` selector on the current metadata output.

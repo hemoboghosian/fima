@@ -109,6 +109,49 @@ market-cap calculations are not redefined.
 Evidence: official TSETMC [frontend](https://tsetmc.ir/), option/closing/client API
 responses inspected during the audit, and [Mibian source](https://github.com/yassinemaaroufi/MibianLib/blob/master/mibian/__init__.py).
 
+### Legacy Options API
+
+The changes above were published in **0.9.0**, not 0.13.0. The options module is
+identical in those two release tags. The [options guide](options.md) lists the
+current functions, complete watch columns and provider/error behavior.
+
+Published **0.3.1 -> 0.4.0** also changed `ticker_info`: it previously returned
+the selected vertical market-watch row and accepted `j_date=True`; it became a
+seven-field metadata lookup and lost that parameter. This behavioral/signature
+break was not described in the 0.4.0 release notes. It is separate from the
+documented 0.9.0 column migration. To obtain the old full-row information with
+current column names:
+
+```python
+from fima import download_market_watch
+
+watch = download_market_watch(stack="Vertical")
+if watch is None:  # Possible in released 0.13.0 on provider/parsing failure.
+    raise RuntimeError("Download failed; inspect the printed provider error.")
+selected = watch.loc[watch["Ticker"].eq(ticker)].reset_index(drop=True)
+```
+
+Here `ticker` is the exact option ticker selected from a current chain. The
+current metadata lookup does not contain all the former watch-row fields;
+there is no safe rename that invents missing trade/bid/ask information.
+The unreleased metadata fix restores the optional `j_date` selector, but retains
+the current metadata schema. Published 0.4.0 through 0.13.0 accept only `ticker`.
+
+`download_chain_contracts` also changed its default from `bsm=True` in 0.3.1 to
+`False` in 0.4.0. Request `bsm=True` explicitly if old code requires model columns;
+this also requires underlying history and risk-free-rate provider access.
+
+For watch/chain code, examples of the exact 0.9.0 mappings are
+`Ticker-C` -> `CallTicker`, `Name-C` -> `CallInstrumentName`,
+`ClosePrice-C` -> `CallClosingPrice`, `Value-C` -> `CallTradeValue`,
+`Ticker-UA` -> `UnderlyingTicker`, `ClosePrice-UA` -> `UnderlyingClosingPrice`.
+The same side rule applies to puts. Critically, `Volume-C` ->
+`CallTransactionCount`, while `Quantity-C` -> `CallTradeVolume`; daily-history
+`Quantity` -> `TransactionCount` and `Volume` -> `TradeVolume`. These labels
+are context-dependent and must not be replaced by a global Volume alias.
+Jalali dates now contain strings rather than `jdatetime.date` objects; date
+comparison code must migrate as well as column indexing.
+
 
 ## Funds
 

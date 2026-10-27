@@ -3,6 +3,8 @@ include CHANGELOG.md
 include LICENSE
 include docs/tgju.md
 include docs/cbi.md
+include docs/data-migration.md
+include docs/options.md
 
 prune unreleased
 prune test
