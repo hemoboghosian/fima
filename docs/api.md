@@ -6,6 +6,8 @@
 
 ## `fima.Options`
 
+[پارامترها، ستون‌ها و مهاجرت نسخه‌های قدیمی](options.md)
+
 - `ticker_info`
 - `download_historical_data`
 - `download_chain_contracts`
