@@ -14,7 +14,7 @@ options column migration.
 | `download_market_watch(market='All', stack='Horizontal', j_date=True, bsm=False, greeks=False, implied_volatility=False)` | `market` is `All`, `TSE` or `IFB`. Horizontal rows pair Call/Put contracts; `Vertical` rows carry `OptionType`. |
 | `download_chain_contracts(underlying_ticker, j_date=True, bsm=False, greeks=False, implied_volatility=False)` | Exact underlying ticker, not an option ticker or instrument code. Returns the paired chain sorted by expiry and strike. |
 | `download_all_underlying_assets(_all_options_market_watch=None, market='All')` | Extracts distinct underlying rows from a current-format watch, downloading one if omitted. Returns `Ticker`, `InstrumentCode`, `ClosingPrice`, `LastPrice`, `YesterdayPrice`, `URL`. |
-| `ticker_info(ticker)` | Exact option ticker. Returns one metadata row: `UnderlyingTicker`, `StrikePrice`, `MaturityJalaliDate`, `DaysToMaturity`, `OptionType`, `LastPrice`, `UnderlyingLastPrice`. See the unreleased date-selector correction below. |
+| `ticker_info(ticker, j_date=True)` | Exact option ticker. Returns one metadata row: `UnderlyingTicker`, `StrikePrice`, `MaturityJalaliDate` (or `MaturityGregorianDate` when `j_date=False`), `DaysToMaturity`, `OptionType`, `LastPrice`, `UnderlyingLastPrice`. The date selector was restored in 0.13.1. |
 | `download_historical_data(ticker, start_date=None, end_date=None)` | Exact option ticker and optional inclusive Jalali bounds. Returns `(option_history, underlying_history)` in ascending date order; unavailable source history retains the legacy `(None, None)` result. |
 
 History columns are `JalaliDate`, `TransactionCount`, `TradeVolume`, `TradeValue`,
@@ -99,9 +99,9 @@ stopped receiving data earlier, or guarantee provider freshness/availability.
 Record the exact call, installed version, printed error/exception and filtering
 code before attributing an empty application screen to an API change.
 
-### Unreleased corrections
+### Fixes published in 0.13.1
 
-These repository fixes are **not included in published 0.13.0**:
+These fixes are published in **0.13.1** and are not included in 0.13.0:
 
 - [#109](https://github.com/hemoboghosian/fima/pull/109): watch/chain request,
   HTTP, JSON, schema and analytical failures propagate instead of being printed
