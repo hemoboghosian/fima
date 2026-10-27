@@ -134,7 +134,7 @@ selected = watch.loc[watch["Ticker"].eq(ticker)].reset_index(drop=True)
 Here `ticker` is the exact option ticker selected from a current chain. The
 current metadata lookup does not contain all the former watch-row fields;
 there is no safe rename that invents missing trade/bid/ask information.
-The unreleased metadata fix restores the optional `j_date` selector, but retains
+The 0.13.1 metadata fix restores the optional `j_date` selector, but retains
 the current metadata schema. Published 0.4.0 through 0.13.0 accept only `ticker`.
 
 `download_chain_contracts` also changed its default from `bsm=True` in 0.3.1 to

@@ -1,9 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.13.1
+
+Fix independently reproduced options compatibility and error-handling issues
+found while investigating a user report. The original application's exact
+outage was not reproduced; this release does not claim to resolve that outage.
 
 - Use absolute README documentation links for PyPI and document verified options
-  API/schema migrations, current columns, provider failures and unreleased fixes.
+  API/schema migrations, current columns, provider failures and the 0.13.1 fixes.
 - Parse both compact and slash-separated TSETMC option expiry dates in
   `ticker_info()`, reject unknown option types and surface metadata HTTP errors.
   Restore its optional `j_date` selector on the current metadata output.
