@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Options market-watch and chain downloads now propagate request, HTTP, JSON,
+  schema and analytical failures instead of printing an error and returning
+  `None`. Valid empty provider lists return the public empty table schema,
+  including requested analytical columns, without fetching unneeded inputs.
+
 ## 0.13.0
 
 ### Funds coverage and identity
