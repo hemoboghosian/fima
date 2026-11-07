@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.2
 
 - Retry transient TGJU GET disconnects and timeouts once using the existing
   two-attempt request budget. Preserve the failing request URL and timeout
