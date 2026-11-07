@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Retry transient TGJU GET disconnects and timeouts once using the existing
+  two-attempt request budget. Preserve the failing request URL and timeout
+  subtype, retry the same history page, and keep incomplete downloads as errors.
+  Persistent TGJU/network failures remain errors; a successful live full-history
+  download has not been verified from the restricted development environment.
+
 ## 0.13.1
 
 Fix independently reproduced options compatibility and error-handling issues

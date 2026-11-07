@@ -246,11 +246,93 @@ def test_malformed_json(provider):
         TGJU.get_tgju_instruments('ارز')
 
 
-def test_timeout_is_public_and_finite(provider):
-    provider['error'] = requests.Timeout('timeout')
-    with pytest.raises(requests.Timeout, match='TGJU'):
+@pytest.mark.parametrize('error_type', [requests.Timeout, requests.ConnectTimeout, requests.ReadTimeout,
+                                      requests.ConnectionError])
+def test_transport_failure_is_bounded_and_preserves_request(provider, error_type):
+    request = requests.Request('GET', 'https://www.tgju.org/').prepare()
+    provider['error'] = error_type('transport failed', request=request)
+    with pytest.raises(error_type, match='TGJU') as failure:
+        TGJU.get_tgju_categories()
+    assert len(provider['calls']) == 2
+    assert failure.value.request is request
+    assert failure.value.__cause__ is provider['error']
+    assert request.url in str(failure.value)
+
+
+@pytest.mark.parametrize('error_type', [requests.exceptions.SSLError, requests.exceptions.ProxyError])
+def test_tls_and_proxy_errors_are_not_retried(provider, error_type):
+    provider['error'] = error_type('TLS or proxy failure')
+    with pytest.raises(error_type):
         TGJU.get_tgju_categories()
     assert len(provider['calls']) == 1
+
+
+@pytest.mark.parametrize('failed_offset', [0, 1])
+@pytest.mark.parametrize('error_type', [requests.ConnectionError, requests.ConnectTimeout, requests.ReadTimeout])
+def test_history_recovers_transport_failure_on_same_page(provider, monkeypatch, failed_offset, error_type):
+    monkeypatch.setattr(TGJU, '_HISTORY_PAGE_SIZE', 1)
+    provider['history'] = [history_row(), history_row('2026/10/14', '1405/07/22')]
+    original = requests.Session.get
+    offsets, failed = [], False
+
+    def get(session, url, **kwargs):
+        nonlocal failed
+        if 'summary-table-data' in url:
+            offset = kwargs['params']['start']
+            offsets.append(offset)
+            if offset == failed_offset and not failed:
+                failed = True
+                raise error_type('connection interrupted')
+        return original(session, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, 'get', get)
+    history = TGJU.get_tgju_history('دلار', 'ارز')
+    assert offsets == ([0, 0, 1] if failed_offset == 0 else [0, 1, 1])
+    assert history.GregorianDate.tolist() == [pd.Timestamp('2026-10-14'), pd.Timestamp('2026-10-15')]
+    assert history.ClosingPrice.tolist() == [2679000, 2679000]
+
+
+def test_history_exhaustion_raises_instead_of_returning_partial_rows(provider, monkeypatch):
+    monkeypatch.setattr(TGJU, '_HISTORY_PAGE_SIZE', 1)
+    provider['history'] = [history_row(), history_row('2026/10/14', '1405/07/22')]
+    original = requests.Session.get
+    offsets = []
+
+    def get(session, url, **kwargs):
+        if 'summary-table-data' in url:
+            offset = kwargs['params']['start']
+            offsets.append(offset)
+            if offset == 1:
+                raise requests.ConnectionError('connection interrupted')
+        return original(session, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, 'get', get)
+    with pytest.raises(requests.ConnectionError, match='TGJU') as failure:
+        TGJU.get_tgju_history('دلار', 'ارز', start_date='2026-10-01', end_date='2026-10-31')
+    assert offsets == [0, 1, 1]
+    query = TGJU._parse_qs(TGJU._urlparse(failure.value.request.url).query)
+    assert query['start'] == ['1'] and query['length'] == ['1']
+    assert query['from'] == ['1405/07/09'] and query['to'] == ['1405/08/09']
+    assert failure.value.request.url in str(failure.value)
+
+
+@pytest.mark.parametrize('transport_first', [True, False])
+def test_http_and_transport_errors_share_one_retry_budget(provider, monkeypatch, transport_first):
+    original = requests.Session.get
+    attempts = []
+    provider['status'] = 503
+
+    def get(session, url, **kwargs):
+        attempts.append(url)
+        if (len(attempts) == 1) == transport_first:
+            raise requests.ConnectionError('connection interrupted')
+        return original(session, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, 'get', get)
+    expected = requests.HTTPError if transport_first else requests.ConnectionError
+    with pytest.raises(expected):
+        TGJU.get_tgju_categories()
+    assert len(attempts) == 2
 
 
 @pytest.mark.parametrize('status,attempts', [(401,1),(403,1),(429,1),(500,2),(503,2)])

@@ -9,6 +9,16 @@ import fima.TGJU as TGJU
 pytestmark = pytest.mark.integration
 
 
+def test_live_full_bahar_azadi_history():
+    """Exercise the unbounded request and pagination reported in issue #115."""
+    history = TGJU.get_tgju_history('sekeb', 'coin')
+    assert not history.empty
+    assert history.GregorianDate.notna().all()
+    assert history.GregorianDate.is_monotonic_increasing
+    assert history.attrs['Symbol'] == 'sekeb'
+    assert history.attrs['SourceURL'].endswith('/summary-table-data/sekeb')
+
+
 @pytest.mark.parametrize('instrument,category', [
     ('دلار', 'ارز'),
     ('طلای 18 عیار / 750', 'طلا'),
