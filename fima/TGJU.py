@@ -119,14 +119,26 @@ class _Client:
     def get(self, url, params=None, *, json_data=True):
         global _last_request
         for attempt in range(2):
-            with _request_lock:
-                _time.sleep(max(0, .5 - (_time.monotonic() - _last_request)))
-                try:
-                    response = self.session.get(url, params=params, timeout=_TIMEOUT)
-                except _requests.Timeout as exc:
-                    raise _requests.Timeout(f'TGJU request timed out: {url}') from exc
-                finally:
-                    _last_request = _time.monotonic()
+            try:
+                with _request_lock:
+                    _time.sleep(max(0, .5 - (_time.monotonic() - _last_request)))
+                    try:
+                        response = self.session.get(url, params=params, timeout=_TIMEOUT)
+                    finally:
+                        _last_request = _time.monotonic()
+            except (_requests.exceptions.SSLError, _requests.exceptions.ProxyError):
+                # A retry must not try to work around TLS or proxy restrictions.
+                raise
+            except (_requests.ConnectionError, _requests.Timeout) as exc:
+                if attempt == 0:
+                    _time.sleep(1)
+                    continue
+                request = exc.request
+                if request is None:
+                    request = self.session.prepare_request(_requests.Request('GET', url, params=params))
+                reason = 'timed out' if isinstance(exc, _requests.Timeout) else 'failed'
+                raise type(exc)(f'TGJU request {reason} after 2 attempts: {request.url}',
+                                request=request, response=exc.response) from exc
             # Do not retry authentication failures, deliberate blocks or rate limits.
             if response.status_code in (500, 502, 503, 504) and attempt == 0:
                 response.close()
