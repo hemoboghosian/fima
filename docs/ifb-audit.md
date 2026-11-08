@@ -173,3 +173,67 @@ separate P2 investigations. Follow-ups with concrete evidence requirements:
 Next after those: IPO/subscription catalogs, market-transition events and dated
 market-maker parameters. The matrix records their evidence and missing checks;
 none is presented as an implemented API.
+
+## Issue #120 fixed-income investigation — 2026-11-08
+
+This follow-up starts from `edf02f0`, with 760 deterministic tests passing.
+YTM/Nelson are ordinary public HTTPS sources; one initial YTM timeout recovered
+on a bounded retry. Existing bond snapshots and the decimal scalar risk-free
+estimate remain separate, unchanged APIs.
+
+| Candidate | Verified source/request | Snapshot/history and filters | Units | Overlap | Completeness/evidence | Uncertainty and decision |
+| --- | --- | --- | --- | --- | --- | --- |
+| Historical bond YTM | GET/POST `YTM.aspx`; `Button1` filter then `btnYTMHistoryExport` | History; explicit inclusive dates and selected IFB instrument ID | Closing price rials, volume securities, YTM effective annual percentage points | Existing bond APIs are snapshots | Whole HTML-table `.xls` export, not the 25-row grid; default 689 records; broad export 29,663 records, 1401-10-26..1405-08-16 | Implement selected verified instruments; reject ambiguous ticker labels and conflicting dates by default; explicit preserve mode flags conflicts |
+| Official fitted nodes | POST referenced `GetGovermentNelsonIndex`, `GetITBtNelsonIndex`, `GetNonGovermentNelsonIndex` ASMX methods, no body | Comparison snapshot, categories government/treasury/nongovernment | Tenor days, published YTM percentage points | No fitted-node API | All returned 200; 42/37/53 nodes across three relative comparison series | Separate feature decision; no arbitrary-date archive, calibration dates, parameters or refitting inferred |
+| Nelson bond scatter observations | POST corresponding `GetGovermentNelsonSymbolData`, `GetITBNelsonSymbolData`, `GetNonGovermentNelsonSymbolData` | Dated current/stale quoted instruments | Yield points verified; price/accrual scaling not fully established | Existing yield snapshots overlap | All returned 200, with 153/16/339 observations; source distinguishes `IsTodayMarket` | Exclude interpreted settlement/accrued-interest, duration/convexity and contributor APIs pending financial verification |
+
+History filter names are `ctl00$ContentPlaceHolder1$SymbolComboboxYTMHistory`,
+`TxtDateFrom`, `TxtDateTo`, and submit `Button1` under the same prefix. Both
+dates are required: blank bounds produce `ContentPlaceHolder1_lblerror` and
+must not be mistaken for an unfiltered archive. Preserve current form fields,
+hidden viewstate and the session between requests. The export submit is
+`ctl00$ContentPlaceHolder1$btnYTMHistoryExport`. HTTP 200 with
+`application/vnd.ms-excel; charset=utf-8`, filename `YTMHistory.xls`, contains
+one complete seven-column HTML table, not a binary XLS or XLSX workbook.
+It omits IDs; attach an ID only after resolving a unique official selector
+option and validating the filtered grid's instrument links and export ticker.
+The selector contains duplicate `اراد157` labels for IDs `33136` and `33302`.
+Some historical export labels are absent from the current selector; an
+all-instrument ID reconstruction is therefore not justified.
+
+Broad all-instrument evidence: 784 exported ticker labels, 29,663 source records,
+3,492 identical repeats, and 21 conflicting ticker/trade/issue/maturity keys.
+This establishes the observed **provider archive**, not uninterrupted market
+history. Selected treasury `33029` exported 456 records in a broad window,
+starting 1403-06-05; repeated 1403-11-23 records contain closes 574,190/576,910
+and yields 33.60/33.27. An exact one-day filter reproduced both. Do not choose a
+revision arbitrarily. Normalize identical repeats with provenance; default
+conflicts to errors and permit explicitly requested flagged source records.
+A valid no-trading-date filter displays `.داده ای یافت نشد`; its export returns
+the whole normal page rather than a download. Return a typed empty result from
+the validated filtered grid without pretending that page is an Excel export.
+
+Financial validation uses the linked official
+[YTM/YTC definition](https://ifb.ir/Files/MFI/%D9%85%D8%B9%D8%B1%D9%81%D9%8A%20%D9%86%D8%B1%D8%AE%20%D8%A8%D8%A7%D8%B2%D8%AF%D9%87.pdf)
+and [worked examples](https://ifb.ir/Files/MFI/YTM%20vs%20YTC.pdf), including visual
+inspection of their zero-coupon and dated-cash-flow formulas. YTM is an
+effective annual yield, distinct from nominal coupon, simple return and YTC.
+Treasury [33029](https://ifb.ir/InstrumentsMFI.aspx?id=33029) verifies face value
+1,000,000 rials, no coupon, maturity 1405-10-21. Close 937,500 on 1405-08-16
+gives `(1000000 / 937500) ** (365 / 65) - 1 = 0.4367859`, matching 43.68%.
+Coupon [40578](https://ifb.ir/Instruments.aspx?id=40578) verifies face 1,000,000,
+nominal coupon 23%, quarterly dates and actual payment amounts. Discounting its
+seven published cash flows (including principal) from 1404-10-22 at price
+864,000 gives effective annual 39.93253%, matching 39.93%. The source labels the
+historical date as last trade; it is not renamed settlement/valuation date, and
+no universal clean/dirty-price or fee convention is inferred from these cases.
+
+Nelson JavaScript labels the ordinate YTM and appends a percentage sign; tenor
+nodes share the days axis used by individual remaining-maturity days. Current,
+one-month-before and six-month-before labels are relative strings. They do not
+give exact calibration dates. Published nodes are fitted theoretical YTMs, not
+individual executed yields, zero-coupon spot rates or forward rates. Bond
+scatter `Date` and `MarketDate` can differ substantially; stale observations are
+explicitly separate. A treasury `SettlePrice` of 965.88 corresponds numerically
+to a 965,880-rial quote, but that comparison alone does not establish a universal
+price unit or clean/dirty definition. No such conversion is authorized here.

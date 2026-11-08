@@ -79,6 +79,15 @@ risk_free_rate = get_risk_free_rate()
 bonds = get_all_bonds_without_coupons(deprecated=False)
 ```
 
+برای تاریخچهٔ YTM یک ورقه و رفتار داده‌های متناقض،
+[راهنمای تاریخچهٔ بازده](ifb.md#historical-bond-ytm) را ببینید:
+
+```python
+from fima import get_ifb_bond_yield_history
+
+history = get_ifb_bond_yield_history("1405-07-01", "1405-08-17", ticker="اخزا204")
+```
+
 ### بورس کالای ایران
 
 ```python

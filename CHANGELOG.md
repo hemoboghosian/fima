@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add complete filtered IFB historical bond YTM exports with verified instrument
+  selection, explicit date bounds, effective annual percentage-point yields,
+  typed empty responses and source conflict handling. Preserve existing bond
+  snapshots and the decimal scalar risk-free estimate.
+
 - Add verified IFB aggregate and symbol market-value snapshots, plus all three
   official historical CSV archives. Preserve exact integer rials, source
   universe/total differences, missing historical values and separate market
