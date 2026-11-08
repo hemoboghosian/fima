@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add verified IFB aggregate and symbol market-value snapshots, plus all three
+  official historical CSV archives. Preserve exact integer rials, source
+  universe/total differences, missing historical values and separate market
+  regimes. Validate constituent counts, identities and export schemas; surface
+  provider failures. Include a full Data Center audit and an IFB usage guide.
+
 ## 0.13.2
 
 - Retry transient TGJU GET disconnects and timeouts once using the existing

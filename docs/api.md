@@ -25,6 +25,12 @@
 
 ## `fima.IFB`
 
+[Market-value schemas, examples, units and limitations](ifb.md) |
+[Data Center audit](ifb-audit.md)
+
+- `get_ifb_market_values(group_by="industry")` — full source aggregate snapshot by industry or market.
+- `get_ifb_symbol_market_values(ticker=None, market=None, industry=None)` — exact-filtered constituent snapshot with string IFB IDs.
+- `get_ifb_market_value_history(start_date=None, end_date=None, *, jalali=True)` — all three official market-value CSV histories, with separate market regimes.
 - `get_risk_free_rate`
 - `get_all_bonds_without_coupons`
 - `get_all_bonds_with_coupons`

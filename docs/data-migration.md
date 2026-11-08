@@ -1,5 +1,12 @@
 # Public-data migration
 
+## Unreleased IFB additions
+
+Three market-value APIs are additive; existing signatures and outputs are
+unchanged. New values use nullable `Int64` rials to retain integer precision and
+missing observations. IFB IDs are strings and market regimes remain separate.
+See the [IFB guide](ifb.md) for exact schemas and source coverage.
+
 ## fima 0.10.0 public structured keys
 
 These **breaking output-key corrections** are published in fima 0.10.0. Python
