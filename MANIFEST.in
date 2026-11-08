@@ -5,6 +5,8 @@ include docs/tgju.md
 include docs/cbi.md
 include docs/data-migration.md
 include docs/options.md
+include docs/ifb.md
+include docs/ifb-audit.md
 
 prune unreleased
 prune test

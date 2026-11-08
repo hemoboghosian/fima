@@ -68,6 +68,10 @@ price = calculate_black_scholes_merton(
 
 ### فرابورس ایران
 
+برای ارزش بازار به تفکیک صنعت، بازار و نماد و تاریخچهٔ رسمی ارزش بازار،
+[راهنمای IFB](ifb.md) را ببینید. دادهٔ لحظه‌ای، تاریخچه و طبقه‌بندی بازارها
+جدا هستند؛ واحد مبالغ ریال است و مقادیر گمشده بازسازی نمی‌شوند.
+
 ```python
 from fima.IFB import get_all_bonds_without_coupons, get_risk_free_rate
 

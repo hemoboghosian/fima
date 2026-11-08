@@ -30,7 +30,7 @@ print(history[["ClosingPrice", "TradeVolume"]].head())
 - **صندوق‌های سرمایه‌گذاری:** فهرست صندوق‌ها، ارزش خالص دارایی‌ها و ترکیب دارایی‌ها از ماژول `Funds`؛ اطلاعات صندوق‌ها از سامانهٔ بورس نیز در همین ماژول است.
 - **بورس کالا:** معاملات بازار فیزیکی، صادراتی، آتی، اختیار و گواهی سپرده از ماژول `IME`.
 - **اختیار معامله:** زنجیرهٔ قراردادها، تاریخچه و محاسبات قیمت و حساسیت‌ها از ماژول `Options`.
-- **فرابورس:** اوراق بدهی، شاخص‌ها، نرخ بدون ریسک و تأمین مالی از ماژول `IFB`.
+- **فرابورس:** اوراق بدهی، شاخص‌ها، نرخ بدون ریسک، تأمین مالی و ارزش بازار از ماژول `IFB`.
 - **نهادهای مالی:** فهرست نهادها از ماژول `TSEInstitutions`.
 - **بانک مرکزی ایران:** نرخ‌های سیاستی با `get_cbi_policy_rates`، تورم با `get_cbi_inflation_rates`، نرخ عادی ارز با `get_cbi_exchange_rates` و نرخ‌های خرید/فروش ETS با `get_cbi_ets_rates`؛ [راهنما و محدودیت دسترسی منبع](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md).
 
@@ -136,6 +136,7 @@ print(details["FundName"])
 - [راهنمای صندوق‌های بورس](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-funds.md)
 - [راهنمای اختیار معامله و مهاجرت کدهای قدیمی](https://github.com/hemoboghosian/fima/blob/master/docs/options.md)
 - [مثال‌های اختیار معامله، فرابورس، بورس کالا و نهادهای مالی](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md)
+- [ارزش بازار و تاریخچهٔ رسمی فرابورس](https://github.com/hemoboghosian/fima/blob/master/docs/ifb.md)
 - [فهرست توابع عمومی](https://github.com/hemoboghosian/fima/blob/master/docs/api.md)
 
 ## نکات مهم
