@@ -53,3 +53,29 @@ def test_live_valid_empty_history():
 def test_live_default_conflict_error():
     with pytest.raises(ValueError,match='conflicting'):
         ifb.get_ifb_bond_yield_history('1403-11-23','1403-11-23',instrument_id='33029')
+
+
+@pytest.mark.parametrize('category',['treasury','government','nongovernment'])
+def test_live_fitted_curve_exact_official_nodes(monkeypatch,category):
+    factory=source._session
+    payloads=[]
+
+    def capture():
+        session=factory()
+        post=session.post
+
+        def record(*args,**kwargs):
+            response=post(*args,**kwargs)
+            payloads.append(response.json()['d'])
+            return response
+
+        monkeypatch.setattr(session,'post',record)
+        return session
+
+    monkeypatch.setattr(source,'_session',capture)
+    frame=ifb.get_ifb_yield_curve(category)
+    rows=[row for series in payloads[0] for row in series]
+    assert len(frame)==len(rows)>0
+    for parsed,raw in zip(frame.itertuples(index=False),rows):
+        assert (parsed.ComparisonLabel,parsed.ComparisonEnglishLabel,parsed.TenorDays,parsed.YTM)==(
+            raw['Date'],raw['EnDate'],raw['DayNum'],raw['Value'])
