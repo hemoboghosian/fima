@@ -1,8 +1,8 @@
-# IFB market values
+# IFB data
 
 [API](api.md) | [Data conventions](data-conventions.md) | [Source audit and priorities](ifb-audit.md)
 
-These three additions are **unreleased**. Existing IFB functions and signatures
+The additions documented here are **unreleased**. Existing IFB functions and signatures
 are unchanged. Import each from `fima` or `fima.IFB`.
 
 ## Aggregate snapshots
@@ -175,3 +175,106 @@ number of rows in a date-filtered result.
 - Existing Options APIs remain the route for IFB derivative chains/watches and
   instrument histories. TSETMC symbol capitalization is a separate calculation
   using its closing prices and share counts; it does not replace these IFB totals.
+
+## Historical bond YTM
+
+```python
+from fima import get_ifb_bond_yield_history
+
+history = get_ifb_bond_yield_history("1405-07-01", "1405-08-17", ticker="اخزا204")
+print(history[["InstrumentID", "LastTradeJalaliDate", "ClosingPrice", "TradeVolume", "YTM"]].tail())
+
+# IFB website ID, distinct from TSETMC's instrument code. Both calendars appear
+# in output regardless of the input calendar selected here.
+gregorian = get_ifb_bond_yield_history(
+    "2026-10-01", "2026-11-08", instrument_id="33029", jalali=False
+)
+
+# Inspect all distinct official observations, including explicitly flagged
+# contradictions. Default behavior raises on such dates.
+archive = get_ifb_bond_yield_history(
+    "1402-01-01", "1405-08-17", instrument_id="33029", on_conflict="preserve"
+)
+print(archive.loc[archive["HasConflictingObservation"]])
+```
+
+`get_ifb_bond_yield_history(start_date, end_date, ticker=None, *, instrument_id=None,
+jalali=True, on_conflict="raise")` obtains a verified selected instrument's complete
+official [YTM history export](https://ifb.ir/YTM.aspx). Both inclusive date bounds
+are required, as `YYYY-MM-DD` strings. The source requires explicit dates; no
+default one-month window is silently called complete history.
+
+Supply an exact nonempty ticker or string IFB `instrument_id`. If both are
+provided, both must identify the same current selector option. Ambiguous names
+raise `ValueError`; for example, the provider's `اراد157` label maps to two IDs.
+Copy the ID from the official instrument link/selector, preserving leading zeros.
+Unknown/unlisted instruments raise an error rather than returning another bond.
+This API deliberately does not reconstruct IDs for the all-instrument export,
+whose older labels can be absent from the current instrument selector.
+
+| Column | Meaning/type |
+| --- | --- |
+| `InstrumentID` | Verified public IFB website instrument ID, pandas string |
+| `Ticker` | Exact provider instrument label, whitespace trimmed; text |
+| `LastTradeJalaliDate` | Published last-trading date, ASCII `YYYY-MM-DD` |
+| `LastTradeGregorianDate` | Same date as pandas `datetime64[ns]` |
+| `IssueJalaliDate`, `IssueGregorianDate` | Provider issue date in each calendar; missing stays missing |
+| `MaturityJalaliDate`, `MaturityGregorianDate` | Provider maturity date in each calendar; missing stays missing |
+| `ClosingPrice` | Published historical closing price, numeric **rials per security**; not last-traded or Nelson settlement price |
+| `TradeVolume` | Published number of securities traded, nullable `Int64`; zero remains zero |
+| `YTM` | Published **effective annual yield to maturity in percentage points**; 43.68 means 43.68%, not 0.4368 |
+| `HasConflictingObservation` | Boolean; true for every distinct observation on a conflicting last-trade date |
+
+The date filter applies to the published **last-trading date**, not an inferred
+quote timestamp, settlement date or curve-calibration date. Rows are ascending
+by that date. Missing numeric values remain missing; source negative/extreme
+yields are not silently clamped. The table does not expose historical coupon
+rates, simple returns, YTC, accrued interest, clean/dirty classifications or fees.
+Do not equate these with YTM or infer them from its magnitude.
+
+The official definition describes effective annual dated-cash-flow discounting:
+for a discount treasury, `(face / price) ** (365 / days) - 1`; for a coupon bond,
+all dated payments and principal enter the annual cash-flow equation. Independent
+source comparisons reproduced a treasury's 43.68% and a coupon bond's 39.93%
+against a 23% nominal coupon. These are interpretation checks; fima returns the
+provider's historical YTM without recomputing or correcting it. See the
+[financial investigation](ifb-audit.md#issue-120-fixed-income-investigation--2026-11-08)
+for verified instruments, payment schedules and official definition links.
+
+Retrieval uses one ordinary WebForms session: GET, filter POST with current
+hidden fields/cookies, then the full export POST. The source's `.xls` download is
+a seven-column HTML table. The API verifies filter state, instrument IDs in
+displayed rows, column schemas, date/identity bounds, all visible records and
+presence of later records when the grid advertises pagination. It rejects
+truncated exports and normal/error HTML substituted for downloads. A confirmed
+empty filtered grid returns the typed schema without requesting the misleading
+empty export, which the provider serves as a normal page.
+
+Completeness means **all records in the selected official filtered export**,
+not proof that IFB publishes every trading day or that the current selector
+covers every expired instrument. A broad all-instrument investigation observed
+29,663 source records across 784 ticker labels, dated 1401-10-26..1405-08-16.
+The source contains exact repeats and conflicting values. Selected treasury
+33029 had 456 source records, starting 1403-06-05; coupon 40578 had only one
+observed trading date, 1404-10-22. These are observed coverage limits, not fixed
+promises or invented daily continuity.
+
+Identical repeated rows are normalized and counted in `attrs["DuplicateRowCount"]`.
+With default `on_conflict="raise"`, different source observations for one selected
+instrument/date raise `ValueError`. With `"preserve"`, all distinct observations
+remain, every affected row is flagged, and `attrs["ConflictingDates"]` lists the
+dates. No authoritative revision is chosen and volumes must not be summed across
+contradictory records as though they were separate trading sessions.
+
+Other attrs: `SourceURL`, `Snapshot=False`, `PriceUnit="IRR"`,
+`YieldUnit="PercentagePoints"`, `VolumeUnit="Securities"`, `ExportRowCount`
+(before duplicate normalization). Valid empty windows have zero counts.
+Invalid inputs, source validation errors, ambiguous identity, changed schemas,
+incomplete exports and default conflicts raise `ValueError`. HTTP/network errors
+propagate as `requests.RequestException` subclasses. Connect/read timeouts are
+10/30 seconds with at most one transient 502/503/504/connect retry; no access
+denial/rate-limit retry or TLS bypass. Importing the API makes no HTTP requests.
+
+Existing `get_all_bonds_without_coupons`, `get_all_bonds_with_coupons` and
+`get_risk_free_rate` retain their signatures, source behavior and units. The
+scalar risk-free estimate remains decimal and is not redefined as a curve rate.
