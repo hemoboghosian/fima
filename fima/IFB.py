@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from requests.adapters import HTTPAdapter
 from ._ifb_market_values import (get_ifb_market_values, get_ifb_symbol_market_values,
                                 get_ifb_market_value_history)
-from ._ifb_yields import get_ifb_bond_yield_history
+from ._ifb_yields import get_ifb_bond_yield_history, get_ifb_yield_curve
 
 
 _THREAD_LOCAL = threading.local()

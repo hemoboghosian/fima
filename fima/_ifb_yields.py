@@ -137,6 +137,77 @@ def _frame(rows, instrument_id, ticker, start, end):
     return frame
 
 
+_CURVE_METHODS = {'treasury': 'GetITBtNelsonIndex',
+                  'government': 'GetGovermentNelsonIndex',
+                  'nongovernment': 'GetNonGovermentNelsonIndex'}
+_CURVE_COLUMNS = ['CurveCategory', 'ComparisonLabel', 'ComparisonEnglishLabel', 'TenorDays', 'YTM']
+
+
+def get_ifb_yield_curve(category='treasury') -> pd.DataFrame:
+    """Return official fitted YTM comparison nodes from IFB's Nelson page.
+
+    category is treasury, government or nongovernment. TenorDays is remaining
+    maturity in days; YTM is effective annual percentage points, without rounding.
+    Published Persian/English comparison labels are preserved verbatim. These are
+    relative comparison snapshots, without verified calibration dates, not daily
+    history, spot or forward rates. No interpolation or fitting is performed.
+
+    A valid empty envelope returns the typed schema. Invalid input, changed or
+    incomplete provider data raises ValueError; HTTP/request errors propagate.
+    See docs/ifb.md for fields, sources and financial limitations.
+    """
+    if not isinstance(category, str) or category not in _CURVE_METHODS:
+        raise ValueError('IFB curve category must be treasury, government or nongovernment.')
+    url = 'https://ifb.ir/HistoricalInstrumentData.asmx/' + _CURVE_METHODS[category]
+    with _session() as session:
+        response = session.post(url, headers={'Content-Type': 'application/json; charset=utf-8'},
+                                timeout=_TIMEOUT)
+        response.raise_for_status()
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise ValueError('IFB fitted curve response is not JSON.') from error
+    if not isinstance(payload, dict) or not isinstance(payload.get('d'), list):
+        raise ValueError('IFB fitted curve envelope changed.')
+    series = payload['d']
+    if series and len(series) != 3:
+        raise ValueError('IFB fitted curve comparison series incomplete/changed.')
+    rows, labels = [], set()
+    for points in series:
+        if not isinstance(points, list) or not points:
+            raise ValueError('IFB fitted curve comparison series missing.')
+        label, tenors = None, set()
+        for point in points:
+            if not isinstance(point, dict) or set(point) != {'Date', 'EnDate', 'DayNum', 'Value'}:
+                raise ValueError('IFB fitted curve node schema changed.')
+            current = (point['Date'], point['EnDate'])
+            if any(not isinstance(v, str) or not v.strip() for v in current):
+                raise ValueError('IFB fitted curve comparison labels missing.')
+            if label is not None and current != label:
+                raise ValueError('IFB fitted curve comparison labels inconsistent.')
+            label = current
+            tenor = point['DayNum']
+            if (isinstance(tenor, bool) or not isinstance(tenor, (int, float))
+                    or not math.isfinite(tenor) or tenor <= 0 or tenor != int(tenor)
+                    or tenor > 2**63-1 or tenor in tenors):
+                raise ValueError('IFB fitted curve tenor invalid or duplicated.')
+            tenors.add(tenor)
+            value = point['Value']
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                      or not math.isfinite(value)):
+                raise ValueError('IFB fitted curve YTM must be finite numeric or null.')
+            rows.append([category, *current, int(tenor), value])
+        if label in labels:
+            raise ValueError('IFB fitted curve comparison series duplicated.')
+        labels.add(label)
+    frame = pd.DataFrame(rows, columns=_CURVE_COLUMNS)
+    frame['TenorDays'] = pd.array(frame.TenorDays, dtype='Int64')
+    frame['YTM'] = pd.to_numeric(frame.YTM)
+    frame.attrs = {'SourceURL': url, 'SourcePageURL': 'https://ifb.ir/NelsonIndex.aspx',
+                   'Snapshot': True, 'TenorUnit': 'Days', 'YieldUnit': 'PercentagePoints'}
+    return frame
+
+
 def _signatures(frame):
     # Missing observations compare equal, without coercing integer volumes to float.
     return Counter(tuple(None if pd.isna(v) else v for v in row)

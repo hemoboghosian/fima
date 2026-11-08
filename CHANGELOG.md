@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add official IFB fitted YTM comparison nodes for treasury, government and
+  nongovernment, preserving source values, tenor days and relative labels.
+
 - Add complete filtered IFB historical bond YTM exports with verified instrument
   selection, explicit date bounds, effective annual percentage-point yields,
   typed empty responses and source conflict handling. Preserve existing bond

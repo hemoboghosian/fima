@@ -278,3 +278,58 @@ denial/rate-limit retry or TLS bypass. Importing the API makes no HTTP requests.
 Existing `get_all_bonds_without_coupons`, `get_all_bonds_with_coupons` and
 `get_risk_free_rate` retain their signatures, source behavior and units. The
 scalar risk-free estimate remains decimal and is not redefined as a curve rate.
+
+## Official fitted YTM curves
+
+```python
+from fima import get_ifb_yield_curve
+
+curve = get_ifb_yield_curve(category="treasury")
+print(curve[["ComparisonLabel", "TenorDays", "YTM"]])
+government = get_ifb_yield_curve("government")
+nongovernment = get_ifb_yield_curve("nongovernment")
+```
+
+`get_ifb_yield_curve(category="treasury")` retrieves all published fitted nodes
+for one category from the official [Nelson page](https://ifb.ir/NelsonIndex.aspx).
+Categories are exactly `"treasury"`, `"government"`, `"nongovernment"`; there is
+no arbitrary date filter. This is a comparison **snapshot**, not daily history.
+
+| Column | Meaning/type |
+| --- | --- |
+| `CurveCategory` | Requested category, text |
+| `ComparisonLabel` | Exact Persian source comparison label, text |
+| `ComparisonEnglishLabel` | Exact English source label, including provider spelling, text |
+| `TenorDays` | Remaining maturity in days, positive nullable `Int64` |
+| `YTM` | Published fitted effective annual YTM in **percentage points**, numeric; null remains missing |
+
+Provider series/node order and unrounded values are retained. For example,
+39.93909524597416 means approximately 39.94%, not 3,993.91%. Published negative
+values are retained. These are theoretical fitted **yield-to-maturity** nodes,
+not individual executed yields, spot rates or forward rates. No interpolation,
+curve fitting, parameter estimation or risk-free-rate substitution is performed.
+
+The three source comparisons are `زمان فعلی` / `Corrent Date`, `یک ماه قبل` /
+`Last Month Date`, and `شش ماه قبلی` / `Last Six months Date`. These relative labels
+do not establish exact calibration dates or a freshness guarantee. No dates are
+invented. Counts observed on 2026-11-08 were 37 treasury, 42 government and 53
+nongovernment nodes; node counts/tenors can change. All three series must exist
+in a nonempty response. Each node's labels, positive integral tenor, unique
+tenor within its series and finite numeric-or-null yield are validated.
+
+Requests reproduce the page's ordinary no-body JSON POST to
+`HistoricalInstrumentData.asmx/GetITBtNelsonIndex` (treasury),
+`GetGovermentNelsonIndex` (government), or `GetNonGovermentNelsonIndex`
+(nongovernment). Completeness means every node in that official response, not a
+verified archive or all underlying calibration observations. A valid `{"d":[]}`
+returns a typed empty table; malformed JSON, missing/partial series, repeated
+tenors and changed schemas raise `ValueError`. HTTP/network errors propagate.
+The same finite timeouts, bounded retries and TLS verification described above
+apply. No requests occur at import.
+
+Attrs: `SourceURL` (exact method), `SourcePageURL`, `Snapshot=True`,
+`TenorUnit="Days"`, `YieldUnit="PercentagePoints"`.
+Settlement prices, accrued interest, duration/convexity and underlying scatter
+observations are excluded: their units and calibration provenance need further
+verification in [issue #125](https://github.com/hemoboghosian/fima/issues/125).
+Existing bond and scalar risk-free APIs remain unchanged.

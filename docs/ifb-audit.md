@@ -184,7 +184,7 @@ estimate remain separate, unchanged APIs.
 | Candidate | Verified source/request | Snapshot/history and filters | Units | Overlap | Completeness/evidence | Uncertainty and decision |
 | --- | --- | --- | --- | --- | --- | --- |
 | Historical bond YTM | GET/POST `YTM.aspx`; `Button1` filter then `btnYTMHistoryExport` | History; explicit inclusive dates and selected IFB instrument ID | Closing price rials, volume securities, YTM effective annual percentage points | Existing bond APIs are snapshots | Whole HTML-table `.xls` export, not the 25-row grid; default 689 records; broad export 29,663 records, 1401-10-26..1405-08-16 | Implement selected verified instruments; reject ambiguous ticker labels and conflicting dates by default; explicit preserve mode flags conflicts |
-| Official fitted nodes | POST referenced `GetGovermentNelsonIndex`, `GetITBtNelsonIndex`, `GetNonGovermentNelsonIndex` ASMX methods, no body | Comparison snapshot, categories government/treasury/nongovernment | Tenor days, published YTM percentage points | No fitted-node API | All returned 200; 42/37/53 nodes across three relative comparison series | Separate feature decision; no arbitrary-date archive, calibration dates, parameters or refitting inferred |
+| Official fitted nodes | POST referenced `GetGovermentNelsonIndex`, `GetITBtNelsonIndex`, `GetNonGovermentNelsonIndex` ASMX methods, no body | Comparison snapshot, categories government/treasury/nongovernment | Tenor days, published YTM percentage points | No previous fitted-node API | All returned 200; 42/37/53 nodes across three relative comparison series | Implement `get_ifb_yield_curve` as a separate focused feature; no arbitrary-date archive, calibration dates, parameters or refitting inferred |
 | Nelson bond scatter observations | POST corresponding `GetGovermentNelsonSymbolData`, `GetITBNelsonSymbolData`, `GetNonGovermentNelsonSymbolData` | Dated current/stale quoted instruments | Yield points verified; price/accrual scaling not fully established | Existing yield snapshots overlap | All returned 200, with 153/16/339 observations; source distinguishes `IsTodayMarket` | Exclude interpreted settlement/accrued-interest, duration/convexity and contributor APIs pending financial verification |
 
 History filter names are `ctl00$ContentPlaceHolder1$SymbolComboboxYTMHistory`,
@@ -237,3 +237,9 @@ scatter `Date` and `MarketDate` can differ substantially; stale observations are
 explicitly separate. A treasury `SettlePrice` of 965.88 corresponds numerically
 to a 965,880-rial quote, but that comparison alone does not establish a universal
 price unit or clean/dirty definition. No such conversion is authorized here.
+
+The fitted-node API exposes only the verified category, source comparison labels,
+tenor days and original YTM values. It validates the three comparison series and
+each node without manufacturing observation dates. Interpreted scatter prices,
+accruals, duration/convexity and contributor/calibration provenance remain in
+[follow-up #125](https://github.com/hemoboghosian/fima/issues/125).
