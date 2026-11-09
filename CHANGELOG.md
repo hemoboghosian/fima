@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Make existing IME futures and export histories reject failed date windows,
+  malformed responses, inconsistent totals, duplicate observations and invalid
+  dates instead of returning partial history as success. Validate futures
+  pagination; retain the export provider's working whole-window requests and
+  reject truncated reports. Preserve public signatures, native financial fields,
+  source-omitted futures metrics, export currency/quantity units and valid empty
+  results. Failures now raise chained `RuntimeError`; invalid dates/window sizes
+  raise `ValueError`. No new APIs or release-version change.
+
 ## 0.14.1
 
 - Make existing `get_all_ime_cd_trades` and `get_all_ime_salaf_trades` validate

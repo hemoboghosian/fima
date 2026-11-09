@@ -65,7 +65,8 @@ def _date_key(date_value) -> int:
     return int(str(date_value).replace('-', '').replace('/', ''))
 
 
-def _download_ime_history(url, params, from_date, to_date, fields, identity, gregorian_field, timeout):
+def _download_ime_history(url, params, from_date, to_date, fields, identity, gregorian_field, timeout,
+                          *, date_field='DT', paginate=True):
     """Read a complete Bootstrap server-side history window, or fail closed."""
     rows, seen, expected = [], set(), None
     for _ in range(10000):
@@ -76,7 +77,8 @@ def _download_ime_history(url, params, from_date, to_date, fields, identity, gre
                 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json',
                 'Referer': params['referer']}, params={
                     **{k: v for k, v in params.items() if k != 'referer'},
-                    'f': from_date, 't': to_date, 'limit': 1000, 'offset': offset}, timeout=timeout)
+                    'f': from_date, 't': to_date,
+                    **({'limit': 1000, 'offset': offset} if paginate else {})}, timeout=timeout)
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict) or type(data.get('total')) is not int or data['total'] < 0:
@@ -92,25 +94,28 @@ def _download_ime_history(url, params, from_date, to_date, fields, identity, gre
             for row in page:
                 if set(fields) - row.keys():
                     raise ValueError(f'missing history fields: {sorted(set(fields) - row.keys())}')
-                for field in set(identity) | {'id'} | ({'ContractCode', 'Namad'} & set(fields)):
+                for field in set(identity) | ({'id', 'ContractCode', 'Namad'} & set(fields)):
                     value = row[field]
                     if (not isinstance(value, (str, int, float)) or isinstance(value, bool)
                             or text_or_na(value) is pd.NA):
                         raise ValueError(f'missing or invalid {field}')
-                date = jalali_date(row['DT'])
+                date = jalali_date(row[date_field])
                 if date is pd.NA or not from_date.replace('/', '-') <= date <= to_date.replace('/', '-'):
                     raise ValueError('trading date outside requested window')
-                gregorian = pd.Timestamp(row[gregorian_field])
-                expected_date = pd.Timestamp(jd.date(*map(int, date.split('-'))).togregorian())
-                if pd.isna(gregorian) or gregorian.normalize() != expected_date:
-                    raise ValueError('Gregorian and Jalali trading dates disagree')
-                key = tuple(date if field == 'DT' else str(row[field]) for field in identity)
+                if gregorian_field is not None:
+                    gregorian = pd.Timestamp(row[gregorian_field])
+                    expected_date = pd.Timestamp(jd.date(*map(int, date.split('-'))).togregorian())
+                    if pd.isna(gregorian) or gregorian.normalize() != expected_date:
+                        raise ValueError('Gregorian and Jalali trading dates disagree')
+                key = tuple(date if field == date_field else str(row[field]) for field in identity)
                 if key in seen:
                     raise ValueError('duplicate observation or repeated page')
                 seen.add(key)
             rows.extend(page)
             if len(rows) == total:
                 return rows
+            if not paginate:
+                raise ValueError('incomplete whole-window report; use a smaller date interval')
         except (requests.RequestException, ValueError, TypeError, KeyError, OverflowError) as exc:
             raise RuntimeError(f'{context}: {exc}') from exc
     raise RuntimeError(f'IME history {from_date} to {to_date}: pagination safety limit exceeded')
@@ -378,60 +383,57 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
     return _clean_ime_physical_records(all_records)
 
 
+_IME_FUTURES_REQUIRED = (
+    'ContractDay', 'ContractCode', 'ContractDescription', 'ActiveBrokers', 'ChangeOpenInterest',
+    'TodaySettlementPrice', 'SettlementPricePercent', 'DT', 'DeliveryDate',
+    'WeeklyOpenInterests', 'MonthlyOpenInterests', 'WeeklySettlementPrice', 'MonthlySettlementPrice')
+
+
+def _ime_report_range(start_date, end_date, floor, chunk_size):
+    if type(chunk_size) is not int or chunk_size < 0:
+        raise ValueError('_chunk_size must be a nonnegative integer')
+    start = jalali_date(start_date) if start_date is not None else floor
+    end = jalali_date(end_date) if end_date is not None else str(jd.date.today())
+    if start is pd.NA or end is pd.NA:
+        raise ValueError('dates must be valid Jalali dates')
+    return max(floor, start), end
+
+
 def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None, end_date: str = None,
                                _chunk_size: int = 100, _offset: int = 0, _timeout=(10, 45)) -> pd.DataFrame:
+    """Return complete official futures reports, or raise RuntimeError on failure.
 
+    Preserve source prices/values in rials and volumes/open interest in contracts.
+    Validate totals, pages, contract/date identities and dates. Source-omitted
+    metrics remain missing. Existing arguments/defaults and empty/reversed-range
+    behavior are retained. See docs/ime.md for units, coverage and exceptions.
+    """
     if only_active and start_date == str(jd.date.today()):
         start_date = str(jd.date.today() - jd.timedelta(days=1))
-
-    if start_date is None or (int(start_date.replace('-', '')) < 13870101):
-        start_date = '1387-01-01'
-    if end_date is None:
-        end_date = str(jd.date.today())
-
-    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+    start, end = _ime_report_range(start_date, end_date, '1387-01-01', _chunk_size)
+    if start > end:
         return None
-
-    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
-
-    url = "https://www.ime.co.ir/subsystems/ime/futurereports/FutureAmareMoamelatHnadler.ashx"
-    contract_filter = -1 if only_active else 0
-
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
-               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/fut-report.html"}
-
-    all_rows = []
-    for f, t in chunked_dates:
-        params = {"f": f, "t": t, "c": contract_filter, "lang": 8, "order": "asc"}
-
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
-            response.raise_for_status()
-            data = response.json()
-            rows = data.get("rows", [])
-            if rows:
-                all_rows.extend(rows)
-        except Exception as e:
-            print(f"❌ Failed for chunk {f} to {t}: {e}")
-            continue
-    if all_rows:
-        all_data = pd.DataFrame(all_rows)
-        all_data.rename({'DT': 'Date', 'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Val_Haghighi_Buy': 'RetailBuyValue',
-                         'Vol_Haghighi_Sell': 'RetailSellVolume', 'Val_Haghighi_Sell': 'RetailSellValue',
-                         'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Val_Hoghooghi_Buy': 'InstitutionalBuyValue',
-                         'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
-                         'C_Buy': 'CBuy', 'C_Sell': 'CSell'},
-                        inplace=True, axis=1)
-
-        all_data['Date'] = all_data['Date'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return _public_frame(all_data)
-    return pd.DataFrame(all_rows)
+    url = 'https://www.ime.co.ir/subsystems/ime/futurereports/FutureAmareMoamelatHnadler.ashx'
+    params = dict(c=-1 if only_active else 0, lang=8, order='asc',
+                  referer='https://www.ime.co.ir/fut-report.html')
+    rows = []
+    for f, t in _chunk_jalali_dates(start, end, _chunk_size):
+        rows.extend(_download_ime_history(url, params, f, t, _IME_FUTURES_REQUIRED,
+                                         ('ContractCode', 'DT'), None, _timeout))
+    if not rows:
+        return pd.DataFrame()
+    try:
+        result = _public_frame(pd.DataFrame(rows).rename(columns={
+            'DT': 'Date', 'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Val_Haghighi_Buy': 'RetailBuyValue',
+            'Vol_Haghighi_Sell': 'RetailSellVolume', 'Val_Haghighi_Sell': 'RetailSellValue',
+            'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Val_Hoghooghi_Buy': 'InstitutionalBuyValue',
+            'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
+            'C_Buy': 'CBuy', 'C_Sell': 'CSell'}))
+        if result.duplicated(['ContractCode', 'JalaliDate']).any():
+            raise ValueError('duplicate futures contract/trading-date observation')
+        return result.sort_values('JalaliDate', ignore_index=True)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise RuntimeError(f'IME futures history {start} to {end}: {exc}') from exc
 
 
 def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = False, start_date: str = None,
@@ -548,62 +550,55 @@ def get_producer_physical_trades(producer: str, start_date: str = None, end_date
     return _public_frame(producer_physical_trades)
 
 
+_IME_EXPORT_REQUIRED = (
+    'cBrokerSpcName', 'ID', 'GoodsName', 'Symbol', 'ProducerName', 'ContractType', 'DeliveryDate',
+    'MinPrice', 'Price', 'MaxPrice', 'arze', 'BasePrice', 'arzeMinPrice', 'taghaza', 'taghazaMaxPrice',
+    'Quantity', 'TotalPrice', 'BasketDetail', 'GroupName', 'SubGroupName', 'Warehouse', 'date',
+    'typeName', 'ArzeBasePrice', 'ArzehKonandeh', 'xRingName', 'ModeDescription', 'MethodDescription',
+    'NerkhArz', 'Currency', 'Unit', 'Talar')
+
+
 def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40,
                                _timeout=(10, 45)) -> pd.DataFrame:
+    """Return complete official export reports, preserving source Currency/Unit.
 
-    if start_date is None or (int(start_date.replace('-', '')) < 13871201):
-        start_date = '1387-12-01'
-    if end_date is None:
-        end_date = str(jd.date.today())
-
-    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
+    Validate each whole-window response against its reported total. Failed,
+    malformed, truncated or duplicate reports raise RuntimeError; no partial
+    history is returned. Existing signatures/defaults and financial mappings
+    remain intact. Invalid dates/window sizes raise ValueError. See docs/ime.md.
+    """
+    start, end = _ime_report_range(start_date, end_date, '1387-12-01', _chunk_size)
+    if start > end:
         return None
-
-    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
-
-    url = "https://www.ime.co.ir/subsystems/ime/fiziki/export.ashx"
-
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
-               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/export-stat.html"}
-
-    all_rows = []
-    for f, t in chunked_dates:
-        params = {"f": f, "t": t, "m": 0, "c": 0, "s": 0, "p": 0, "lang": 8, "order": "asc"}
-
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
-            response.raise_for_status()
-            data = response.json()
-            rows = data.get("rows", [])
-            if rows:
-                all_rows.extend(rows)
-        except Exception as e:
-            print(f"❌ Failed for chunk {f} to {t}: {e}")
-            continue
-    if all_rows:
-        all_data = pd.DataFrame(all_rows)
-        all_data.drop(['TaghazaVoroudi', 'bArzehRadifTarSarresid', 'xKala_xGrouhAsliKalaPK', 'xKala_xGrouhKalaPK',
-                       'xKala_xZirGrouhKalaPK', 'xNamad_xTolidKonandehPK', 'xRingPK', 'arzehPk'], axis=1, inplace=True)
-        all_data.rename({'cBrokerSpcName': 'BrokerName', 'arze': 'SupplyVolume',
-                         'Price': 'ClosingPrice', 'Quantity': 'TradeVolume', 'arzeMinPrice': 'SupplyMinPrice',
-                         'taghaza': 'Demand', 'taghazaMaxPrice': 'DemandMaxPrice', 'date': 'Date',
-                         'typeName': 'MainGroupName', 'Talar': 'ExchangeHall', 'ArzeBasePrice': 'SupplyBasePrice',
-                         'ArzehKonandeh': 'Supplier', 'xRingName': 'RingName', 'ModeDescription': 'SupplyType',
-                         'MethodDescription': 'BuyType', 'NerkhArz': 'FXRate'}, inplace=True, axis=1)
-
-        all_data['Date'] = all_data['Date'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-
-        all_data['GoodsName'] = all_data['GoodsName'].apply(lambda goods_name: goods_name.replace(' - صادراتی', ''))
-
-        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-
-        return _public_frame(all_data)
-    return pd.DataFrame(all_rows)
+    url = 'https://www.ime.co.ir/subsystems/ime/fiziki/export.ashx'
+    params = dict(m=0, c=0, s=0, p=0, lang=8, order='asc',
+                  referer='https://www.ime.co.ir/export-stat.html')
+    rows = []
+    for f, t in _chunk_jalali_dates(start, end, _chunk_size):
+        # Current export offset>0 requests fail with HTTP 500. Preserve its
+        # working full-report request, checking completeness rather than guessing.
+        rows.extend(_download_ime_history(url, params, f, t, _IME_EXPORT_REQUIRED,
+                                         ('ID',), None, _timeout, date_field='date', paginate=False))
+    if not rows:
+        return pd.DataFrame()
+    try:
+        all_data = pd.DataFrame(rows).drop(columns=[
+            'TaghazaVoroudi', 'bArzehRadifTarSarresid', 'xKala_xGrouhAsliKalaPK', 'xKala_xGrouhKalaPK',
+            'xKala_xZirGrouhKalaPK', 'xNamad_xTolidKonandehPK', 'xRingPK', 'arzehPk'], errors='ignore')
+        all_data.rename(columns={
+            'cBrokerSpcName': 'BrokerName', 'arze': 'SupplyVolume',
+            'Price': 'ClosingPrice', 'Quantity': 'TradeVolume', 'arzeMinPrice': 'SupplyMinPrice',
+            'taghaza': 'Demand', 'taghazaMaxPrice': 'DemandMaxPrice', 'date': 'Date',
+            'typeName': 'MainGroupName', 'Talar': 'ExchangeHall', 'ArzeBasePrice': 'SupplyBasePrice',
+            'ArzehKonandeh': 'Supplier', 'xRingName': 'RingName', 'ModeDescription': 'SupplyType',
+            'MethodDescription': 'BuyType', 'NerkhArz': 'FXRate'}, inplace=True)
+        all_data['GoodsName'] = all_data['GoodsName'].apply(lambda name: name.replace(' - صادراتی', ''))
+        result = _public_frame(all_data)
+        if result.duplicated('ID').any():
+            raise ValueError('duplicate export observation ID')
+        return result.sort_values('JalaliDate', ignore_index=True)
+    except (ValueError, TypeError, AttributeError, OverflowError) as exc:
+        raise RuntimeError(f'IME export history {start} to {end}: {exc}') from exc
 
 
 def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30,

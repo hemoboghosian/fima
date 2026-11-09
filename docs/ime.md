@@ -4,6 +4,81 @@ Use explicit short Jalali intervals. Existing broad defaults are retained for
 compatibility and do not prove history since inception. The [source audit](ime-audit.md)
 explains API overlap and unresolved continuous-certificate filters.
 
+## Futures and export report histories
+
+```python
+get_all_ime_futures_trades(
+    only_active=False, start_date=None, end_date=None,
+    _chunk_size=100, _offset=0, _timeout=(10, 45),
+)
+get_all_ime_export_trades(
+    start_date=None, end_date=None, _chunk_size=100,
+    _offset=40, _timeout=(10, 45),
+)
+```
+
+Both existing APIs remain available from `fima` and `fima.IME`, with unchanged
+positional arguments and financial mappings. Use inclusive Jalali intervals
+(`YYYY-MM-DD` or `YYYY/MM/DD`). Missing/earlier start dates clamp to the legacy
+floors 1387-01-01 (futures) and 1387-12-01 (export); end defaults to today.
+These floors do not establish verified inception or exhaustive archive coverage.
+Reversed ranges retain `None`, and valid empty reports retain empty DataFrames.
+`_chunk_size` is a nonnegative integer, with zero requesting one day per window;
+`_offset` remains unused for compatibility. No current-day finality is implied.
+
+Futures use the [official futures report](https://www.ime.co.ir/fut-report.html).
+`only_active` selects currently active contracts, including for historical
+requests; it does not reconstruct a point-in-time active universe. Pages must
+satisfy the source `total`; duplicate `ContractCode`/`JalaliDate` observations,
+changed totals and missing/repeated pages raise. A 10,000-page safety bound
+raises rather than truncates. The source has no Gregorian trading-date field
+in this report; none is invented.
+
+`TradeVolume` and `OpenInterest` retain source contract counts; `TradeValue`,
+`OpeningPrice`, `LastPrice`, `HighPrice`, `LowPrice`, `LastSettlementPrice` and
+`TodaySettlementPrice` retain native rials and distinct financial meanings.
+Instrument quotation conventions and multipliers are not inferred or converted.
+`SettlementPricePercent` and weekly/monthly percentage fields remain reported
+values. `OpenInterestChange` retains the raw source value without resolving the
+page's ambiguous percentage label. Customer counts and retail/institutional
+volumes/values remain separate. The provider legitimately omits some trade,
+price and activity metrics: omissions remain absent/NaN, not fabricated zeros.
+`ContractCode` is a string; `JalaliDate` and `DeliveryJalaliDate` are canonical
+Jalali strings. Delivery date is not the record's trading date.
+
+Exports use the [official export report](https://www.ime.co.ir/export-stat.html).
+The established whole-window request is retained because small second-page
+requests returned HTTP 500 during the bounded audit. Every window must contain
+exactly its reported total; a truncated response raises with advice to request
+a smaller interval. There is no speculative pagination fallback or automatic
+retry. Export `ID` is a string observation identity, while `Symbol` and
+`ProducerName` identify the reported product/producer. Duplicates across windows
+are rejected. `JalaliDate` and `DeliveryJalaliDate` remain distinct.
+
+Export `ClosingPrice`/`LowPrice`/`HighPrice`, `SupplyVolume`, `TradeVolume`,
+`TradeValue`, `SupplyBasePrice`, `Demand`, `Currency`, `Unit` and `FXRate` retain
+their existing source mappings. There is no universal rial, toman, kilogram or
+tonne conversion. The quantity `Unit` alone does not establish price quotation
+units; do not assume `TradeValue == ClosingPrice * TradeVolume`. Missing FX
+rates remain missing. Existing producer wrappers inherit fail-closed download
+behavior without changed signatures.
+
+```python
+from fima import get_all_ime_futures_trades, get_all_ime_export_trades
+
+futures = get_all_ime_futures_trades(start_date='1404-01-01', end_date='1404-02-01')
+exports = get_all_ime_export_trades(start_date='1405-08-16', end_date='1405-08-17')
+```
+
+Invalid dates/window sizes raise `ValueError`. HTTP/TLS/timeouts, invalid JSON,
+malformed envelopes/required fields, invalid identities/dates/numbers and
+incomplete reports raise chained `RuntimeError`, without printing and returning
+partial data. Dates and financial parsing are validated before returning.
+Completeness is relative to provider totals, not proof of missing trading days,
+immutable snapshots or provider-record accuracy. Opt-in comparisons validate
+real futures pages and export date windows against complete official responses;
+deterministic CI uses synthetic source-shaped records.
+
 ## Option contract history
 
 ```python
