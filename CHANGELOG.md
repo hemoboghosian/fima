@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Make existing `get_all_ime_cd_trades` and `get_all_ime_salaf_trades` validate
+  complete paginated histories and fail on missing/failed windows. Add optional
+  exact `ticker` or `instrument_code` selection after full validation. Preserve
+  source rials, instrument quantities, reported percentage zeros, positional
+  arguments and date defaults; document nonunique row IDs and CDC limitations.
+
 - Make `get_all_ime_option_trades` reject failed/inconsistent history pages
   instead of returning partial results. Validate totals, identities and trading
   calendars; retain typed empty results. Add keyword-only exact `contract_code`

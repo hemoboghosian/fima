@@ -4,7 +4,7 @@ import jdatetime as jd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from ._data import boolean_series, identifier_series, jalali_date, gregorian_series, number_series
+from ._data import boolean_series, identifier_series, jalali_date, gregorian_series, number_series, text_or_na
 
 
 _IME_THREAD_LOCAL = threading.local()
@@ -94,7 +94,8 @@ def _download_ime_history(url, params, from_date, to_date, fields, identity, gre
                     raise ValueError(f'missing history fields: {sorted(set(fields) - row.keys())}')
                 for field in set(identity) | {'id'} | ({'ContractCode', 'Namad'} & set(fields)):
                     value = row[field]
-                    if value is None or isinstance(value, bool) or not str(value).strip():
+                    if (not isinstance(value, (str, int, float)) or isinstance(value, bool)
+                            or text_or_na(value) is pd.NA):
                         raise ValueError(f'missing or invalid {field}')
                 date = jalali_date(row['DT'])
                 if date is pd.NA or not from_date.replace('/', '-') <= date <= to_date.replace('/', '-'):
@@ -122,6 +123,54 @@ _IME_OPTION_FIELDS = (
     'Vol_Hoghooghi_Sell', 'Val_Hoghooghi_Sell', 'Vol_Haghighi_Buy', 'Val_Haghighi_Buy',
     'Vol_Haghighi_Sell', 'Val_Haghighi_Sell', 'LastSettlementPrice', 'TodaySettlementPrice',
     'SettlementPricePercent', 'DT', 'DT_en', 'DeliveryDate', 'CreateDateTime')
+
+
+_IME_FINANCIAL_FIELDS = {
+    'id': 'ID', 'Namad': 'Code', 'LVal18AFC': 'Symbol', 'DT': 'JalaliDate',
+    'NamadDescription': 'Description', 'PClosing': 'ClosingPrice', 'PDrCotVal': 'LastPrice',
+    'ZTotTran': 'TransactionCount', 'QTotTran5J': 'TradeVolume', 'QTotCap': 'TradeValue',
+    'PriceMin': 'LowPrice', 'PriceMax': 'HighPrice', 'PriceYesterday': 'YesterdayPrice',
+    'LastTradeChangePrice': 'LastPriceChange', 'LastTradeChangePricePercent': 'LastPricePercentageChange',
+    'LastPriceChangePrice': 'ClosingPriceChange',
+    'LastPriceChangePricePercent': 'ClosingPricePercentageChange', 'DT_En': 'GregorianDate'}
+
+
+def _ime_financial_history(market, floor, start_date, end_date, chunk_size, timeout, ticker, instrument_code):
+    """Shared contract for the two existing standard-transactions markets."""
+    for name, value in [('ticker', ticker), ('instrument_code', instrument_code)]:
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f'{name} must be a nonempty exact identifier')
+    if ticker is not None and instrument_code is not None:
+        raise ValueError('select either ticker or instrument_code, not both')
+    if type(chunk_size) is not int or chunk_size < 0:
+        raise ValueError('_chunk_size must be a nonnegative integer')
+    start = jalali_date(start_date) if start_date is not None else floor
+    end = jalali_date(end_date) if end_date is not None else str(jd.date.today())
+    if start is pd.NA or end is pd.NA:
+        raise ValueError('dates must be valid Jalali dates')
+    start = max(floor, start)
+    if start > end:
+        return None  # Preserve the existing reversed-range contract.
+    url = 'https://www.ime.co.ir/subsystems/ime/bazaremali/bazaremalidata.ashx'
+    params = dict(c=market, ot=0, lang=8, order='asc', sort='LVal18AFC',
+                  referer='https://www.ime.co.ir/standard-transactions.html')
+    rows = []
+    for f, t in _chunk_jalali_dates(start, end, chunk_size):
+        rows.extend(_download_ime_history(url, params, f, t, _IME_FINANCIAL_FIELDS,
+                                         ('Namad', 'DT'), 'DT_En', timeout))
+    try:
+        result = _public_frame(pd.DataFrame(rows, columns=list(_IME_FINANCIAL_FIELDS))
+                               .rename(columns=_IME_FINANCIAL_FIELDS))
+        if result.duplicated(['Code', 'JalaliDate']).any():
+            raise ValueError('duplicate instrument/trading-date observation')
+        result.sort_values('JalaliDate', inplace=True, ignore_index=True)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise RuntimeError(f'IME financial history {start} to {end}: {exc}') from exc
+    if ticker is not None:
+        result = result[result['Symbol'] == ticker]
+    elif instrument_code is not None:
+        result = result[result['Code'] == instrument_code]
+    return result.reset_index(drop=True)
 
 
 def _parse_ime_jdate(value):
@@ -558,56 +607,19 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
 
 
 def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30,
-                               _timeout=(10, 45)) -> pd.DataFrame:
+                               _timeout=(10, 45), *, ticker: str = None, instrument_code: str = None) -> pd.DataFrame:
+    """Return complete daily certificate statistics for inclusive Jalali dates.
 
-    if start_date is None or (int(start_date.replace('-', '')) < 13940301):
-        start_date = '1394-03-01'
-    if end_date is None:
-        end_date = str(jd.date.today())
-
-    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
-        return None
-
-    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
-
-    url = "https://www.ime.co.ir/subsystems/ime/bazaremali/bazaremalidata.ashx"
-
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
-               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/standard-transactions.html"}
-
-    all_rows = []
-    for f, t in chunked_dates:
-        params = {"f": f, "t": t, "c": 1, "ot": 0, "lang": 8, "order": "asc"}
-
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
-            response.raise_for_status()
-            data = response.json()
-            rows = data.get("rows", [])
-            if rows:
-                all_rows.extend(rows)
-        except Exception as e:
-            print(f"❌ Failed for chunk {f} to {t}: {e}")
-            continue
-    if all_rows:
-        all_data = pd.DataFrame(all_rows)
-        all_data.rename({'id': 'ID', 'Namad': 'Code', 'LVal18AFC': 'Symbol',
-                         'DT': 'Date', 'NamadDescription': 'Description', 'PClosing': 'ClosePrice',
-                         'PDrCotVal': 'LastPrice', 'ZTotTran': 'TotalTransitions', 'QTotTran5J': 'Volume',
-                         'QTotCap': 'Value', 'PriceMin': 'MinPrice', 'PriceMax': 'MaxPrice',
-                         'PriceYesterday': 'YesterdayPrice', 'LastTradeChangePrice': 'LastPriceChange',
-                         'LastTradeChangePricePercent': 'LastPricePercentageChange',
-                         'LastPriceChangePrice': 'ClosePriceChangePrice',
-                         'LastPriceChangePricePercent': 'ClosePricePercentageChange', 'DT_En': 'GDate'}, inplace=True, axis=1)
-
-        all_data['Date'] = all_data['Date'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data['GDate'] = pd.to_datetime(all_data['GDate'])
-        all_data['GDate'] = all_data['GDate'].dt.date
-        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return _public_frame(all_data)
-    return pd.DataFrame(all_rows)
+    Optional exact ticker (Symbol) or instrument_code (Code) selection is local,
+    after every source page/window is validated; use one selector at a time.
+    Source prices/values remain rials; traded quantities retain instrument units.
+    Existing positional arguments, date defaults and unused _offset are retained.
+    Reversed ranges return None. Valid empty reports retain the public schema.
+    Raises ValueError for invalid inputs, RuntimeError for failed, malformed or
+    incomplete reports. See docs/ime.md for schema and provider limitations.
+    """
+    return _ime_financial_history(1, '1394-03-01', start_date, end_date, _chunk_size,
+                                  _timeout, ticker, instrument_code)
 
 
 def get_all_export_producer_products() -> pd.DataFrame:
@@ -636,56 +648,19 @@ def get_producer_export_trades(producer: str, start_date: str = None, end_date: 
 
 
 def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30,
-                               _timeout=(10, 45)) -> pd.DataFrame:
+                               _timeout=(10, 45), *, ticker: str = None, instrument_code: str = None) -> pd.DataFrame:
+    """Return complete daily standard parallel salaf statistics for inclusive Jalali dates.
 
-    if start_date is None or (int(start_date.replace('-', '')) < 13930501):
-        start_date = '1393-05-01'
-    if end_date is None:
-        end_date = str(jd.date.today())
-
-    if int(start_date.replace('-', '')) > int(end_date.replace('-', '')):
-        return None
-
-    chunked_dates = _chunk_jalali_dates(start_date, end_date, _chunk_size)
-
-    url = "https://www.ime.co.ir/subsystems/ime/bazaremali/bazaremalidata.ashx"
-
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
-               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/standard-transactions.html"}
-
-    all_rows = []
-    for f, t in chunked_dates:
-        params = {"f": f, "t": t, "c": 0, "ot": 0, "lang": 8, "order": "asc"}
-
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
-            response.raise_for_status()
-            data = response.json()
-            rows = data.get("rows", [])
-            if rows:
-                all_rows.extend(rows)
-        except Exception as e:
-            print(f"❌ Failed for chunk {f} to {t}: {e}")
-            continue
-    if all_rows:
-        all_data = pd.DataFrame(all_rows)
-        all_data.rename({'id': 'ID', 'Namad': 'Code', 'LVal18AFC': 'Symbol',
-                         'DT': 'Date', 'NamadDescription': 'Description', 'PClosing': 'ClosePrice',
-                         'PDrCotVal': 'LastPrice', 'ZTotTran': 'TotalTransitions', 'QTotTran5J': 'Volume',
-                         'QTotCap': 'Value', 'PriceMin': 'MinPrice', 'PriceMax': 'MaxPrice',
-                         'PriceYesterday': 'YesterdayPrice', 'LastTradeChangePrice': 'LastPriceChange',
-                         'LastTradeChangePricePercent': 'LastPricePercentageChange',
-                         'LastPriceChangePrice': 'ClosePriceChangePrice',
-                         'LastPriceChangePricePercent': 'ClosePricePercentageChange', 'DT_En': 'GDate'}, inplace=True, axis=1)
-
-        all_data['Date'] = all_data['Date'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data['GDate'] = pd.to_datetime(all_data['GDate'])
-        all_data['GDate'] = all_data['GDate'].dt.date
-        all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return _public_frame(all_data)
-    return pd.DataFrame(all_rows)
+    Optional exact ticker (Symbol) or instrument_code (Code) selection is local,
+    after every source page/window is validated; use one selector at a time.
+    Source prices/values remain rials; traded quantities retain instrument units.
+    Existing positional arguments, date defaults and unused _offset are retained.
+    Reversed ranges return None. Valid empty reports retain the public schema.
+    Raises ValueError for invalid inputs, RuntimeError for failed, malformed or
+    incomplete reports. See docs/ime.md for schema and provider limitations.
+    """
+    return _ime_financial_history(0, '1393-05-01', start_date, end_date, _chunk_size,
+                                  _timeout, ticker, instrument_code)
 
 
 def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, end_date: str = None,

@@ -8,7 +8,7 @@ This records observed contracts, not a promise of exhaustive exchange coverage.
 | --- | --- | --- | --- | --- |
 | [Options statistics](https://www.ime.co.ir/optionboard.html) | `get_all_ime_option_trades`, same handler | Complete contract histories, exact selection | Historical statistics; active/all and Call/Put verified; total/offset pagination works | Improve existing API, priority 1, [#136](https://github.com/hemoboghosian/fima/issues/136); no duplicate board API |
 | [CDC statistics](https://cdc.ime.co.ir/Main/TransactionStatistics) | `get_gold_and_silver_cd_trades` uses older API | Copper and wider continuous certificates; OHLC/volume/value histories | Rendered default gold view has 77 observations, 25 per page; interactive filter contract unverified | Further verification, priority 2; [#62](https://github.com/hemoboghosian/fima/issues/62) remains scoped to legacy gold/silver filters |
-| [Financial transactions](https://www.ime.co.ir/standard-transactions.html) | `get_all_ime_cd_trades`, `get_all_ime_salaf_trades` | Complete individual instrument histories; funds category also present | CD=1, salaf=0, funds=2, ALL=all; instrument discovery and pagination verified | Improve CD/salaf separately; funds already have TSETMC histories, so no duplicate API justified yet |
+| [Financial transactions](https://www.ime.co.ir/standard-transactions.html) | `get_all_ime_cd_trades`, `get_all_ime_salaf_trades` | Complete individual instrument histories; funds category also present | CD=1, salaf=0, funds=2, ALL=all; instrument discovery and pagination verified | Improve existing CD/salaf APIs in [#137](https://github.com/hemoboghosian/fima/issues/137); funds already have TSETMC histories, so no duplicate API justified yet |
 | [Futures statistics](https://www.ime.co.ir/fut-report.html) | `get_all_ime_futures_trades` | Contract/settlement/open-interest history | Existing `FutureAmareMoamelatHnadler.ashx` consumer and active/all selectors | Already covered in API scope; failed-window handling warrants separate follow-up |
 | [Live derivatives board](https://cdn.ime.co.ir/) | Historical functions lack order books | Active option/futures bids, asks, metadata | Angular/SignalR consumer; initial HTML says no update; no browser connection or verified live message contract | High potential value, further verification; no speculative quote API |
 | [Certificate specifications](https://www.ime.co.ir/CDCsymbols.html), [CDC details](https://cdc.ime.co.ir/Main/ContractDetails) | No standalone catalog | Instrument identity and units | Static symbols/units verified; no verified join to API filters | Semantic evidence; defer catalog until usable history identifiers can be joined |
@@ -67,6 +67,18 @@ record `id` repeatedly equals `1`, so it is **not a unique observation identity*
 percentage fields were zero despite nonzero absolute changes; do not derive
 replacement observations or promise independently verified returns from zeros.
 
+The page explicitly states all monetary amounts are rials. Instrument selection
+was also verified using `ot=IRK1A12405A6` (certificate) and `ot=IRBKKATD05A7`
+(salaf): each returned exactly that code and both inclusive dates. The improved
+APIs choose exact local filtering after full response validation, so no opaque
+provider payload is required. The visible sortable symbol column establishes
+`sort=LVal18AFC`; repeated first/second-page requests returned consistent slices.
+The live two-record-page CD comparison once returned HTTP 500 at offset 6; exact
+and adjacent diagnostic requests returned 200, and the unchanged test passed on
+one bounded retry. This is an observed transient provider failure, not hidden by
+skipping or returning partial data. The subsequent comparison also validates
+symbol-sorted pages. The two-day salaf comparison passed.
+
 ## CDC verification boundary
 
 CDC is a server-interactive Blazor application. Public HTML includes silver,
@@ -75,6 +87,8 @@ gold bars/coins, date/first/last/low/high/closing/quantity/value, with 25 of 77
 rows; this is not a complete export. Custom date controls and export buttons
 exist. Their backend parameters, complete universe, date inclusivity and export
 completeness remain unverified: no Browser connection was available.
+The wider catalog/copper verification is tracked in
+[#139](https://github.com/hemoboghosian/fima/issues/139), separately from #62.
 
 The established `CDCTrades` POST with `marketId=22`, `customFilter='CD1GOB0001'`,
 Gregorian 2026-11-01–08 returned HTTP 200, `Success=true`, `TotalCount=0`,
@@ -103,3 +117,5 @@ an unavailable local proxy. Outside-sandbox diagnosis separately reproduced
 PyPI/files.pythonhosted.org connection timeouts. Maintainer VPN assistance
 restored PyPI metadata access (0.14.0). TLS remains enabled; deterministic CI
 does not require IME. No version change, tag, Release or publication is authorized.
+The maintainer then disconnected the VPN for IME live checks; VPN state is
+coordinated explicitly before switching between IME and PyPI-dependent checks.

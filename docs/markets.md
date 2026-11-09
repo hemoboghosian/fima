@@ -178,6 +178,13 @@ IME option history validates every reported page/window and supports exact local
 are a source filter, not a historical active universe. See the [IME guide](ime.md)
 and [provider/overlap audit](ime-audit.md).
 
+The existing CD/salaf history functions also reject incomplete reports and add
+mutually exclusive exact `ticker`/`instrument_code` selection after validation.
+Financial row `ID` is not unique; `Code` plus trading date identifies observations.
+Prices/values stay in rials and quantities retain each instrument's units.
+These APIs do not establish the separate CDC consumer's continuous-certificate
+coverage; copper salaf is not copper certificate history.
+
 Institutions use InstitutionName, string NationalID/SEORegisterNo/CEOMobileNo and
 the provider's existing boolean Status. Other contact/metadata fields stay as
 provided. TLS verification remains enabled; the package's existing truststore

@@ -62,10 +62,10 @@
 - `get_all_physical_producer_products`
 - `get_producer_physical_trades`
 - `get_all_ime_export_trades`
-- `get_all_ime_cd_trades`
+- `get_all_ime_cd_trades(start_date=None, end_date=None, _chunk_size=100, _offset=30, _timeout=(10,45), *, ticker=None, instrument_code=None)` — complete certificate statistics; exact local selection after validation.
 - `get_all_export_producer_products`
 - `get_producer_export_trades`
-- `get_all_ime_salaf_trades`
+- `get_all_ime_salaf_trades(start_date=None, end_date=None, _chunk_size=100, _offset=30, _timeout=(10,45), *, ticker=None, instrument_code=None)` — complete salaf statistics; [schema/units](ime.md#certificate-and-standard-parallel-salaf-histories).
 - `get_gold_and_silver_cd_trades`
 
 ## `fima.TSETMC`
