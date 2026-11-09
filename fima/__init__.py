@@ -2,7 +2,7 @@ from .Options import (download_chain_contracts, get_greeks, get_implied_volatili
                       download_market_watch, download_all_underlying_assets, download_historical_data, ticker_info,
                       calculate_delta, calculate_vega, calculate_theta, calculate_gamma, calculate_rho,
                       calculate_black_scholes_merton)
-from .IFB import (get_ifb_periodical_reports, get_ifb_bond_yield_history, get_ifb_yield_curve,
+from .IFB import (get_ifb_market_map, get_ifb_periodical_reports, get_ifb_bond_yield_history, get_ifb_yield_curve,
                   get_ifb_market_values, get_ifb_symbol_market_values, get_ifb_market_value_history,
                   get_risk_free_rate, get_all_bonds_without_coupons, get_all_bonds_with_coupons,
                   get_ifb_equally_weighted_total_index_historical_data,

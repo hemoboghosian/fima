@@ -5,6 +5,100 @@
 The additions documented here are **unreleased**. Existing IFB functions and signatures
 are unchanged. Import each from `fima` or `fima.IFB`.
 
+## Metric-selected market-map snapshot
+
+```python
+from fima import get_ifb_market_map
+
+values = get_ifb_market_map()  # metric="market_value"
+print(values[["InstrumentID", "Ticker", "Market", "MetricValue", "ClosingPrice"]])
+volume = get_ifb_market_map("trade_volume", market="ETF")
+selected = get_ifb_market_map("trade_value", ticker="بپاس", market="بازار دوم")
+```
+
+`get_ifb_market_map(metric="market_value", ticker=None, market=None) -> pd.DataFrame`
+loads the official [market map](https://ifb.ir/DataReporter/MarketMap.aspx), then
+POSTs its published `{type:N}` body to `/DataReporter/MarketMap.aspx/getData` in
+the same ordinary session. `metric` accepts exactly:
+
+| Metric | Code | `MetricValue` unit / dtype |
+| --- | --- | --- |
+| `trade_volume` | 1 | Native instrument quantity (shares, units or contracts), nullable `Int64`; not outstanding share count |
+| `trade_value` | 2 | Rials, `decimal.Decimal` / object |
+| `transaction_count` | 3 | Number of transactions, nullable `Int64`; not instrument count |
+| `market_value` | 4 | Instrument market value in rials, `decimal.Decimal` / object; includes debt and funds, not equity-only capitalization |
+
+All ten columns are always present, including for an empty result:
+
+| Column | Source / meaning / dtype |
+| --- | --- |
+| `InstrumentID` | `id`, IFB website ID as pandas string; **not** TSETMC `insCode` |
+| `Ticker` | `label`, exact source ticker, pandas string; can differ between metrics and need not be unique |
+| `InstrumentName` | `title`, source instrument name, pandas string |
+| `Market` | `market`, source classification, pandas string; not normalized across sources or metrics |
+| `MetricValue` | `value`, selected measure with units/types above; missing is `pd.NA`, valid zero remains zero |
+| `ClosingPrice` | `close`, closing price in rials, nullable `Int64`; not the last-traded price |
+| `ClosingPercentageChange` | `data`, closing-price change in **percentage points**, nullable `Float64`; `2.5` means `2.5%` |
+| `EPS` | `eps`, source earnings per instrument unit in rials, signed nullable `Int64`; earnings period/accounting basis is unverified |
+| `PE` | `ptoe`, source price/earnings ratio, nullable `Float64`; the page displays zero as `--`, so zero becomes `pd.NA`; negative ratios are retained |
+| `DetailURL` | Official `/Instruments.aspx?id=...` link, pandas string |
+
+The source supplies no last price, industry, observation date or quote timestamp.
+There is no date filter. `ticker` and `market` are nonempty exact source strings
+or `None`, combined with AND and applied locally **after** validating every row.
+No match returns a typed empty table; a bad row outside a filter still fails.
+Tickers, market labels and names are stripped of surrounding whitespace only.
+Distinct IDs with the same ticker are preserved; duplicate IDs fail. No ticker
+suffix is removed or used to guess instrument identity.
+
+Monetary `MetricValue` numbers are decoded directly from JSON to `Decimal`,
+including scientific notation and fractional serialized amounts. This preserves
+the **wire token's precision**, not an assertion of exact underlying integer
+rials: IFB may already have rounded floating-point values before serialization.
+No binary-float intermediate, rounding, toman conversion, B/M scaling or
+substitution from another source is applied. For exact integer market values
+with industry/subindustry classification, use
+[`get_ifb_symbol_market_values`](#symbol-drill-down).
+
+Source EPS zero is preserved, but is not proof of zero earnings: the source
+does not identify its missing-value convention or earnings period. It may differ
+from TSETMC estimated EPS. Null financial fields remain missing, negative EPS
+and P/E remain negative, and unusual closing changes are not clamped or repaired.
+`PE` is retained from IFB rather than recomputed from a different EPS source.
+
+**Coverage:** all records in the selected `d` collection, matching the page's
+full table. The chart deliberately uses only its first 100. No pagination,
+independent total count or specification of hidden exclusions is published.
+A syntactically valid shorter provider list cannot be detected as incomplete
+against an unavailable total; the API makes no all-IFB coverage guarantee.
+Malformed/truncated JSON, changed envelopes/fields and duplicate IDs fail.
+On 2026-11-09, metrics 1–3 initially shared 761 IDs with zero selected measures;
+later each returned 750 IDs with nonzero observations. Metric 4 returned 1,177
+IDs and 1,176 tickers across 11 classifications, including bonds absent from the
+other metrics. These counts are observations, not future expected totals.
+Do not combine separate calls into a simultaneous four-metric quotation.
+
+Attrs: `SourceURL`, `EndpointURL`, `Snapshot=True`, `Metric`, `MetricCode`,
+`MetricUnit`, `PriceUnit="IRR"`, `EPSUnit="IRRPerInstrumentUnit"`, unfiltered
+`SourceRowCount`, `Coverage="SelectedMetricResponse"`, and
+`MonetaryPrecision="SerializedJSONNumbers"`. No source timestamp is invented.
+
+Invalid arguments or malformed/changed source schemas raise `ValueError`.
+`requests` network, TLS, timeout and HTTP exceptions propagate. A validated
+`{"d":[]}` is a valid empty selected collection, distinct from missing/null `d`
+or an error HTML page. HTTPS verification stays enabled; requests use finite
+timeouts, at most one transient retry, no retry for 403/429/500, and session
+cleanup. Page bootstrap is required by the verified sequence; no WAF workaround
+or alternate provider is used.
+
+The general SignalR watch and IFB derivatives watch are not new public APIs.
+The initial general watch collection was observed, but authoritative coverage,
+quote timestamps and reliable delta/removal semantics remain follow-up work in
+[#129](https://github.com/hemoboghosian/fima/issues/129). Existing
+`Options.download_market_watch(market="IFB")`, chain and history functions retain
+their contracts. See the [Phase #122 audit](ifb-audit.md#phase-122-market-map-and-watch-investigation--2026-11-09)
+for the financial comparisons and provider limitations.
+
 ## Aggregate snapshots
 
 ```python

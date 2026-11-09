@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `get_ifb_market_map` for full metric-selected IFB snapshot responses,
+  with four verified measures, IFB identities/classifications, closing price,
+  percentage change and source EPS/P/E. Preserve serialized monetary precision
+  with Decimal; document metric-dependent coverage and absent quote timestamps.
+  Validate entire responses before exact local filters; keep SignalR/derivative
+  follow-up separate and preserve all existing APIs.
 - Add bounded IFB periodical-report discovery with source filters, string report
   IDs, separate reporting/upload dates and visible Excel/PDF links. Require two
   matching complete traversals; reject incomplete or changing catalogs.

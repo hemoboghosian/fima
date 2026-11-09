@@ -13,6 +13,7 @@ from ._ifb_market_values import (get_ifb_market_values, get_ifb_symbol_market_va
                                 get_ifb_market_value_history)
 from ._ifb_yields import get_ifb_bond_yield_history, get_ifb_yield_curve
 from ._ifb_reports import get_ifb_periodical_reports
+from ._ifb_market_map import get_ifb_market_map
 
 
 _THREAD_LOCAL = threading.local()
