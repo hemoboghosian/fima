@@ -97,7 +97,7 @@ def test_ime_cd_count_volume_value_and_closing_last_are_distinct(monkeypatch):
                PriceYesterday=98, LastTradeChangePrice=12, LastTradeChangePricePercent=2.5,
                LastPriceChangePrice=2, LastPriceChangePricePercent=1.2)
     monkeypatch.setattr(ime.requests, "get", lambda *a, **k: SimpleNamespace(
-        json=lambda: {"rows": [row]}, raise_for_status=lambda: None))
+        json=lambda: {"total": 1, "rows": [row]}, raise_for_status=lambda: None))
     result = ime.get_all_ime_cd_trades(start_date="1405-07-20", end_date="1405-07-20")
     assert result.iloc[0][["ClosingPrice", "LastPrice", "TransactionCount", "TradeVolume", "TradeValue"]].tolist() == [100, 110, 7, 1234, 123400]
     assert result.iloc[0].Code == "0001"

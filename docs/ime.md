@@ -86,3 +86,86 @@ Financial parsing precedes local selection, which cannot hide failed pages.
 Completeness is against reported counts, not proof of every historic trading
 day or an immutable source snapshot. Missing dates are not filled. Integration
 comparisons must be explicitly selected; routine CI uses mocked source records.
+
+## Certificate and standard parallel salaf histories
+
+```python
+get_all_ime_cd_trades(
+    start_date=None, end_date=None, _chunk_size=100, _offset=30,
+    _timeout=(10, 45), *, ticker=None, instrument_code=None,
+)
+get_all_ime_salaf_trades(
+    start_date=None, end_date=None, _chunk_size=100, _offset=30,
+    _timeout=(10, 45), *, ticker=None, instrument_code=None,
+)
+```
+
+These existing APIs use [IME financial transaction statistics](https://www.ime.co.ir/standard-transactions.html),
+with certificate market `c=1` or salaf market `c=0`. They do not use the separate
+continuous-certificate CDC consumer and do not establish copper/GoldBar CDC
+history coverage. See unresolved [#62](https://github.com/hemoboghosian/fima/issues/62)
+and [#139](https://github.com/hemoboghosian/fima/issues/139).
+
+Both APIs are exported from `fima` and `fima.IME`. Optional `ticker` matches the
+exact, case-sensitive source `Symbol`; `instrument_code` matches exact string
+`Code` (source `Namad`, usually ISIN-like). Select at most one. No Persian/Arabic
+letter normalization or fuzzy search is performed. Prefer the stable code when
+similar/reused display symbols could be ambiguous. Ticker selection returns all
+matching codes in the interval; it does not invent a unique identity.
+
+Dates are inclusive Jalali `YYYY-MM-DD` or `YYYY/MM/DD`. Missing or earlier start
+clamps to `1394-03-01` for certificates and `1393-05-01` for salaf. These are
+legacy request floors, **not verified inception dates or complete-history claims**.
+End defaults to today according to the system date. Explicit end dates are not
+clamped; reversed ranges retain `None`. Use explicit short intervals by default
+in your own programs. `_chunk_size`, `_offset`, `_timeout`, validation/errors,
+page bounds and TLS rules follow the options contract above. The source table's
+symbol sort (`sort=LVal18AFC`) is used for pagination; within-day output order
+remains unspecified. Each market response is fully validated before local
+ticker/code selection, even though the website also has server-side selectors.
+
+```python
+from fima import get_all_ime_cd_trades, get_all_ime_salaf_trades
+
+saffron = get_all_ime_cd_trades(
+    start_date='1405-08-16', end_date='1405-08-17', ticker='زعف0510پ20',
+)
+print(saffron[['Code', 'JalaliDate', 'ClosingPrice', 'TradeVolume', 'TradeValue']])
+
+# Verified copper salaf instrument; this is not a copper deposit certificate.
+copper_salaf = get_all_ime_salaf_trades(
+    start_date='1405-08-16', end_date='1405-08-17', instrument_code='IRBKKATD05A7',
+)
+```
+
+Complete returned schema:
+
+| Column | Type / meaning |
+| --- | --- |
+| `ID` | Source string `id`; observed repeated `1`, not a unique observation/instrument ID |
+| `Code` | Stable string `Namad`, combined with trading date for uniqueness |
+| `Symbol`, `Description` | Source ticker and instrument description |
+| `JalaliDate`, `GregorianDate` | Trading date as ASCII `YYYY-MM-DD` and normalized `datetime64[ns]`; calendars must agree |
+| `ClosingPrice`, `LastPrice` | Numeric source closing and last traded prices, distinct quotations in rials per traded security/certificate |
+| `TransactionCount` | Numeric executed transaction count (`ZTotTran`) |
+| `TradeVolume` | Numeric traded security/certificate quantity (`QTotTran5J`), not transaction count or universal kg/gram quantity |
+| `TradeValue` | Numeric transaction value in rials (`QTotCap`), not nominal outstanding value |
+| `LowPrice`, `HighPrice`, `YesterdayPrice` | Numeric minimum/maximum/previous-day source prices, rials |
+| `LastPriceChange`, `ClosingPriceChange` | Numeric absolute source changes, rials |
+| `LastPricePercentageChange`, `ClosingPricePercentageChange` | Raw source percentage-point changes; observed zeros despite nonzero absolute changes are preserved, not recomputed |
+
+The page explicitly labels **all monetary amounts as rials**. No toman/thousand-
+rial conversion is applied. TradeVolume retains instrument-specific units. For
+the observed saffron certificate, the specification gives one gram/certificate;
+this does not generalize to other certificates or financing instruments. The
+statistics handler does not supply certificate size, contract multiplier,
+opening price, delivery/expiry dates or underlying weight units: no columns for
+these are invented. Closing price need not equal TradeValue/TradeVolume exactly,
+and source floating-point serialization limits recoverable precision.
+
+Typed empty results retain all 18 columns, including string `ID`/`Code` and
+Gregorian datetime dtype. Missing days are not synthesized. Failed windows and
+invalid/missing/duplicate observations now raise instead of silently returning
+partial history. Live checks compare actual fields and inclusive dates across
+multiple real pages for both categories; a provider HTTP 500 was correctly raised
+during investigation and the unchanged comparison passed on a bounded retry.
