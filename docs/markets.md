@@ -102,6 +102,21 @@ print(reports[["ReportID", "PeriodEndJalaliDate", "UploadJalaliDate", "ExcelURL"
 نمی‌کند. [فیلترها و تضمین تکمیل دریافت](ifb.md#periodical-statistical-report-catalog)
 را پیش از انتخاب بازه‌های بزرگ ببینید.
 
+برای نقشهٔ بازار، معیار حجم، ارزش معاملات، تعداد معاملات یا ارزش بازار را
+انتخاب کنید. خروجی کل پاسخ همان معیار است؛ پوشش معیارها می‌تواند متفاوت باشد
+و تاریخ یا زمان مشاهدهٔ رسمی در این منبع ارائه نمی‌شود:
+
+```python
+from fima import get_ifb_market_map
+
+snapshot = get_ifb_market_map("trade_volume", market="ETF")
+print(snapshot[["InstrumentID", "Ticker", "MetricValue", "ClosingPrice"]])
+```
+
+مبالغ ریالی معیارهای ارزش با `Decimal` و دقت عدد ارسالی منبع حفظ می‌شوند.
+[واحدها، طرح خروجی و محدودیت پوشش](ifb.md#metric-selected-market-map-snapshot)
+را ببینید.
+
 ### بورس کالای ایران
 
 ```python

@@ -395,4 +395,175 @@ Four samples do not establish every legacy download format or revision contract.
 Keep the initial change focused on discovery; do not add a universal downloader
 or parser based only on current samples. Further family-specific extraction,
 cached/error cells, units, legacy formats and revision provenance are in #127.
-Other independent IFB work remains in #122 (watches) and #125 (Nelson semantics).
+At the conclusion of #121, independent IFB work remained in #122 (watches) and
+#125 (Nelson semantics). The subsequent #122 investigation is recorded below.
+
+## Phase #122 market-map and watch investigation — 2026-11-09
+
+Preflight reconfirmed clean `master`/`origin/master` at
+`a858bacc2a0410cd23134fa3e8b5671195ec8a2d`, Python 3.10.11, consistent installed
+dependencies and 878 passing deterministic tests (143 integration deselected).
+Version remains 0.13.2. This section supersedes the earlier watch/map transport
+uncertainties where new observations are explicitly recorded; earlier counts
+remain dated observations.
+
+### Ranked decisions before implementation
+
+| Priority / candidate | Official source | Observed endpoint | Data fields | Snapshot/history | Coverage | Existing overlap | Financial verification | Decision |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 / market map | [MarketMap.aspx](https://ifb.ir/DataReporter/MarketMap.aspx) | Same-session page GET, POST `/DataReporter/MarketMap.aspx/getData` | IFB ID, ticker, title, market, selected measure, closing price/change, EPS, P/E | Current selected snapshot; no dates/history | Entire `d` table collection, not 100-chart subset; metric-dependent; no independent total | Industry symbol values add exact integer values and industry; TSETMC index quotes have selected constituents, not this IFB map classification/universe | All four metric responses verified; nonzero trading measures; ID/price checks below | **Implement** one parameterized API; small HTTP/JSON parser, no dependency or architecture change |
+| 2 / general watch | [StockQoute.aspx](https://ifb.ir/StockQoute.aspx) | Published SignalR `/negotiate`, `/connect`, `/send`, `/poll`; `myhub.letsStart` | Quotes/trades, ISIN/IFB IDs/market numbers, five best-limit levels, NAV/YTM-related fields | Initial client state plus subsequent deltas; not verified history | 1,254 unique IDs in an actual initial callback; authoritative total, exclusions, timestamp and removal semantics unresolved | TSETMC index quotes/history; possible useful IFB-specific order-book/coverage gap | Actual initial payload and replacement/merge code verified; NAV date is not quote time; order-book ordering/refresh not independently established | **Investigate further**, [#129](https://github.com/hemoboghosian/fima/issues/129); marginal value does not justify a new protocol implementation before validation |
+| 3 / derivatives watch | [OptionStockQuote.aspx](https://ifb.ir/OptionStockQuote.aspx) | Page GET repeatedly timed out locally; shared public hub proxy exposes `letsStartForOption` | Full page-specific initial payload and authoritative metadata not verified | Unresolved snapshot | Not established for this IFB page | Existing Options IFB watch/chains/history/metadata/analytics; live source returned 235 call/put pairs | Existing route has separate contract/underlying codes, side, strike, expiry, size, quote/trade/open-position and best-quote fields | **Blocked locally / no duplicate API**; recheck access and demonstrate a gap in #129 |
+
+The market map ranks first for usefulness, bounded completeness, live correctness,
+compatibility and low maintenance cost. A general streaming implementation has
+greater state/protocol complexity and weaker independently verified boundaries.
+No generic watch architecture, report parser, new dependency or historical data
+synthesis was added. Existing IFB, Options, TSETMC and risk-free-rate behavior is
+preserved.
+
+### Actual market-map transport and financial fields
+
+GET `https://ifb.ir/DataReporter/MarketMap.aspx` returned HTTP 200 UTF-8 HTML,
+without redirects. Its four radio labels map 1 to حجم, 2 to ارزش, 3 to تعداد and
+4 to ارزش بازار. The published jQuery call sends POST body `{type:N}` with
+`Content-Type: application/json; charset=utf-8` to
+`https://ifb.ir/DataReporter/MarketMap.aspx/getData`. Same-session requests for
+all four metrics returned HTTP 200 JSON `{"d":[...]}` with exactly nine record
+fields. The API follows that ordinary sequence, with finite timeouts and TLS
+verification; it does not manipulate cookies or send WebForms postback state.
+
+A fresh-session POST with the published body returned HTTP 500 and the generic
+WebMethod `Message`/`StackTrace`/`ExceptionType` error envelope. After a GET in
+the same session, **strict JSON also returned HTTP 200**. Therefore the earlier
+strict-JSON versus unquoted-key discrepancy does not establish that quoting is
+the cause. Page bootstrap/session initialization appears significant; the exact
+server-side requirement is not independently established. There is no fallback
+request format or access-control workaround in the implementation.
+
+| Wire field | Verified meaning / unit | Boundary |
+| --- | --- | --- |
+| `id` | IFB website instrument ID; links to `/Instruments.aspx?id=...` | Not TSETMC `insCode`; duplicate tickers can identify distinct instruments |
+| `label` / `title` | Source ticker / instrument name | Preserve suffixes and source naming |
+| `market` | Source market classification | Varies between metrics; no industry field |
+| `value`, type 1 | Trade volume in native instrument quantity | Not outstanding share count; may represent units/contracts |
+| `value`, type 2 | Trade value in rials | Not market value; no implicit display B/M scaling |
+| `value`, type 3 | Transaction count | Not instrument count |
+| `value`, type 4 | Instrument market value in rials | Includes debt/funds; not equity-only capitalization |
+| `close` | Closing price in rials | Not last trade |
+| `data` | Closing-price percentage change, percentage points | Page appends `%`; do not infer scale from magnitude or clamp outliers |
+| `eps` | Source EPS, rials per instrument unit | Period/accounting basis and zero/missing convention unverified |
+| `ptoe` | Source P/E ratio | Source zero displayed `--`; negative P/E retained |
+
+There is no last price, industry, observation date/time or historical filter.
+The implementation exposes ten documented PascalCase columns, including a
+verified detail URL; see [full contract](ifb.md#metric-selected-market-map-snapshot).
+It returns signed nullable integer EPS, preserves EPS zero without asserting
+zero earnings, and maps source P/E zero to missing as the page does. P/E is not
+recomputed using another provider's EPS.
+
+Scientific monetary tokens include `2.392420692E+15`. Current per-record values
+were below `2**53`, but that does not establish exact underlying amounts for all
+future records or values already rounded by the server. Monetary `MetricValue`
+is decoded directly to `Decimal`; no binary-float conversion followed by an
+exact-integer-rial claim is made. Decimal preserves serialized precision only.
+
+### Universe and independent checks
+
+- Earlier metrics 1/2/3 each returned the same 761 unique IDs and zero selected
+  measures. Later each returned 750 unique IDs, seven source classifications,
+  and 55 nonzero selected measures in the live tests. They included ETF, equity,
+  options and housing categories. This change is preserved, not repaired.
+- Metric 4 returned 1,177 unique IFB IDs and 1,176 tickers across 11 source
+  classifications, including 499 fixed-income records and 192 ETF records.
+  The ticker `وملل1` occurred at distinct IDs 43064 and 18006. Only part of the
+  trading-metric universe overlaps; never join these as one atomic quote.
+- The page loops over every `msg.d` record for its table, but explicitly sends
+  `msg.d.slice(0,100)` to the treemap chart. No pagination or independent total
+  is published. The API preserves the whole collection and rejects malformed
+  JSON/rows/IDs. A syntactically valid shorter provider list cannot be detected
+  against a nonexistent independent total. No whole-IFB claim is made.
+- All 1,177 metric-4 IDs matched the existing industry-page constituents.
+  1,176 amounts matched exactly; ID30276 differed (`327061867335392` versus
+  `327108027546688`) across separate requests. Preserve provenance and timing
+  differences rather than replacing one snapshot's value with the other.
+- Actual SignalR records use `TotalTradeQuantity`, `TotalTradeValue`,
+  `TradeCount`, `MarketValue`, `ClosingPrice`, `ClosingPercent` and `EPS` for
+  common IFB IDs, confirming the page's financial field distinctions. Trading
+  and closing values changed as ETFs began trading; EPS matched on all common
+  IDs in that comparison. Metric-2 nonzero values, such as ETF کارا's
+  1,913,510,973,547 rials, are distinct from volume 49,350,355 and its market
+  value; no count/volume/value substitution is made.
+- Official IFB detail ID18620 identifies بپاس as ISIN `IRO3BIPZ0001`.
+  TSETMC's existing `Instrument/GetInstrumentInfo/51971068201094874` response
+  has the same `instrumentID`; the IFB ID is not its numeric TSETMC code.
+  TSETMC's existing IFB index-constituent endpoint
+  `ClosingPrice/GetIndexCompany/43685683301327984` returned 247 records and
+  بپاس closing 13,730 versus last 13,740, confirming the closing/last distinction.
+  IFB EPS 1,221 differs from TSETMC `estimatedEPS` 668; no common earnings
+  period/basis or interchangeable EPS series is asserted.
+
+### SignalR, derivatives and source limitations
+
+The current general page, `StockPageCore.js`, `HubPreRequisite.js`,
+`jquery.signalR-1.2.2.min.js` and `/signalr/hubs` all returned 200. The generated
+public proxy exposes `letsStart`, `letsStartForOption`, `letsStartForOragh` and
+`AbzarNovinLetsStart`. Source inspection showed protocol 1.2.2 client behavior:
+GET `/signalr/negotiate` with subscribed `connectionData`, GET `/signalr/connect`
+with the longPolling fallback, POST `/signalr/send` with a form-encoded JSON hub
+invocation, then GET `/signalr/poll`. The server advertised protocol `1.2`.
+No guessed newer `clientProtocol` parameter or `/start` request was added.
+
+One bounded legitimate session invoked `myhub.letsStart(connection.id)` and
+received `updateSingleTable` with 1,254 unique instrument records and a separate
+three-element aggregate array. The callback passes `symId=-1`, replacing client
+`gridData`; later `updateRow` callbacks merge by `SymbolId`. Market-number and
+block/major `SymbolNum` selectors filter the cumulative client state locally.
+Thus an arbitrary streamed delta is not a full snapshot. Records include ISIN
+and five `ThisBestLimits` levels; level-ordering, quote timestamp, refresh cadence,
+removal/reconnect behavior and authoritative coverage remain unverified.
+`NAVDate`/`NAVTime` must not be relabeled quote timestamps. The ordinary public
+`/signalr/abort` cleanup returned 200. No connection token was committed.
+
+`OptionStockQuote.aspx` repeatedly hit bounded 30-second read/TLS timeouts in
+this local environment. Other IFB requests succeeded, and web fetches also
+failed; this does not establish global outage or permanent blocking. The shared
+client has separate option initial/update callbacks but no independently verified
+full derivative initial payload was obtained. Existing Options' official
+`Instrument/GetInstrumentOptionMarketWatch/2` returned 235 paired call/put records
+with separate contract and underlying codes, strike, expiry, size, trade/price,
+open-position and best bid/ask fields. No derivative ticker parsing or duplicate
+API was introduced. Follow-up [#129](https://github.com/hemoboghosian/fima/issues/129)
+records both the achieved protocol evidence and remaining acceptance criteria.
+
+Independent roadmap: [#125](https://github.com/hemoboghosian/fima/issues/125)
+still concerns Nelson **bond-observation** semantics, not the already implemented
+official fitted comparison nodes; [#127](https://github.com/hemoboghosian/fima/issues/127)
+concerns financial extraction from report contents, legacy formats and revisions,
+not catalog completeness. Neither is solved or expanded by this snapshot API.
+
+### Validation of the focused addition
+
+Tests were added before the new module/API, initially failing collection for
+the missing module. All 76 new deterministic cases pass. The full suite passes
+954 deterministic tests with 147 integration tests deselected, including prior
+IFB, Options and TSETMC regressions. Four opt-in live tests compare **every row**
+with its same captured official response, avoiding cross-request timing claims.
+The final run passed with 751 records and 57 nonzero measures for each of metrics
+1–3, and 1,177 records/all nonzero market values for metric 4. These live counts
+changed from the earlier run's 750/55; no fixed count is enforced.
+
+Existing public `Options.download_market_watch(market="IFB", stack="Vertical",
+j_date=False)` also succeeded with 470 rows: 235 calls and 235 puts, 29 columns.
+`TSETMC.get_index_companies` for the officially identified IFB total index
+succeeded with 247 rows; بپاس closing/last retained the verified distinction.
+Those modules and the risk-free-rate implementation were not changed.
+
+Wheel/sdist builds, strict Twine metadata checks, source-byte comparisons,
+package privacy/file inventory, documentation links/anchors, and dependency
+checks passed. A fresh offline-installed wheel in a neutral directory passed
+307 relevant deterministic tests on Python 3.10 / pytest 8.3.5; all 77 public
+callables imported and import-time HTTP was prohibited. Normal deterministic
+CI remains independent of providers. Raw investigation dumps, connection state,
+temporary scripts and built distributions are excluded from commits. No version
+bump, tag, release, distribution upload or publication is part of this work.
