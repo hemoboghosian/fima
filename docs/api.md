@@ -30,6 +30,7 @@
 
 - `get_ifb_bond_yield_history(start_date, end_date, ticker=None, *, instrument_id=None, jalali=True, on_conflict="raise")` — complete selected official YTM export with explicit conflict handling; [fields/units](ifb.md#historical-bond-ytm).
 - `get_ifb_yield_curve(category="treasury")` — all official fitted YTM comparison nodes for treasury, government or nongovernment; [fields/limitations](ifb.md#official-fitted-ytm-curves).
+- `get_ifb_periodical_reports(start_date, end_date, *, report_type=None, reporting_period=None, title=None, breakdown=None, jalali=True, max_pages=20)` — complete bounded statistical-report catalog with period-end filters, separate upload dates and visible file links; [schema/completeness](ifb.md#periodical-statistical-report-catalog).
 - `get_ifb_market_values(group_by="industry")` — full source aggregate snapshot by industry or market.
 - `get_ifb_symbol_market_values(ticker=None, market=None, industry=None)` — exact-filtered constituent snapshot with string IFB IDs.
 - `get_ifb_market_value_history(start_date=None, end_date=None, *, jalali=True)` — all three official market-value CSV histories, with separate market regimes.
