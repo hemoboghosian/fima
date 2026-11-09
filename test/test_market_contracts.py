@@ -38,9 +38,15 @@ def test_physical_keys_volume_value_prices_and_dates():
 def test_ime_option_timestamp_and_numeric_ids(monkeypatch):
     row = dict(id="00012", DT="1405/07/20", DT_en="2026-10-12", DeliveryDate="1405/08/01",
                CreateDateTime="2026-10-12T09:30:45", TradesVolume="۱٬۲۳۴", TradesValue="12,340",
-               MaxPrice="12", MinPrice=0, LastPrice=10, FirstPrice=9, IsActive=True)
+               MaxPrice="12", MinPrice=0, LastPrice=10, FirstPrice=9, IsActive=True,
+               ContractID=1002531, ContractCode="NQOR06P3000", ContractDescription="Option",
+               OpenInterest=4, ChangeOpenInterest=-1, ActiveCustomers=2, ActiveBrokers=2,
+               C_Buy=1, C_Sell=1, Vol_Hoghooghi_Buy=0, Val_Hoghooghi_Buy=0,
+               Vol_Hoghooghi_Sell=0, Val_Hoghooghi_Sell=0, Vol_Haghighi_Buy=1234,
+               Val_Haghighi_Buy=12340, Vol_Haghighi_Sell=1234, Val_Haghighi_Sell=12340,
+               LastSettlementPrice=9, TodaySettlementPrice=10, SettlementPricePercent=11.1)
     monkeypatch.setattr(ime.requests, "get", lambda *a, **k: SimpleNamespace(
-        json=lambda: {"rows": [row]}, raise_for_status=lambda: None))
+        json=lambda: {"total": 1, "rows": [row]}, raise_for_status=lambda: None))
     result = ime.get_all_ime_option_trades(start_date="1405-07-20", end_date="1405-07-20")
     assert result.iloc[0].CreateDateTime == pd.Timestamp("2026-10-12T09:30:45")
     assert str(result.CreateDateTime.dtype) == "datetime64[ns]"

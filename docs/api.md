@@ -53,6 +53,9 @@
 
 ## `fima.IME`
 
+[IME schemas, examples, units and limitations](ime.md) |
+[Official source and overlap audit](ime-audit.md)
+
 - `get_all_ime_physical_trades`
 - `get_all_ime_futures_trades`
 - `get_all_ime_option_trades`
