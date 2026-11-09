@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Make `get_all_ime_option_trades` reject failed/inconsistent history pages
+  instead of returning partial results. Validate totals, identities and trading
+  calendars; retain typed empty results. Add keyword-only exact `contract_code`
+  selection after full validation. Preserve existing positional arguments,
+  financial mappings and date defaults. Document official source overlap,
+  historical versus live data and unresolved CDC filters.
+
 ## 0.14.0
 
 - Add `get_ifb_market_map` for full metric-selected IFB snapshot responses,

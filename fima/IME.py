@@ -65,6 +65,65 @@ def _date_key(date_value) -> int:
     return int(str(date_value).replace('-', '').replace('/', ''))
 
 
+def _download_ime_history(url, params, from_date, to_date, fields, identity, gregorian_field, timeout):
+    """Read a complete Bootstrap server-side history window, or fail closed."""
+    rows, seen, expected = [], set(), None
+    for _ in range(10000):
+        offset = len(rows)
+        context = f'IME history {from_date} to {to_date}, offset {offset}'
+        try:
+            response = requests.get(url, headers={
+                'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json',
+                'Referer': params['referer']}, params={
+                    **{k: v for k, v in params.items() if k != 'referer'},
+                    'f': from_date, 't': to_date, 'limit': 1000, 'offset': offset}, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or type(data.get('total')) is not int or data['total'] < 0:
+                raise ValueError('missing or invalid total')
+            total, page = data['total'], data.get('rows')
+            if not isinstance(page, list) or any(not isinstance(row, dict) for row in page):
+                raise ValueError('missing or invalid rows')
+            if expected is not None and total != expected:
+                raise ValueError('reported total changed during pagination; retry the request')
+            expected = total
+            if offset + len(page) > total or (not page and offset < total):
+                raise ValueError('incomplete or inconsistent page')
+            for row in page:
+                if set(fields) - row.keys():
+                    raise ValueError(f'missing history fields: {sorted(set(fields) - row.keys())}')
+                for field in set(identity) | {'id'} | ({'ContractCode', 'Namad'} & set(fields)):
+                    value = row[field]
+                    if value is None or isinstance(value, bool) or not str(value).strip():
+                        raise ValueError(f'missing or invalid {field}')
+                date = jalali_date(row['DT'])
+                if date is pd.NA or not from_date.replace('/', '-') <= date <= to_date.replace('/', '-'):
+                    raise ValueError('trading date outside requested window')
+                gregorian = pd.Timestamp(row[gregorian_field])
+                expected_date = pd.Timestamp(jd.date(*map(int, date.split('-'))).togregorian())
+                if pd.isna(gregorian) or gregorian.normalize() != expected_date:
+                    raise ValueError('Gregorian and Jalali trading dates disagree')
+                key = tuple(date if field == 'DT' else str(row[field]) for field in identity)
+                if key in seen:
+                    raise ValueError('duplicate observation or repeated page')
+                seen.add(key)
+            rows.extend(page)
+            if len(rows) == total:
+                return rows
+        except (requests.RequestException, ValueError, TypeError, KeyError, OverflowError) as exc:
+            raise RuntimeError(f'{context}: {exc}') from exc
+    raise RuntimeError(f'IME history {from_date} to {to_date}: pagination safety limit exceeded')
+
+
+_IME_OPTION_FIELDS = (
+    'id', 'ContractID', 'ContractCode', 'ContractDescription', 'IsActive', 'TradesVolume', 'TradesValue',
+    'MaxPrice', 'MinPrice', 'LastPrice', 'FirstPrice', 'OpenInterest', 'ChangeOpenInterest',
+    'ActiveCustomers', 'ActiveBrokers', 'C_Buy', 'C_Sell', 'Vol_Hoghooghi_Buy', 'Val_Hoghooghi_Buy',
+    'Vol_Hoghooghi_Sell', 'Val_Hoghooghi_Sell', 'Vol_Haghighi_Buy', 'Val_Haghighi_Buy',
+    'Vol_Haghighi_Sell', 'Val_Haghighi_Sell', 'LastSettlementPrice', 'TodaySettlementPrice',
+    'SettlementPricePercent', 'DT', 'DT_en', 'DeliveryDate', 'CreateDateTime')
+
+
 def _parse_ime_jdate(value):
     if pd.isna(value):
         return None
@@ -328,7 +387,30 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
 
 def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = False, start_date: str = None,
                                end_date: str = None, _chunk_size: int = 100, _offset: int = 0,
-                              _timeout=(10, 45)) -> pd.DataFrame:
+                              _timeout=(10, 45), *, contract_code: str = None) -> pd.DataFrame:
+    """Return complete official daily option statistics for inclusive Jalali dates.
+
+    ``option_type`` is All, Call or Put; ``only_active`` selects the provider's
+    currently active contracts, including when requesting historical dates.
+    ``contract_code`` selects an exact returned ContractCode locally, after all
+    pages/windows have been validated. Prices and values retain source rials;
+    volume/open interest count contracts. This is history, without bid/ask quotes
+    or inferred contract multipliers. See docs/ime.md for the complete schema.
+
+    Raises ValueError for invalid inputs and RuntimeError for failed, malformed,
+    inconsistent or incomplete provider responses. No partial history is returned.
+    Legacy date defaults and the unused _offset argument are preserved.
+    """
+    if option_type not in ('All', 'Call', 'Put') or type(only_active) is not bool:
+        raise ValueError('option_type must be All, Call or Put and only_active must be bool')
+    if contract_code is not None and (not isinstance(contract_code, str) or not contract_code.strip()):
+        raise ValueError('contract_code must be a nonempty exact contract code')
+    if type(_chunk_size) is not int or _chunk_size < 0:
+        raise ValueError('_chunk_size must be a nonnegative integer')
+    start_date = jalali_date(start_date) if start_date is not None else None
+    end_date = jalali_date(end_date) if end_date is not None else None
+    if start_date is pd.NA or end_date is pd.NA:
+        raise ValueError('dates must be valid Jalali dates')
 
     if only_active and start_date == str(jd.date.today()):
         start_date = str(jd.date.today() - jd.timedelta(days=1))
@@ -353,44 +435,36 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
     else:
         option_type_filter = 0
 
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/javascript, */*; q=0.01",
-               "X-Requested-With": "XMLHttpRequest", "Referer": "https://www.ime.co.ir/fut-report.html"}
-
     all_rows = []
     for f, t in chunked_dates:
-        params = {"f": f, "t": t, "c": contract_filter, "ot": option_type_filter, "lang": 8, "order": "asc"}
+        params = {"c": contract_filter, "ot": option_type_filter, "lang": 8, "order": "asc",
+                  "referer": "https://www.ime.co.ir/optionboard.html"}
+        all_rows.extend(_download_ime_history(url, params, f, t, _IME_OPTION_FIELDS,
+                                             ('ContractID', 'DT'), 'DT_en', _timeout))
+    all_data = pd.DataFrame(all_rows, columns=_IME_OPTION_FIELDS)
+    if identifier_series(all_data['id']).duplicated().any():
+        raise RuntimeError('IME option history: duplicate observation ID')
+    all_data.rename({'DT': 'Date', 'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Val_Haghighi_Buy': 'RetailBuyValue',
+                     'Vol_Haghighi_Sell': 'RetailSellVolume', 'Val_Haghighi_Sell': 'RetailSellValue',
+                     'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Val_Hoghooghi_Buy': 'InstitutionalBuyValue',
+                     'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
+                     'C_Buy': 'CBuy', 'C_Sell': 'CSell', 'id': 'ID', 'DT_en': 'GDate'},
+                    inplace=True, axis=1)
 
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=_timeout)
-            response.raise_for_status()
-            data = response.json()
-            rows = data.get("rows", [])
-            if rows:
-                all_rows.extend(rows)
-        except Exception as e:
-            print(f"❌ Failed for chunk {f} to {t}: {e}")
-            continue
-    if all_rows:
-        all_data = pd.DataFrame(all_rows)
-        all_data.rename({'DT': 'Date', 'Vol_Haghighi_Buy': 'RetailBuyVolume', 'Val_Haghighi_Buy': 'RetailBuyValue',
-                         'Vol_Haghighi_Sell': 'RetailSellVolume', 'Val_Haghighi_Sell': 'RetailSellValue',
-                         'Vol_Hoghooghi_Buy': 'InstitutionalBuyVolume', 'Val_Hoghooghi_Buy': 'InstitutionalBuyValue',
-                         'Vol_Hoghooghi_Sell': 'InstitutionalSellVolume', 'Val_Hoghooghi_Sell': 'InstitutionalSellValue',
-                         'C_Buy': 'CBuy', 'C_Sell': 'CSell', 'id': 'ID', 'DT_en': 'GDate'},
-                        inplace=True, axis=1)
-
-        all_data['Date'] = all_data['Date'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data['DeliveryDate'] = all_data['DeliveryDate'].apply(
-            lambda str_j_date: jd.date(year=int(str_j_date[:4]), month=int(str_j_date[5:7]), day=int(str_j_date[8:]))
-            if pd.notna(str_j_date) else None)
-        all_data['GDate'] = pd.to_datetime(all_data['GDate'])
-        all_data['GDate'] = all_data['GDate'].dt.date
+    try:
+        all_data['Date'] = all_data['Date'].map(jalali_date)
+        all_data['DeliveryDate'] = all_data['DeliveryDate'].map(jalali_date)
+        all_data['GDate'] = pd.to_datetime(all_data['GDate'], format='mixed')
         all_data['CreateDateTime'] = pd.to_datetime(all_data['CreateDateTime'], format='mixed')
         all_data.sort_values(by='Date', inplace=True, ignore_index=True)
-        return _public_frame(all_data)
-    return pd.DataFrame(all_rows)
+        result = _public_frame(all_data)
+        if only_active and (result['IsActive'].isna().any() or not result['IsActive'].all()):
+            raise ValueError('provider active-contract filter returned inactive or missing flags')
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise RuntimeError(f'IME option history {start_date} to {end_date}: {exc}') from exc
+    if contract_code is not None:
+        result = result[result['ContractCode'] == contract_code].reset_index(drop=True)
+    return result
 
 
 def get_all_physical_producer_products(start_date: str = None, end_date: str = None,

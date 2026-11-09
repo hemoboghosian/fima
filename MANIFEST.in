@@ -7,6 +7,8 @@ include docs/data-migration.md
 include docs/options.md
 include docs/ifb.md
 include docs/ifb-audit.md
+include docs/ime.md
+include docs/ime-audit.md
 
 prune unreleased
 prune test

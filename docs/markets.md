@@ -173,6 +173,11 @@ and unit metadata are retained. A successful empty gold/silver CDC response is a
 empty typed table, not a KeyError; empty data is not evidence that historical
 coverage or configured provider filters were independently verified.
 
+IME option history validates every reported page/window and supports exact local
+`contract_code` selection. Incomplete responses raise; currently active contracts
+are a source filter, not a historical active universe. See the [IME guide](ime.md)
+and [provider/overlap audit](ime-audit.md).
+
 Institutions use InstitutionName, string NationalID/SEORegisterNo/CEOMobileNo and
 the provider's existing boolean Status. Other contact/metadata fields stay as
 provided. TLS verification remains enabled; the package's existing truststore
