@@ -204,10 +204,13 @@ completeness fixes remain unchanged.
 
 ### Required interactive evidence
 
-The permitted browser runtime initially reported `No browser is available`;
-documented browser discovery returned an empty list. This is a local browser
-capability blocker, not a provider denial or a fima defect. A browser connection
-has been requested. No separate browser automation dependencies are added.
+The permitted browser runtime reported `No browser is available`; documented
+browser discovery returned an empty list. After the maintainer explicitly
+selected the in-app Browser, selecting that surface returned
+`Browser is not available: iab`. This is a local browser capability blocker,
+not a provider denial or a fima defect. The selected browser could not perform
+any filter, date, pagination or export interaction. No alternate browser-control
+mechanism or browser automation dependency was added.
 
 If a connection cannot be provided, a narrowly scoped sanitized manual capture
 is needed. In an ordinary public session, enable DevTools Network recording
@@ -234,6 +237,23 @@ Blazor descriptors and personal/account data from URLs, headers, bodies and
 messages. Do not share a complete authenticated capture or credentials. Leave
 nonsecret field names and financial instrument/date/page parameters intact.
 Keep raw captures, provider dumps and investigation scripts outside the repo.
+
+### Validation and release boundary
+
+The full strict non-integration suite passed: 1,049 tests, with 150 integration
+cases deselected. Three opt-in comparisons of the existing option/CD/salaf
+histories against their real source records passed, with 95 deterministic cases
+deselected. These are existing-market regressions, not successful CDC browser
+or copper-history validation. No new runtime API, schema, signature, supported
+history boundary or live CDC test is claimed.
+
+Clean-snapshot and working-tree wheel/sdist builds and strict metadata checks
+passed. The clean sdist contains 34 files, including the eight explicitly
+declared guides; its 14 Python sources match Git. Working-only cached public
+extras and their generated SOURCES entries are the inherited #133 issue; common
+source/documentation payloads agree after CRLF normalization. Repository
+documentation file links resolve. Only this audit changes; runtime code,
+dependencies, manifest and package version remain intact.
 
 ## Coverage, network and release limits
 
