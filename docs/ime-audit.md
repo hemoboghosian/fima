@@ -104,6 +104,157 @@ These display symbols are **not established API filter identifiers**. Copper
 salaf/futures must not substitute for copper certificate history. A CDC feature
 must verify its current consumer, catalog and multi-product pagination first.
 
+## Phase #139: continuous-certificate consumer investigation
+
+Rechecked 2026-11-09 against published 0.14.1 and clean local/origin `master`
+`14148d8a618e254232805245a679eefce889af23`. The existing `v0.14.1` tag and
+GitHub Release target that commit. This phase does not authorize a release.
+Tracking: [#139](https://github.com/hemoboghosian/fima/issues/139), with the
+independent gold/silver filter investigation retained in
+[#62](https://github.com/hemoboghosian/fima/issues/62).
+
+### Current public-page evidence
+
+Ordinary verified-HTTPS GETs to statistics, ContractDetails and CDCsymbols
+returned HTTP 200 without redirects. This verifies public HTML access, not
+successful interactive data requests. Two independent statistics GETs contained
+identical default GoldBar table cells: 25 observations, a reported total of 77,
+and descending dates from 1405/08/17 through 1405/07/19. Page-size controls show
+10, 25, 50 and 100; the paginator shows four pages at the default size. Neither
+the other pages nor an entire history has been downloaded or validated.
+
+The table labels date, first, last, volume, low, high, closing price and value;
+a percentage badge accompanies closing price. For example, the rendered
+1405/08/17 gold row shows first 33,299,900, last 33,390,000, low 32,752,030,
+high 33,498,990, closing 33,237,968, volume 581,323 and value
+19,321,995,433,030. This is one displayed observation, not a verified raw
+response schema or evidence of copper history. Source numeric precision beyond
+the displayed values, transaction counts and settlement fields remain unknown.
+No observations or missing trading days are synthesized.
+
+HTML includes Blazor server-interactive markers and `_framework/blazor.web.js`.
+Two prerendered forms declare `method=post` and
+`action=/Main/TransactionStatistics`; those attributes do not establish the
+requests actually used by the running application. Prerendered date-picker text
+also does not establish the applied date interval or its boundary semantics.
+The publicly linked [download helper](https://cdc.ime.co.ir/js/download.js)
+accepts a server-provided `contentStreamReference`, creates a Blob and clicks a
+temporary download link. It declares no standalone history/export endpoint.
+Export format, scope, totals and correspondence to the selected filters remain
+unverified. No speculative form submission, Blazor-circuit reconstruction,
+market-ID search or alternate legacy filter request was attempted.
+
+### Specification catalog and copper units
+
+The [official symbol specifications](https://www.ime.co.ir/CDCsymbols.html)
+currently list these eleven continuous display symbols:
+
+| Display symbol | Underlying | Physical amount per certificate |
+| --- | --- | --- |
+| `CopperCthd` | Copper cathode | 1 kg |
+| `GoldBar` | Gold bar | 0.1 g |
+| `SilverBar` | Silver bar | 1 g |
+| `GoldCoin` | Gold coin | One coin |
+| `SteelRebar` | Steel rebar | 1 kg |
+| `Bitumen` | Bitumen | 1 kg |
+| `ZincIngot` | Zinc ingot | 1 kg |
+| `LeadIngot` | Lead ingot | 1 kg |
+| `IronOrePlt` | Iron-ore pellet | 1 kg |
+| `PistaCL` | Pistachio | 1 kg |
+| `KMCT9` | Kerman Motor T9 vehicle | 0.0001 vehicle |
+
+This is the specification page's displayed product list, not a complete CDC
+data-consumer instrument catalog. Its additional dated saffron warehouse
+symbols must not be treated as the same source universe. The page lists no
+maturity for the eleven continuous products; warehouse acceptance/expiry rules
+still apply. No active-status flag, stable history ID, warehouse-contract join,
+inception date or exhaustive historical instrument universe has been verified.
+The display symbols are not established `customFilter` codes.
+
+The symbol page links the [copper certificate contract](https://www.ime.co.ir/Cooper.html).
+That page independently confirms `CopperCthd`, one kg per certificate, rials
+per certificate, a 10-rial price tick, and a one-certificate trading lot. Its
+1,000-certificate buy-order ceiling is labelled as one tonne; this does not
+establish the CDC history response's volume unit or justify adding a derived
+weight column. Copper OHLC, quantities, values, source decimals and date range
+still require observation-level validation against the actual consumer.
+The default [ContractDetails](https://cdc.ime.co.ir/Main/ContractDetails)
+view confirms GoldBar quotation in rials per 0.1 g. Its gold tabs and units
+must not be generalized to copper or other selected categories.
+
+### Existing overlap and implementation decision
+
+`get_all_ime_cd_trades` uses the standard-transactions financial handler, not
+the CDC application. `get_all_ime_salaf_trades` uses that handler's separate
+financing category; its copper salaf instrument is not a copper certificate.
+`get_all_ime_futures_trades` downloads derivatives statistics, not deposit
+certificates. `get_gold_and_silver_cd_trades` uses the older CDCTrades POST
+contract with market/filter constants whose current support is unresolved in
+#62. Current public resources inspected here do not establish those constants
+as the CDC application's supported request contract. No such request was added
+or used as substitute evidence in this phase. Existing APIs and the 0.14.1
+completeness fixes remain unchanged.
+
+| Candidate / priority | Source and universe | Coverage, units and dates verified | Existing overlap | Investor value / reliability / cost | Decision |
+| --- | --- | --- | --- | --- | --- |
+| Copper certificate history / 1 | CDC UI; CopperCthd specification | 1 kg/certificate and rial/certificate specification only; no consumer history IDs or date bounds | Separate from CD/salaf/futures histories | High value; consumer unverified; implementation cost unknown until capture | Defer runtime API pending genuine UI/history/export evidence |
+| Gold/silver history correction / 2 | CDC UI versus legacy CDCTrades | Default gold first page and GoldBar quotation verified; no complete selected interval or silver observations | Existing gold/silver API; #62 | High value; filter mismatch unresolved; separate fix requires source contract | Keep #62 independently scoped; no guessed replacement |
+| Instrument discovery / 3 | CDCsymbols, ContractDetails, linked copper contract | Eleven displayed products and physical sizes; no complete stable consumer-ID join or active dates | No usable catalog API | Useful with history; static specifications alone insufficient; modest parsing but unresolved joins | Record specification catalog; defer public catalog |
+| Other certificate histories / 4 | CDC categories and specification list | Product labels/sizes only; no selected histories | Do not conflate dated standard-market CDs | Potential value; unverified source and coverage; unknown cost | No generalized collector |
+
+### Required interactive evidence
+
+The permitted browser runtime reported `No browser is available`; documented
+browser discovery returned an empty list. After the maintainer explicitly
+selected the in-app Browser, selecting that surface returned
+`Browser is not available: iab`. This is a local browser capability blocker,
+not a provider denial or a fima defect. The selected browser could not perform
+any filter, date, pagination or export interaction. No alternate browser-control
+mechanism or browser automation dependency was added.
+
+If a connection cannot be provided, a narrowly scoped sanitized manual capture
+is needed. In an ordinary public session, enable DevTools Network recording
+with Preserve log, load statistics, select base metals and copper cathode, and
+record the displayed product/contract identity. Apply a short custom date
+interval, refresh, advance to page 2, change page size and export that same
+selection. Repeat with gold or silver, including one interval with more than
+25 rows and one known non-trading day. Include the selected controls, table
+headers, first/last dates, source total/page count and resulting public exports;
+these are needed to compare filters, units and export coverage.
+
+For each actual data/export transaction, retain method, URL, ordinary parameter
+names and nonsecret values, response status/content type/schema, totals and
+instrument identifiers. A sanitized HAR may omit WebSocket messages: if the
+site uses a Blazor/SignalR connection, include only the relevant sanitized
+message structure and action correspondence, or report that the payload is
+opaque. Do not decode opaque session/circuit state or infer an undocumented
+JSON endpoint from it. An export plus UI evidence can establish financial
+observations even when transport details remain insufficient for a client.
+
+Before sharing, remove Cookie/Set-Cookie and Authorization headers, CSRF/
+antiforgery values, bearer/access tokens, connection/circuit/session identifiers,
+Blazor descriptors and personal/account data from URLs, headers, bodies and
+messages. Do not share a complete authenticated capture or credentials. Leave
+nonsecret field names and financial instrument/date/page parameters intact.
+Keep raw captures, provider dumps and investigation scripts outside the repo.
+
+### Validation and release boundary
+
+The full strict non-integration suite passed: 1,049 tests, with 150 integration
+cases deselected. Three opt-in comparisons of the existing option/CD/salaf
+histories against their real source records passed, with 95 deterministic cases
+deselected. These are existing-market regressions, not successful CDC browser
+or copper-history validation. No new runtime API, schema, signature, supported
+history boundary or live CDC test is claimed.
+
+Clean-snapshot and working-tree wheel/sdist builds and strict metadata checks
+passed. The clean sdist contains 34 files, including the eight explicitly
+declared guides; its 14 Python sources match Git. Working-only cached public
+extras and their generated SOURCES entries are the inherited #133 issue; common
+source/documentation payloads agree after CRLF normalization. Repository
+documentation file links resolve. Only this audit changes; runtime code,
+dependencies, manifest and package version remain intact.
+
 ## Coverage, network and release limits
 
 Traversal completeness is relative to the provider's reported total, not proof
