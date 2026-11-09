@@ -188,14 +188,15 @@ def test_no_import_time_requests():
 @pytest.mark.integration
 def test_live_option_history_matches_complete_official_report():
     """Explicit opt-in: compare all records and financial fields, not just nonemptiness."""
-    params = dict(f="1405/08/10", t="1405/08/17", c=-1, ot=0, lang=8, order="asc")
+    # Archived observations must not depend on contracts remaining active later.
+    params = dict(f="1405/08/10", t="1405/08/17", c=0, ot=0, lang=8, order="asc")
     response = requests.get("https://www.ime.co.ir/subsystems/ime/option/optionboarddata.ashx",
                             params=params, timeout=(10, 45))
     response.raise_for_status()
     raw = response.json()
     assert len(raw["rows"]) == raw["total"] > 0
     assert raw['total'] > 1000  # Requires multiple real pages in the implementation.
-    result = ime.get_all_ime_option_trades(only_active=True, start_date="1405-08-10", end_date="1405-08-17")
+    result = ime.get_all_ime_option_trades(start_date="1405-08-10", end_date="1405-08-17")
     assert len(result) == raw["total"]
     source = {str(row["id"]): row for row in raw["rows"]}
     assert set(result.ID) == set(source)
