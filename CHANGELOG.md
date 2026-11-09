@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.1
 
 - Make existing `get_all_ime_cd_trades` and `get_all_ime_salaf_trades` validate
   complete paginated histories and fail on missing/failed windows. Add optional
@@ -14,6 +14,18 @@
   selection after full validation. Preserve existing positional arguments,
   financial mappings and date defaults. Document official source overlap,
   historical versus live data and unresolved CDC filters.
+
+Failed HTTP/TLS/timeout requests, malformed responses and incomplete histories
+now raise `RuntimeError` with the underlying cause instead of returning partial
+data as success. Invalid selectors raise `ValueError`. Existing valid-call
+positional arguments, date defaults, public imports and financial units remain
+unchanged; the new selectors are optional and keyword-only.
+
+The release includes the IME guide/source audit and the already merged IFB
+SignalR validation/deferral documentation (#134), without IFB runtime changes.
+CDC investigations #62/#139 and IFB investigations #125/#127/#129 remain open.
+The sdist includes the eight guides explicitly listed in `MANIFEST.in`;
+the inherited selective offline-documentation limitation remains in #133.
 
 ## 0.14.0
 
