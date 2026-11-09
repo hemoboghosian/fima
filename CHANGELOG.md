@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.2
 
 - Make existing IME futures and export histories reject failed date windows,
   malformed responses, inconsistent totals, duplicate observations and invalid
@@ -9,7 +9,13 @@
   reject truncated reports. Preserve public signatures, native financial fields,
   source-omitted futures metrics, export currency/quantity units and valid empty
   results. Failures now raise chained `RuntimeError`; invalid dates/window sizes
-  raise `ValueError`. No new APIs or release-version change.
+  raise `ValueError`. No new APIs; valid-call signatures, date defaults,
+  successful values/dtypes and native financial units remain compatible.
+
+The release also includes documentation-only CDC investigation PR #143;
+no CDC runtime API was added. Deferred investigations #139/#62 remain open.
+The inherited selective sdist documentation contract remains tracked in #133;
+the clean sdist includes the eight explicitly declared guides.
 
 ## 0.14.1
 
