@@ -9,7 +9,7 @@ This records observed contracts, not a promise of exhaustive exchange coverage.
 | [Options statistics](https://www.ime.co.ir/optionboard.html) | `get_all_ime_option_trades`, same handler | Complete contract histories, exact selection | Historical statistics; active/all and Call/Put verified; total/offset pagination works | Improve existing API, priority 1, [#136](https://github.com/hemoboghosian/fima/issues/136); no duplicate board API |
 | [CDC statistics](https://cdc.ime.co.ir/Main/TransactionStatistics) | `get_gold_and_silver_cd_trades` uses older API | Copper and wider continuous certificates; OHLC/volume/value histories | Rendered default gold view has 77 observations, 25 per page; interactive filter contract unverified | Further verification, priority 2; [#62](https://github.com/hemoboghosian/fima/issues/62) remains scoped to legacy gold/silver filters |
 | [Financial transactions](https://www.ime.co.ir/standard-transactions.html) | `get_all_ime_cd_trades`, `get_all_ime_salaf_trades` | Complete individual instrument histories; funds category also present | CD=1, salaf=0, funds=2, ALL=all; instrument discovery and pagination verified | Improve existing CD/salaf APIs in [#137](https://github.com/hemoboghosian/fima/issues/137); funds already have TSETMC histories, so no duplicate API justified yet |
-| [Futures statistics](https://www.ime.co.ir/fut-report.html) | `get_all_ime_futures_trades` | Contract/settlement/open-interest history | Existing `FutureAmareMoamelatHnadler.ashx` consumer and active/all selectors | Already covered in API scope; failed-window handling warrants separate follow-up |
+| [Futures statistics](https://www.ime.co.ir/fut-report.html) | `get_all_ime_futures_trades` | Contract/settlement/open-interest history | Existing `FutureAmareMoamelatHnadler.ashx` consumer and active/all selectors | Existing API; failed-window/completeness correction in #144 |
 | [Live derivatives board](https://cdn.ime.co.ir/) | Historical functions lack order books | Active option/futures bids, asks, metadata | Angular/SignalR consumer; initial HTML says no update; no browser connection or verified live message contract | High potential value, further verification; no speculative quote API |
 | [Certificate specifications](https://www.ime.co.ir/CDCsymbols.html), [CDC details](https://cdc.ime.co.ir/Main/ContractDetails) | No standalone catalog | Instrument identity and units | Static symbols/units verified; no verified join to API filters | Semantic evidence; defer catalog until usable history identifiers can be joined |
 
@@ -254,6 +254,40 @@ extras and their generated SOURCES entries are the inherited #133 issue; common
 source/documentation payloads agree after CRLF normalization. Repository
 documentation file links resolve. Only this audit changes; runtime code,
 dependencies, manifest and package version remain intact.
+
+## Final bounded completion assessment
+
+The investor-focused expansion is sufficiently scoped by the completed option,
+CD and salaf history correctness/selection improvements, verified financial
+contracts and investor documentation. Eleven existing public IME APIs cover
+physical, derivatives, financial, export and producer aggregation use cases;
+another API is not needed merely to cover another website page. CDC #139/#62
+remain deferred provider-contract research, not resolved implementation bugs.
+This assessment performs no further CDC/browser investigation.
+
+The bounded remaining-risk review reproduced one shared failure class in the
+older futures/export downloaders: a valid first window followed by a timeout or
+missing `rows` still returned successful partial history; reported totals were
+ignored. [#144](https://github.com/hemoboghosian/fima/issues/144) corrects that
+class without new public functions or changed financial mappings. Physical
+history already defaults to strict failure handling with bounded rescue;
+producer wrappers inherit the underlying download behavior. Existing corrected
+option/CD/salaf contracts are preserved rather than reopened.
+
+Official futures 1404/01/01–1404/02/01 returned 487 observations; `limit=2`
+offsets 0/2 matched successive full-response slices. Recent 1405/08/16–17
+futures returned a valid empty report, not evidence of outage. Futures omit
+some trade/activity/price fields legitimately, which must remain missing.
+Export 1405/08/16–17 returned 92 observations without pagination; `limit=2`
+offset 2 returned HTTP 500 both with and without the visible GoodsName sort.
+This provider behavior is separate from fima's confirmed error suppression.
+The fix validates complete export windows without relying on that failing
+pagination path. The pages' published field lists and shared server-side table
+helper establish the existing consumers; no new source discovery is required.
+See the [guide](ime.md#futures-and-export-report-histories) for preserved units,
+optional fields and explicit completeness/error limits. After the focused
+correction, the IME milestone does not require further optional development.
+Version 0.14.1 and its existing tag/release remain unchanged.
 
 ## Coverage, network and release limits
 

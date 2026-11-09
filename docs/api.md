@@ -57,11 +57,11 @@
 [Official source and overlap audit](ime-audit.md)
 
 - `get_all_ime_physical_trades`
-- `get_all_ime_futures_trades`
+- `get_all_ime_futures_trades` — complete validated futures reports; source settlement prices and contract quantities retained.
 - `get_all_ime_option_trades`
 - `get_all_physical_producer_products`
 - `get_producer_physical_trades`
-- `get_all_ime_export_trades`
+- `get_all_ime_export_trades` — validated whole-window export reports; native currency/quantity units retained; incomplete histories raise.
 - `get_all_ime_cd_trades(start_date=None, end_date=None, _chunk_size=100, _offset=30, _timeout=(10,45), *, ticker=None, instrument_code=None)` — complete certificate statistics; exact local selection after validation.
 - `get_all_export_producer_products`
 - `get_producer_export_trades`
