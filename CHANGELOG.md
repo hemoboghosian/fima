@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add bounded IFB periodical-report discovery with source filters, string report
+  IDs, separate reporting/upload dates and visible Excel/PDF links. Require two
+  matching complete traversals; reject incomplete or changing catalogs.
+
 - Add official IFB fitted YTM comparison nodes for treasury, government and
   nongovernment, preserving source values, tenor days and relative labels.
 

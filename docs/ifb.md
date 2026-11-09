@@ -333,3 +333,107 @@ Settlement prices, accrued interest, duration/convexity and underlying scatter
 observations are excluded: their units and calibration provenance need further
 verification in [issue #125](https://github.com/hemoboghosian/fima/issues/125).
 Existing bond and scalar risk-free APIs remain unchanged.
+
+## Periodical statistical-report catalog
+
+```python
+from fima import get_ifb_periodical_reports
+
+reports = get_ifb_periodical_reports("1405-07-01", "1405-08-17")
+print(reports[["ReportID", "Title", "PeriodEndJalaliDate", "UploadJalaliDate", "ExcelURL"]])
+annual = get_ifb_periodical_reports(
+    "1300-01-01", "1405-08-17", reporting_period="annual"
+)
+selected = get_ifb_periodical_reports(
+    "2026-10-23", "2026-11-08", report_type="trading",
+    reporting_period="daily", title="قیمت", breakdown="market", jalali=False,
+)
+```
+
+Exact signature:
+`get_ifb_periodical_reports(start_date, end_date, *, report_type=None,
+reporting_period=None, title=None, breakdown=None, jalali=True, max_pages=20)`.
+Imports work from both `fima` and `fima.IFB`. This additive API discovers reports;
+it does not extract their financial contents or download files automatically.
+
+Both inclusive bounds must be ASCII `YYYY-MM-DD` strings. They select the
+**reporting-period end**, not upload/publication date. `jalali=False` selects
+Gregorian input; both calendars always appear in output. Explicit windows keep
+requests bounded; use separate narrower windows if a query exceeds the page limit.
+
+Optional filters are submitted to the official search form together:
+
+| Parameter | Accepted values and source codes |
+| --- | --- |
+| `report_type` | `None` = all; `"trading"` = 1 / آمار معاملات; `"descriptive"` = 2 / گزارش آماری توصیفی; `"ranking"` = 5 / رتبه‌بندی |
+| `reporting_period` | `None` = all; `"daily"` = 10; `"weekly"` = 20; `"monthly"` = 30; `"annual"` = 40 |
+| `title` | `None` or a nonblank string of at most 40 characters; provider title/description search, without local fuzzy matching |
+| `breakdown` | `None` or one of `"market"`, `"industry"`, `"symbol"`, `"investor_type"`, `"trade_side"`, `"channel"`, `"broker"`; selects one source checkbox |
+| `jalali` | Boolean, default `True` |
+| `max_pages` | Integer 1..100, default 20, at 50 records per page **per validation pass**; limit errors never return partial data |
+
+Breakdown meanings are بازار, صنعت, نماد, حقیقی و حقوقی, خرید و فروش,
+برخط و ایستگاه, کارگزاری respectively. A report may have several classifications;
+the single selected classification must occur among them. Combined-checkbox
+AND/OR semantics are not exposed. Source category/classification labels are
+preserved in the result, with whitespace trimmed/normalized.
+
+| Column | Meaning/type |
+| --- | --- |
+| `ReportID` | Official report identifier from its visible file links; pandas string, leading zeros preserved; not an instrument ID or file-version hash |
+| `Title` | Published توضیحات title/description; pandas string |
+| `ReportType` | Published Persian report-type label; pandas string |
+| `ReportingPeriod` | Published daily/weekly/monthly/annual label; pandas string |
+| `PeriodEndJalaliDate` | Published منتهی به date, ASCII `YYYY-MM-DD`; pandas string |
+| `PeriodEndGregorianDate` | Same date as pandas `datetime64[ns]` |
+| `Breakdown` | Full published classification text, not a single inferred market/industry; pandas string |
+| `UploadJalaliDate` | Published تاریخ بارگزاری date, ASCII `YYYY-MM-DD`; pandas string |
+| `UploadGregorianDate` | Same upload date as pandas `datetime64[ns]` |
+| `ExcelURL`, `PDFURL` | Absolute verified-structure HTTPS links **advertised visibly** for that report; pandas string, unavailable formats `pd.NA` |
+
+The catalog supplies no period-start date or exact publication timestamp. A
+report uploaded before its nominal period end is preserved: this occurs in
+annual reports. Distinct IDs are retained even for matching titles/periods;
+neither revision precedence nor immutable file versions are inferred. File URLs
+are metadata, not a guarantee that their bytes will remain available or unchanged.
+Hidden Word/other links are not advertised as available formats.
+
+Retrieval follows the public [catalog](https://ifb.ir/datareporter/periodicalreport.aspx):
+GET, search POST with current hidden fields/cookies and selected 50-row page
+size, then only advertised `grdPRs` / `Page$N` links. Every sequential page and
+row ordinal, identity, filter state, date/category, header, visible file URL and
+pager is validated. Numbered-block pagination is supported. A second complete
+search/traversal must reproduce all records, order and pager metadata. Any
+detected change fails explicitly; there is no silent truncation, title-based
+deduplication, retry loop around changing data, or unrestricted archive crawl.
+
+Completeness means **all pages matching the requested source filter in two
+matching bounded traversals**. IFB publishes no independent total-record count
+or atomic catalog snapshot; this does not prove every report ever published,
+detect changes after retrieval, or guarantee immutable historical files. The
+annual filter observed on 2026-11-09 contained all 36 reports, period ends
+1388-12-29..1404-12-29. See the [source audit](ifb-audit.md#issue-121-periodical-report-investigation--2026-11-09)
+for coverage, downloads and financial checks.
+
+The explicit `.داده ای یافت نشد` grid in both passes returns a typed empty table.
+Missing grids/forms/required metadata and provider errors are failures. Invalid
+inputs, malformed/changed schemas, duplicate IDs, repeated/missing pages,
+changed catalogs and page-limit exhaustion raise `ValueError` with IFB context.
+HTTP/network errors propagate as `requests.RequestException` subclasses.
+Connect/read timeouts are 30/30 seconds. Connect failures and 502/503/504 have at
+most one retry; read failures and 401/403/429 are not retried. Requests are
+sequential with a 0.25-second pause before each POST; TLS verification remains on.
+Sessions close on success/failure and imports make no requests.
+
+Attrs: `SourceURL`, `Snapshot=True`, `RecordCount`, `PageCount` (zero for empty
+results), `ValidationPasses=2`, `FilterDateField="PeriodEndJalaliDate"` and
+`Filters` containing `StartJalaliDate`, `EndJalaliDate`, `ReportType`,
+`ReportingPeriod`, `Title`, `Breakdown` (English filter selectors, `None` for all).
+
+Four representative visible Excel/PDF pairs were verified as actual XLSX/PDF,
+but historical formats and worksheet structures are not uniform. No individual
+download helper or generic parser is added in this batch. In particular, report
+cells can mix rial scales, quantity units, percentage fractions/points, hidden
+sheets, cached formulas and formula errors. Catalog availability must not become
+a fabricated financial time series. Further family-specific financial extraction
+and revision provenance are tracked in [#127](https://github.com/hemoboghosian/fima/issues/127).

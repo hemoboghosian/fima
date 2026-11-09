@@ -243,3 +243,156 @@ tenor days and original YTM values. It validates the three comparison series and
 each node without manufacturing observation dates. Interpreted scatter prices,
 accruals, duration/convexity and contributor/calibration provenance remain in
 [follow-up #125](https://github.com/hemoboghosian/fima/issues/125).
+
+## Issue #121 periodical-report investigation — 2026-11-09
+
+Baseline: clean `c296248`, equal to freshly fetched origin/master; 823
+deterministic tests passed. Existing IFB exports/helpers, Options and TSETMC
+APIs expose neither this catalog nor its report identities. Scope is one
+additive catalog function; no generic report parser or financial series.
+
+| Candidate | Verified evidence | Completeness/semantics | Decision |
+| --- | --- | --- | --- |
+| Report catalog | Public GET and ordinary WebForms POST to [periodicalreport.aspx](https://ifb.ir/datareporter/periodicalreport.aspx), UTF-8 HTML 200; hidden viewstate and same-session cookies | Explicit reporting-period-end filters, sequential 50-row pages, advertised last page, two matching traversals of all IDs/records/pager metadata | Implement `get_ifb_periodical_reports`; fail rather than return partial/changed results |
+| Visible Excel/PDF links | Eight representative GETs returned 200, no redirects; four real XLSX and four PDF files | Visible links identify a report, not an immutable file version; hidden Word links do not establish availability | Return visible validated-structure HTTPS links; no individual downloader in this focused batch |
+| Heterogeneous financial contents | Daily/monthly one-sheet tables; weekly 16 and annual 42 sheets with formulas/hidden sheets; units and percentage storage differ | Requires family/table-specific units, revision and formula-error decisions; no universal frame or inferred historical series | Defer to [#127](https://github.com/hemoboghosian/fima/issues/127) |
+
+### Source request and filter contract
+
+The initial GET has no query parameters and no redirects observed. POST to the
+same URL retains current `__VIEWSTATE`, `__VIEWSTATEGENERATOR` and any other
+published hidden fields in the same session. Controls have prefix
+`ctl00$ContentPlaceHolder1$`:
+
+- `FromDT`, `ToDT`: slash-form Jalali bounds; single-date 1405/08/16 returns
+  IDs 27713/27714, **uploaded 1405/08/17**. A 1405/08/17-only filter is explicitly
+  empty. Thus dates filter منتهی به / period end, not upload dates.
+- `comboReportType`: 0 all, 1 آمار معاملات (trading statistics), 2 گزارش آماری
+  توصیفی (descriptive statistics), 5 رتبه‌بندی (ranking).
+- `comboReportPeriod`: 0 all, 10 روزانه (daily), 20 هفتگی (weekly), 30 ماهانه
+  (monthly), 40 سالانه (annual).
+- `txtTitle`: at most 40 characters. The قیمت search returned 11 matching
+  descriptions in 1405/08/01..1405/08/17. Preserve source matching semantics.
+- `TafkikCheckboxlist$0..6`: values 1/2/4/8/16/32/64 mean market, industry,
+  symbol, institutional/individual, buy/sell, online/station and broker. A single
+  industry filter returned the three weekly descriptions in that recent window;
+  combinations' AND/OR behavior is not exposed by the API.
+- `BtnSearch` submits جستجو. The visible page-size select supports 10/25/50;
+  changing its value to 50 during search works. Its control name is dynamic,
+  e.g. `grdPRs$ctl13$ctl10`, and is read from each current form, not hardcoded.
+- Pagination posts `__EVENTTARGET=ctl00$ContentPlaceHolder1$grdPRs` and
+  `__EVENTARGUMENT=Page$N`, using the actual advertised link. Row numbers continue
+  across pages; page 2 differs from page 1, filters persist, and revisiting page 1
+  reproduced its IDs. Numbered blocks use an ellipsis link to the next block.
+
+The source table `ContentPlaceHolder1_grdPRs` has exactly eight headings: row,
+report type, reporting period, period end, breakdown, upload date, description,
+file. No period-start date or exact upload timestamp is supplied. Report ID is
+from visible file links; identity must agree across a row's formats. Titles and
+period dates are not unique IDs or authoritative revision indicators. Upload can
+precede period end (e.g. annual 1403/12/30 uploaded 1403/12/28); preserve this.
+
+### Coverage and completeness boundary
+
+All 36 annual reports fit on one 50-row page, with observed period ends
+**1388-12-29..1404-12-29**. Latest catalog observations on the investigation date
+end **1405-08-16**, uploaded **1405-08-17**. The 1405/07/01..1405/08/17 query has
+eight pages at 10 rows, two at 50. Live tests independently compared **every**
+returned ID, end/upload date and visible format to all raw pages in both the
+recent and annual queries; valid empty searches were separately verified.
+
+No independent total-record count or full-catalog export was found. The
+unfiltered all-frequency catalog was not aggressively enumerated, so its total
+population and absolute earliest boundary are **not claimed**. Further boundary
+queries encountered TLS handshake timeouts; they do not prove absent data.
+The oldest annual observation is an observed coverage fact, not proof that no
+older report in another category exists.
+
+The API requires two explicit inclusive bounds and 50-row source pages, with
+`max_pages=20` (user-selectable 1..100) per pass. It follows every consecutive
+advertised page to the verified terminal page, then repeats the whole search.
+Rows, IDs, ordering, filters, schema and pager topology must match. Count changes,
+duplicate IDs, repeated/missing pages, unknown schemas and limit exhaustion fail;
+no title deduplication or partially accumulated data is returned. The explicit
+`.داده ای یافت نشد` grid must repeat in both passes to yield typed empty output.
+This provides complete matching **filtered** traversals, not a provider atomic
+snapshot, every report ever published, or immutable file-version guarantees.
+
+Initial catalog/file connection attempts sometimes timed out during TLS
+handshakes. Ordinary verified HTTPS later succeeded for the live tests and all
+eight downloads; no access-denial/rate-limit response, bypass or TLS weakening
+was used. The library keeps 30/30-second finite timeouts, one connect/transient
+502/503/504 retry, no read/access-denial retry, sequential requests and 0.25-second
+pauses before POSTs. Deterministic CI does not depend on IFB availability.
+
+### Representative files and financial checks
+
+Actual GET pattern (each visible source link):
+`https://ifb.ir/GetFiles/GetPeriodicalFile.aspx?id=<ID>&type=Excel|PDF&EnData=False`.
+All eight responses were 200, no redirects, with attachment Content-Disposition
+and matching content length. Excel MIME was
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`; ZIP integrity,
+OpenXML workbook/relationships/worksheets confirmed XLSX. PDFs had
+`application/pdf`, `%PDF-` signatures and parsed page counts. Relevant PDF pages
+were rendered and visually checked. No original files/binaries are committed.
+
+| Frequency / ID | Period end / upload | Attachment filenames (URL-encoded spaces retained) | XLSX bytes / sheets | PDF bytes / pages |
+| --- | --- | --- | --- | --- |
+| Daily 27713 | 1405-08-16 / 1405-08-17 | `1405.08.16%20H&H.xlsx`, `.pdf` | 179,191 / 1 | 1,252,972 / 8 |
+| Weekly 27709 | 1405-08-15 / 1405-08-16 | `Weekly_Report_Ended_to-1405.08.15.xlsx`, `.pdf` | 380,479 / 16 | 582,340 / 9 |
+| Monthly 27712 | 1405-07-30 / 1405-08-16 | `1405.07%20H&H.xlsx`, `.pdf` | 319,742 / 1 | 4,071,468 / 13 |
+| Annual 27339 | 1404-12-29 / 1405-01-23 | `Annual_Report_Ended_to-1404.xlsx`, `.pdf` | 746,808 / 42 | 1,644,582 / 33 |
+
+Daily/monthly sheet `حقيقي و حقوقي` has multirow buy/sell, institutional/individual,
+buyer/seller headers and distinct person counts, transaction counts, volume and
+value columns. Daily dates B7/B8 are 14050816; monthly 14050701..14050730. These
+starts are file-specific evidence and **not manufactured catalog columns**.
+Daily row 17 buy volumes 74,660 + 27,695 = 102,355; corresponding values
+72,568,863,630 + 26,893,760,410 = 99,462,624,040. Monthly row 17 buy-component
+checks also reconcile, with total volume 439,349 and value 436,104,018,190.
+Representative exact XLSX figures agree independently with the corresponding
+PDF tables. Generic ارزش headers do not establish one universal monetary scale;
+no magnitude-based conversion is inferred.
+
+Weekly `نمودار شاخص و ارزش بازار` C19 is 71,760,956.665573299 **billion rials**;
+PDF page 3 displays 71,760,957, while its chart uses thousand-billion rials.
+E18 stores a fractional change 0.0094814627607031597, displayed as 0.9%; F18/F19
+contain original `#REF!` formulas. These must not be silently repaired or treated
+as valid observations. Annual `خلاصه عملکرد و تعداد نماد` D7 is
+37,654,931.941141002 billion-rial market value, D9 is 492,454,069.08229798
+billion-rial **trade value**, D10 is 3,520,784.5670420001 **million securities**;
+PDF page 3 displays their separately rounded figures. D18's 1,073 means symbols,
+not unique companies. Annual F7 computes `((D7-E7)/E7)*100` in percentage points,
+unlike weekly fractional storage. Turnover's annual source footnote excludes
+open-market operations; no uniform turnover interpretation is exposed here.
+
+Worksheet inventories (including hidden sheets, preserving source names):
+
+- Daily/monthly: `حقيقي و حقوقي` only.
+- Weekly visible: `جلد`, `Contents`, `نمودار شاخص و ارزش بازار`,
+  `آمار معاملات بازار در یک نگاه_x0009__x0009_` (OpenXML escaped tabs),
+  `آمار معاملات به تفکیک ابزار  `, `معاملات بازار پایه`, `صنایع پیشرو بازار سهام`,
+  `ارزش بازاربه تفکیک صنعت`, `ارزش بازار به تفکیک بازار`.
+  Hidden: `نمودار سهم ارزش و حجم معاملات`, `معاملات سهام`, `معاملات اوراق م.اسلامی`,
+  `معاملات صندوق قابل معامله`, `معاملات ابزار مشتقه`, `معاملات اوراق مسکن`,
+  `معاملات بازار ابزار نوین مالی`.
+- Annual visible: `جلد`, `فهرست`, `خلاصه عملکرد و تعداد نماد`,
+  `نمودار شاخص و ارزش بازار`, `نمودار ارزش و حجم معاملات`, `معاملات ماهانه`,
+  `نمودار شاخص و ارزش ماهانه`, `نمودارحجم وارزش ماهانه معاملات`, `معاملات کل بازارها`,
+  `مقایسه ارزش‌وحجم به تفکیک بازار`, `معاملات بازارها به تفکیک ابزار`,
+  `نمودارمعاملات بازارها-ابزار`, `ارزش بازار به تفکیک ابزار`, `ارزش بازار به تفکیک بازار`,
+  `ارزش بازار-معاملات و نسبت گردش`, `مقایسه P.E  صنعت و بازار`,
+  `کمترین و بیشترین P.E صنعت`, `سهام شناور آزاد-صنعت و بازار`,
+  `مقایسه ارزش و حجم معاملات`, `صنایع پیشرو بازار سهام`, `ارزش بازار به تفکیک صنعت`,
+  `نمودار ارزش و معاملات‌-صنعت`, `نمودار ارزش و حجم بازار اول`,
+  `نمودار ارزش و حجم بازار دوم`, `معاملات بازار ابزار نوین-ابزار`,
+  `نمودار ارزش و حجم ابزار نوین`, `نمودار ارزش و حجم بازار پایه`, `معاملات بازار توافقي`,
+  `پذیره نویسی`, `عرضه اولیه`, `تامین مالی`, `عملکرد و تنوع تامین مالی`.
+  Hidden: `سود سهام-صنعت`, `Sheet1`, `Sheet3`, `Sheet4`, `Sheet2`, `Sheet5`,
+  `Sheet8`, `Sheet6`, `Sheet7`, `DPS`.
+
+Four samples do not establish every legacy download format or revision contract.
+Keep the initial change focused on discovery; do not add a universal downloader
+or parser based only on current samples. Further family-specific extraction,
+cached/error cells, units, legacy formats and revision provenance are in #127.
+Other independent IFB work remains in #122 (watches) and #125 (Nelson semantics).

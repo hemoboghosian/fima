@@ -88,6 +88,20 @@ from fima import get_ifb_bond_yield_history
 history = get_ifb_bond_yield_history("1405-07-01", "1405-08-17", ticker="اخزا204")
 ```
 
+برای یافتن گزارش‌های آماری رسمی فرابورس و پیوند فایل‌های آن‌ها، تاریخ پایان
+دوره را مشخص کنید؛ تاریخ بارگذاری جداگانه در خروجی حفظ می‌شود:
+
+```python
+from fima import get_ifb_periodical_reports
+
+reports = get_ifb_periodical_reports("1405-07-01", "1405-08-17", reporting_period="monthly")
+print(reports[["ReportID", "PeriodEndJalaliDate", "UploadJalaliDate", "ExcelURL", "PDFURL"]])
+```
+
+این تابع فهرست گزارش‌ها را برمی‌گرداند و محتوای فایل‌ها را به سری مالی تبدیل
+نمی‌کند. [فیلترها و تضمین تکمیل دریافت](ifb.md#periodical-statistical-report-catalog)
+را پیش از انتخاب بازه‌های بزرگ ببینید.
+
 ### بورس کالای ایران
 
 ```python
