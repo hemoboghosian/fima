@@ -567,3 +567,282 @@ callables imported and import-time HTTP was prohibited. Normal deterministic
 CI remains independent of providers. Raw investigation dumps, connection state,
 temporary scripts and built distributions are excluded from commits. No version
 bump, tag, release, distribution upload or publication is part of this work.
+
+## Phase #129: SignalR financial and lifecycle validation — 2026-11-09
+
+**Decision: defer a new public watch/order-book API.** Repeatable initial state,
+incremental records and a short same-cursor reconnect are now observed, but the
+implementation gates in [#129](https://github.com/hemoboghosian/fima/issues/129)
+remain unmet. This phase changes documentation only. The issue stays open for
+the explicitly unresolved questions below; deferral does not resolve them.
+Existing IFB, TSETMC, Options and risk-free-rate behavior is preserved.
+
+### Baseline and current public sources
+
+The clean local `master` and fetched `origin/master` both matched published
+0.14.0 commit `9028225bcf986e054891c58da16186251a8d9cf5`. The existing
+`v0.14.0` tag and GitHub Release target matched that commit. No competing open
+PR existed at preflight. The deterministic baseline passed **954 tests**, with
+147 integration tests deselected. The package version, dependencies, release
+workflow and tags are outside this change.
+
+Ordinary verified-TLS requests on 2026-11-09, approximately 06:42–06:58 UTC:
+
+| Official source | Current evidence |
+|---|---|
+| [General watch](https://ifb.ir/StockQoute.aspx) | 200, no redirect, empty HTML client grid; references the sources below |
+| [HubPreRequisite.js](https://ifb.ir/Scripts/Common/v_639036512577336099/HubPreRequisite.js) | 200; general and derivative hub callbacks/start invocations |
+| [SignalR 1.2.2 client](https://ifb.ir/Scripts/Common/v_638922376656000133/jquery.signalR-1.2.2.min.js) | 200; actual longPolling URL, cursor, reconnect, delay and abort behavior |
+| [Generated hub proxy](https://ifb.ir/signalr/hubs) | 200; `myhub` and its published server methods |
+| [StockPageCore.js](https://ifb.ir/Scripts/v_638922376581346876/StockPageCore.js) | 200; identity links, source EPS/P-E rendering and financial column bindings |
+| [Derivatives watch](https://ifb.ir/OptionStockQuote.aspx) | Two bounded 30-second GET read timeouts locally; no successful page response, redirect, denial or global-outage conclusion |
+| [IFB detail: بپاس](https://ifb.ir/Instruments.aspx?id=18620) | 200; exact ISIN, name, mnemonic and second-market classification |
+| [TSETMC instrument identity](https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/51971068201094874) | 200; exact `instrumentID` match, distinct numeric `insCode` and `cIsin` |
+| [Existing TSETMC options source](https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/2) | 200; 235 authoritative call/put pairs |
+
+Script response-byte SHA-256 fingerprints, for distinguishing a later source
+revision from this investigation:
+
+| Source | SHA-256 |
+|---|---|
+| HubPreRequisite.js | `8640180fa6dcfe7f13571d61e1bd6a09e5ae6e1133b29b10cfa5cebf6300ad20` |
+| jquery.signalR-1.2.2.min.js | `d264da10ab81d6f7c655f4f058ea2c84245f5bca070703d7f0e5240275108e21` |
+| /signalr/hubs | `2756f299815c316c67c3212ef31d04e4a73b9127a3b24d6bddb4820601b9bfff` |
+| StockPageCore.js | `e5f897a58c4696170eda83886194968c04ecac55bf2ad675a439b626a0e9fdcf` |
+
+### Actual request contract and bounded lifecycle observations
+
+The currently referenced client supports ordinary HTTP longPolling; no browser,
+new dependency, authentication workaround or guessed newer SignalR protocol is
+needed for research. The initial three finite sessions followed this contract;
+one further derivative session checked concurrent polling as described below:
+
+1. GET `/signalr/negotiate?connectionData=[{"name":"myhub"}]` (URL encoded).
+   The server advertised `ProtocolVersion="1.2"`, `TryWebSockets=false`,
+   `KeepAliveTimeout=20` and `DisconnectTimeout=30` seconds. Connection token
+   and ID are session state, not instrument identities.
+2. GET `/signalr/ping` returned `{"Response":"pong"}`. GET `/signalr/connect`
+   used `transport=longPolling`, negotiated `connectionToken`, `connectionData`
+   and `tid`. There is no guessed `clientProtocol` or `/start` request.
+3. POST `/signalr/send` used form field `data`, containing JSON
+   `{"H":"myhub","M":"letsStart","A":[connection_id],"I":0}`.
+   The general invocation returned `{"I":"0"}`. This acknowledgement does not
+   contain the financial snapshot.
+4. GET `/signalr/poll` continued with response cursor `C` as `messageId` and
+   `G` as `groupsToken` when present. Callbacks are in envelope `M`, with hub
+   `H`, method `M` and positional arguments `A`. Published transport controls
+   `D`, `T` and `L` mean disconnect, reconnect and long-poll delay; none appeared
+   in the observed envelopes. These are not financial completeness markers.
+5. A short `/signalr/reconnect` request resumed session A using its current
+   cursor. Each session ended with POST `/signalr/abort` in `finally`; all three
+   returned 200. Requests had finite connect/read timeouts; no indefinite stream
+   or high-frequency retry loop was run. Tokens/cursors are not committed.
+
+| Session / UTC time | Observed callback and state |
+|---|---|
+| General A, connect 06:44:13 | `updateRowForOptionStock`, 357 paired rows, **before** requesting general initial state |
+| A, requested initial 06:44:15 | `updateSingleTable`, 1,279 unique `SymbolId`, ISIN and ticker values; second argument is a three-number aggregate array |
+| A, polls 06:44:22 / 06:44:42 | `updateRow`, 247 / 264 full-shaped records, each with the same keys as initial rows; no new IDs or observed status transitions |
+| A, same-cursor reconnect 06:45:02 | `updateRow`, 164 records; **no** replacement initial callback; no new IDs |
+| General B, connect 06:45:21 | `updateRow`, 216 records, **before** requesting initial state |
+| B, requested initial 06:45:24 | `updateSingleTable`, 1,280 unique IDs/ISINs/tickers; one added ETF block ID29929, کاج2; no IDs removed relative to A |
+| B, following poll 06:45:31 | `updateRow`, 259 records |
+| Option session, connect 06:45:43 | `updateRowForOptionStock`, 347 paired rows, before the derivative initial invocation |
+| Option invocation / cleanup | Published `letsStartForOption(connection.id)` send reached a 30-second read timeout; abort 200; **no verified `updateInitialOptionTable`** |
+| Concurrent derivative recheck, 06:57:24–06:57:55 | Connect/general delta318, then polls/general deltas247/176 while the derivative send remained pending; send ReadTimeout30s, abort200; no derivative initial callback |
+
+The general page's `updateSingleTable` calls `updateTable(...,-1)`, which replaces
+`gridData`. `updateRow` calls `updateTable(...,0)`: replace an existing record by
+`SymbolId`, append an unseen ID, then apply local filters. It does not apply
+arithmetic increments to quote fields. No general record-deletion branch or
+tombstone contract was found in that merge path. A removal from the displayed
+grid can result from filtering and is not proof of source deletion. The
+`StockPageCore.js` DOM removal for the floating book is not instrument removal.
+
+No actual add callback, deletion, suspension transition, expired-cursor replay,
+missed-message loss or forced server reconnect was observed. The fresh B
+collection included one additional ID absent from A's bounded stream. Separate
+collection times prevent an atomic equality claim. A transport resume returning
+a delta does not establish complete recovery. The shared page error handler
+stops the hub; no application-specific rebuild-on-reconnect handler was found
+in the inspected general page/shared scripts. Fresh negotiation plus a requested
+initial callback was repeatable, but no total, checksum, generation, server
+as-of time or financial completion marker establishes its universe.
+
+### Coverage, selectors and financial identities
+
+| `MarketNumber` | Page category | A count | B count |
+|---|---|---:|---:|
+| 9 | First market | 131 | 131 |
+| 14 | Second market | 309 | 309 |
+| 24 / 25 / 26 | Yellow / orange / red base boards | 142 / 15 / 5 | 142 / 15 / 5 |
+| 13 | نوآفرین (checkbox ID `SME`) | 9 | 9 |
+| 2 | Fixed-income instruments | 304 | 304 |
+| 6 | ETF | 191 | 192 |
+| 4 | Housing facilities | 10 | 10 |
+| 7 | Options | 160 | 160 |
+| 18 | No selector in the inspected general filter | 3 | 3 |
+| 27 / 28 / 12 | Negotiated shares / negotiated sukuk / futures selectors | 0 observed | 0 observed |
+
+Checkboxes filter the already received collection locally. `SymbolNum="1"`
+selects main symbols; the block/major selector selects `"2"` or `"4"` instead.
+A contained 1,072 / 18 / 187 / 2 records for symbol numbers 1 / 2 / 3 / 4;
+B added one number-2 record. Number 3 is excluded by that filter. With every
+supported category selected, 1,069 main-symbol rows match the filter; raw
+callback count and displayed market count are different quantities. Markets
+27/28/12 being absent does not establish valid empty markets or provider policy.
+
+A separate current `get_ifb_market_map()` returned 1,177 IDs: 894 common with
+A, 283 map-only, 385 watch-only. For example ID18006 is in the map but absent
+from A. The map has negotiated categories not observed in the watch, while the
+watch includes options and auxiliary symbol numbers. Different source universes
+do not prove a transport loss and must not be joined as one atomic quote.
+There is no independently verified all-IFB denominator for this watch.
+
+Official IFB ID18620 is بپاس, ISIN `IRO3BIPZ0001`, mnemonic `BIPZ1`, second
+market. TSETMC's exact `instrumentID` matches that ISIN for numeric
+`insCode="51971068201094874"`; its `cIsin="IRO3BIPZ0009"` is different.
+An IFB `SymbolId`, option-pair `Code`, ISIN and TSETMC code are distinct
+identifiers. Do not join by a numeric resemblance, normalized ticker alone or
+the different `cIsin`. No complete cross-provider identity mapping was verified.
+
+### Financial field evidence and limits
+
+Types below describe observed JSON values, not a promised future schema.
+Numeric tokens were inspected with decimal parsing. No null values appeared
+in A's row fields; this does not prove nulls can never occur. No zero-to-price,
+zero-to-date or missing-to-zero inference is justified.
+
+| Exact source field(s) | Meaning / observed type and applicability | Units, zero/missing, timestamps and verification |
+|---|---|---|
+| `SymbolId`, `ISIN`, `SymbolName`, `InsTitle`, `EnSymbolName`, `EnTitle`, `SymbolNum` | IFB integer ID; string security identity/title/mnemonic/board-symbol suffix | Exact equity identity cross-check above; string IDs would be required in a public frame; suffix is not an option contract parser |
+| `MarketNumber`, `SymbolState`, `StateTitle`, `EnStateTitle`, `OraghisFinished` | Integer category/state-related fields, string status labels, integer finished-related field | Categories follow page filters; multiple numeric states share the same status label and vice versa. No independently verified universal state/expiry enum |
+| `ClosingPrice`, `PreClosing`, `LastTradePrice` | Numeric closing, previous closing and last trade values | Native price tokens, consistent with rial equity prices in existing map/TSETMC comparisons; no universal per-category price/contract-unit contract or per-row observation time verified. Closing is not last |
+| `ClosingChange`, `LastChange`, `ClosingPercent`, `LastPercent` | Numeric absolute and percentage changes | All 422 main equity rows satisfied closing/last minus previous closing and `100*ClosingChange/PreClosing` (decimal tolerance 0.000001); percentage points, not fractional returns |
+| `OpeningPrice`, `HighestPrice`, `LowestPrice` | Numeric opening/high/low-named fields | **All 1,279 openings were zero, including 627 rows with trades**. High/low can remain nonzero with zero current trade count. No verified opening or dated OHLC series may be fabricated from these |
+| `TotalTradeQuantity`, `TotalTradeValue`, `TradeCount` | Numeric volume, integer value and integer count, separately bound in page | Equity quantities/counts and rial values consistent with existing source comparisons; contract-count versus underlying-unit and debt conventions not independently verified across this mixed universe; zero trades do not prove empty/stale book |
+| `UnitCount`, `MarketValue` | Integer units and numeric market value | All 422 main equity rows satisfied `MarketValue=ClosingPrice*UnitCount`; not trade value. Does not verify share/contract multipliers for every category |
+| `BestBuyPrice`, `BestBuyQuantity`, `BestBuyCount`, `BestSellPrice`, `BestSellQuantity`, `BestSellCount` | Numeric top bid/ask price, quantity and count | All six matched first `ThisBestLimits` level where present. No source quote timestamp; zero side is observed, not a verified executable zero-price order |
+| `ThisBestLimits` | Array of `BuyCount`, `SellCount` integers and `BuyQuantity`, `SellQuantity`, `BuyAmount`, `SellAmount` numbers | Page explicitly renders count / quantity / price for each side; `Amount` here is **price**, not notional value. Order and variable depth evidence below; per-category quantity conventions unresolved |
+| `ThisBestLimitsOption`, `OptionTrades` | Arrays present in general row schema | Empty in the examined general initial records; no separate five-level derivative contract inferred |
+| `EPS` and rendered `PtoE` | Numeric source EPS; page computes close/EPS only when EPS is positive | Source earnings period/basis unverified; zero and negative EPS have different display handling. Prior IFB/TSETMC EPS difference remains, so providers are not interchangeable |
+| `NAV`, `NAVDate`, `NAVTime` | Numeric NAV, string date/time | A: all zero, dates/times `"0"`; no valid NAV observation or quote timestamp established |
+| `YTMOfClosingPrice`, `YTMOfPreClosingPrice`, `YTMOfLastTradePrice` | Numeric price-specific yield-named fields | 300 nonzero closing-YTM values, e.g. 25.05 for آبارا07. Percent/rate, compounding, accrued interest and coupon/discount basis not independently verified here; not a replacement for verified historical YTM/risk-free APIs |
+| `*Changed`, `AnythingChanged` | Mixed numeric differences and boolean display-change markers | Page uses these for highlighting and resets some markers; not observation times, absolute financial values or deletion flags |
+| `updateRow` argument `date`; HTML `lbldt` | String display-update label | Actual ` دوشنبه 18 آبان ماه ساعت 10:14:22`, then 10:14:42 and 10:15:02: omits year and timezone, not per-instrument trade/book time. Initial callback has no such argument; HTML label is page render time. Retrieval UTC is research metadata only |
+| Callback aggregate arrays | General initial/update second/third argument, three numbers; option callback two numbers | Not instrument counts, completeness checks or quote timestamps. No public interpretation added without independently establishing their exact inclusion rules |
+
+For بپاس in A, closing/previous/last were 13,770 / 13,730 / 13,780;
+volume 3,656,845, value 50,347,485,540, trade count 129. Market value was
+1,425,195,000,000,000 for 103,500,000,000 units. Later existing public TSETMC
+index quotes returned closing 13,770 / last 13,800, volume 4,619,845 and value
+63,633,475,540. These are separate retrievals during trading, not a discrepancy
+to repair by replacing one source's numbers with another's.
+
+### Five-level book: demonstrated gap and remaining limits
+
+The page's `loadBestLimits` iterates the array in received order, with labeled
+buy/sell count, volume and price columns. Throughout A, positive bid prices
+descended and asks ascended; all present first levels matched the six top-level
+fields. بپاس bid prices were 13,770 / 13,760 / 13,750 / 13,740 / 13,730,
+asks 13,780 / 13,790 / 13,800 / 13,810 / 13,820. This supports level ordering
+and price-field meaning, without independently establishing book freshness.
+
+Actual lengths were **1,259 five-level, 7 empty, 12 one-level, 1 three-level**
+records in A; B had one more empty book. ETF آوا2 ID24923 had `[]`;
+اوصتا2 ID23661 had one all-zero level; halted آ س پ3 ID17800 had five
+all-zero levels. Across A there were 6,116 zero-price sides. Three first levels
+were locked (bid equals ask), including اتکاسا ID40874 at 8,910 with reserved
+status `مجاز-محفوظ`. No crossed positive first level was observed. A universal
+strict-spread rule, forced five-row padding, or interpreting a zero level as
+an executable quote would misstate the source. Numeric state codes alone do
+not resolve auction/halt/freshness semantics. No independent full book
+comparison or per-level timestamp was verified.
+
+This is the strongest potential nonduplicative capability: current public
+TSETMC index quotes and Options watch expose no equivalent general IFB
+five-level book. Implementing it still needs defined exclusions, dated state,
+status/zero-side conventions and reliable bounded initial/recovery behavior.
+
+### Derivatives: achieved evidence versus unverified initial state
+
+The reachable **current shared client/proxy**, not a guessed endpoint, exposes
+`letsStartForOption`, `updateInitialOptionTable` and
+`updateRowForOptionStock`. Its ordinary public callback appeared before a
+derivative initial request in two sessions. The derivative HTML GET timeouts
+and the hub method timeout are distinct observed failures; neither establishes
+access denial or global unavailability. No restriction bypass was attempted.
+
+The final derivative recheck kept polling concurrently with the pending hub
+invocation, as the JavaScript transport does. It again reached a 30-second send
+read timeout, while receiving general update callbacks, and ended with abort200.
+Thus the initial-state limitation is not inferred solely from a serial
+send-then-poll probe. All **four** sessions performed ordinary abort cleanup;
+there was no repeated subscription loop or attempt to evade a provider denial.
+
+| Exact derivative field group | Achieved evidence / remaining uncertainty |
+|---|---|
+| `Code`, `BuySymbolId`, `SellSymbolId`, `BaseSymbolId`, `BaseSymbol` | IFB pair/call/put/base identities are separate fields. Example pair `2532227000014050824`, call42855, put42866, base25322 فزر. Pair Code exceeds JavaScript's safe integer range; do not parse via float or treat it as a TSETMC code |
+| `BuySymbolName`, `SellSymbolName`, `BuyTitle`, `SellTitle`, English equivalents | Actual call/put titles and symbols, not merely bid/ask sides. No ticker-based strike/expiry extraction |
+| `Price`, `Date`, `RemainingDay`, `BuyContractSize`, `SellContractSize` | Example فزر: 270,000, `"14050824"`, 5, 1,000 / 1,000. Strike/expiry/size interpretation is consistent with supplied titles, but full exact cross-provider contract mapping and unit/date conventions remain unverified |
+| `Buy/SellTotalTradeQuantity`, `Buy/SellTotalTradeValue`, `Buy/SellTradeCount`, `Buy/SellClosingPrice`, `Buy/SellLastTradeprice` | Distinct native trade and price fields observed; no verified contract-size/value identity across every contract, settlement basis or observation timestamp |
+| `Buy/SellOpenPositions`, `Buy/SellSpotValue`, `Buy/SellContractType`, `BaseClosingPrice` | Open positions and moneyness-related fields observed; example base close313,300 minus strike270,000 equals BuySpotValue43,300, SellSpotValue-43,300. Labels describe in/out-of-money, not instrument status. No separate history or settlement guarantee |
+| `Buy/SellbestBuyPrice`, `Buy/SellbestSellPrice`, `Buy/SellbestBuyLimitQuantity`, `Buy/SellbestSellLimitQuantity` | Best bid/ask only in these paired rows; no five-level derivative book or quote timestamp established |
+
+Connect callbacks contained 357 and 347 unique pair codes, with `Date` values
+from `14050511` to `14051125`, including past dates and `RemainingDay=0`.
+Neither callback is labeled initial. Do not interpret their changing sizes or
+older contracts as broader complete **live** coverage. The derivative initial
+invocation did not produce a verified initial state; replacement, removal,
+expiry retention and reconnect behavior remain unresolved.
+
+In particular, the source's `RemainingDay=5` for Date14050824 is not simply
+the six-day calendar difference from the investigation date14050818. No
+settlement-day, inclusion/exclusion or recalculation convention was established;
+do not silently recompute it or claim a universally verified days-to-expiry field.
+
+The existing official TSETMC option source still returned 235 pairs. Current
+`Options.download_market_watch(market="IFB", stack="Vertical", j_date=False)`
+succeeded with **470 rows, 235 calls and 235 puts, 29 documented columns**:
+authoritative contract/underlying codes, strike, expiry, size, price/trades,
+open positions and best bid/ask. Existing chains/history/analytics already
+provide the corresponding capabilities. TSETMC's public IFB index-constituent
+quotes succeeded with 247 rows; that is an index universe, not all IFB.
+No fima bug or missing derivative capability was established by this comparison.
+
+### Decision matrix before production implementation
+
+| Candidate capability | Source / fields | Coverage, units and time | Existing overlap | Complexity / risk | Decision |
+|---|---|---|---|---|---|
+| Bounded IFB quote snapshot | General `letsStart` / `updateSingleTable`; identity, market, prices/trades | Repeatable 1,279/1,280 collections; no independent total or dated as-of; opening zeros; mixed-unit conventions unresolved | TSETMC constituent quotes/history and IFB map | Demultiplex callbacks, validate entire mixed collection, cleanup; risk of stale/incomplete financial claims | **Defer** |
+| Five-level general book | `ThisBestLimits`; six fields per level | Ordering/top alignment verified; variable depth/zero sides; source exclusions and freshness unresolved | Useful gap beyond existing public APIs | Lifecycle/status/recovery contract needed; no general stream engine justified | **Defer**, strongest future candidate |
+| Improve IFB/TSETMC | Existing verified map, constituent and history sources | Different source universes, not a reproduced implementation failure | Already implemented | Replacing sources would change established coverage/semantics | **Preserve** |
+| Improve Options | Published IFB derivative callbacks | Only updates obtained; initial/expiry/units/times not independently established | Existing authoritative 470-row public watch, chains/history/metadata | Parallel protocol for unproven financial gain | **Preserve** |
+| Add no API in this phase | Evidence and explicit implementation gates | Distinguishes achieved checks, valid source zeros, incomplete knowledge and network failures | All established APIs retained | No new dependency, architecture or fabricated observations | **Selected**, documentation only |
+
+Future work in #129 must establish source exclusions/total or an honestly bounded
+coverage contract, deletion and stale-ID behavior, missed-message recovery,
+dated quote/book provenance, per-category financial units/status semantics,
+and a reliable derivative initial collection before implementing that candidate.
+The current counts are dated observations, not test constants or coverage promises.
+No speculative deterministic fixtures, provider-dependent CI tests, version bump,
+tag, GitHub Release, artifact upload or PyPI publication accompany this phase.
+
+### Validation of this documentation-only decision
+
+The full deterministic suite passed **954 tests / 147 integration deselected**.
+All four existing opt-in market-map cases passed: the first run had three passes
+and a TLS-handshake read timeout before a trade-volume response; a single
+targeted retry of that case passed. No test was skipped, weakened or changed to
+hide the network failure. Captured-evidence checks validated the counts,
+identity-set change, zero/NAV/YTM observations and every present first book
+level/order. Existing public Options and TSETMC checks are reported above.
+
+Clean-copy wheel/sdist builds, strict Twine metadata checks, source/privacy
+inventory and documentation links/anchors passed. The sdist includes both
+updated IFB guides through the existing manifest. A fresh offline-installed
+wheel imported all **77 public callables** with import-time HTTP prohibited;
+`pip check` passed. Every Python source file matches `v0.14.0`; no public API,
+deterministic/integration test, dependency, version or release workflow changes
+are needed for this evidence-based deferral. Raw provider responses, connection
+state, research scripts and build outputs are excluded from the PR.

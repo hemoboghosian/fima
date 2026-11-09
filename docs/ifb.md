@@ -92,12 +92,17 @@ cleanup. Page bootstrap is required by the verified sequence; no WAF workaround
 or alternate provider is used.
 
 The general SignalR watch and IFB derivatives watch are not new public APIs.
-The initial general watch collection was observed, but authoritative coverage,
-quote timestamps and reliable delta/removal semantics remain follow-up work in
+Repeated initial collections, deltas and a same-cursor reconnect were observed,
+but authoritative coverage, quote timestamps, deletion and recovery after missed
+messages remain follow-up work in
 [#129](https://github.com/hemoboghosian/fima/issues/129). Existing
 `Options.download_market_watch(market="IFB")`, chain and history functions retain
 their contracts. See the [Phase #122 audit](ifb-audit.md#phase-122-market-map-and-watch-investigation--2026-11-09)
-for the financial comparisons and provider limitations.
+for the financial comparisons and provider limitations, and the
+[Phase #129 validation](ifb-audit.md#phase-129-signalr-financial-and-lifecycle-validation--2026-11-09)
+for the decision to defer a separate watch/order-book API. A transport reconnect
+returned a delta, not a fresh snapshot; opening prices were zero even for traded
+instruments. Neither observation is silently converted into a financial guarantee.
 
 ## Aggregate snapshots
 
