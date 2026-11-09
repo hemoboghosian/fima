@@ -2,8 +2,8 @@
 
 [API](api.md) | [Data conventions](data-conventions.md) | [Source audit and priorities](ifb-audit.md)
 
-The additions documented here are **unreleased**. Existing IFB functions and signatures
-are unchanged. Import each from `fima` or `fima.IFB`.
+The seven additions documented here were introduced in **0.14.0**. Existing IFB
+functions and signatures are unchanged. Import each from `fima` or `fima.IFB`.
 
 ## Metric-selected market-map snapshot
 

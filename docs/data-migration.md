@@ -1,10 +1,13 @@
 # Public-data migration
 
-## Unreleased IFB additions
+## fima 0.14.0 IFB additions
 
-Three market-value APIs are additive; existing signatures and outputs are
-unchanged. New values use nullable `Int64` rials to retain integer precision and
-missing observations. IFB IDs are strings and market regimes remain separate.
+Seven IFB APIs add market-value snapshots/history, selected bond YTM history,
+official fitted YTM comparison nodes, report catalogs and market-map snapshots.
+Existing signatures and outputs are unchanged. Market-value tables/history use
+nullable `Int64` rials; monetary market-map metrics use `Decimal` to preserve
+serialized JSON precision without claiming exact underlying rials. Missing
+observations remain missing, IFB IDs are strings, and market regimes remain separate.
 See the [IFB guide](ifb.md) for exact schemas and source coverage.
 
 ## fima 0.10.0 public structured keys

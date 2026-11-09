@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0
 
 - Add `get_ifb_market_map` for full metric-selected IFB snapshot responses,
   with four verified measures, IFB identities/classifications, closing price,
@@ -8,23 +8,33 @@
   with Decimal; document metric-dependent coverage and absent quote timestamps.
   Validate entire responses before exact local filters; keep SignalR/derivative
   follow-up separate and preserve all existing APIs.
-- Add bounded IFB periodical-report discovery with source filters, string report
+- Add `get_ifb_periodical_reports` for bounded IFB report discovery with source filters, string report
   IDs, separate reporting/upload dates and visible Excel/PDF links. Require two
   matching complete traversals; reject incomplete or changing catalogs.
 
-- Add official IFB fitted YTM comparison nodes for treasury, government and
+- Add `get_ifb_yield_curve` for official fitted YTM comparison nodes for treasury, government and
   nongovernment, preserving source values, tenor days and relative labels.
 
-- Add complete filtered IFB historical bond YTM exports with verified instrument
+- Add `get_ifb_bond_yield_history` for complete filtered historical YTM exports with verified instrument
   selection, explicit date bounds, effective annual percentage-point yields,
   typed empty responses and source conflict handling. Preserve existing bond
   snapshots and the decimal scalar risk-free estimate.
 
-- Add verified IFB aggregate and symbol market-value snapshots, plus all three
+- Add `get_ifb_market_values`, `get_ifb_symbol_market_values` and
+  `get_ifb_market_value_history` for verified snapshots and all three
   official historical CSV archives. Preserve exact integer rials, source
   universe/total differences, missing historical values and separate market
   regimes. Validate constituent counts, identities and export schemas; surface
   provider failures. Include a full Data Center audit and an IFB usage guide.
+
+All seven APIs are additive. Existing signatures, provider behavior, dependency
+requirements and the decimal scalar risk-free estimate are preserved. Coverage
+is bounded to the verified source tables/exports; no missing observations,
+calibration dates or whole-market completeness are invented. Fitted curves retain
+relative comparison labels. Reports are metadata catalogs, not parsed financial
+series. Market-map universes depend on the metric and supply no quote timestamp.
+Nelson bond-observation semantics, report-content extraction and SignalR/
+derivatives validation remain deferred in #125, #127 and #129 respectively.
 
 ## 0.13.2
 
