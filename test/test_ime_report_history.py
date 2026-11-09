@@ -112,7 +112,7 @@ def test_invalid_observation_fails_clearly(monkeypatch, report, defect):
     elif defect == 'identity':
         row['ContractCode' if date_field == 'DT' else 'ID'] = None
     elif defect == 'field':
-        del row['TodaySettlementPrice' if date_field == 'DT' else 'Price']
+        del row['DeliveryDate' if date_field == 'DT' else 'Price']
     elif defect == 'number':
         row['TradesValue' if date_field == 'DT' else 'TotalPrice'] = 'broken'
     else:
@@ -156,7 +156,8 @@ def test_futures_changed_total_or_repeated_page(monkeypatch, page):
 
 def test_futures_source_omissions_are_not_invented_zeros(monkeypatch):
     row = futures_row()
-    for field in ['TradesVolume', 'TradesValue', 'FirstPrice', 'LastPrice', 'MaxPrice', 'MinPrice']:
+    for field in ['TradesVolume', 'TradesValue', 'FirstPrice', 'LastPrice', 'MaxPrice', 'MinPrice',
+                  'WeeklyOpenInterests', 'MonthlyOpenInterests', 'ActiveBrokers', 'ContractDescription']:
         del row[field]
     serve(monkeypatch, [dict(total=1, rows=[row])])
     frame = ime.get_all_ime_futures_trades(start_date='1404-01-26', end_date='1404-01-26')

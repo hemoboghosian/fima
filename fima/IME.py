@@ -383,10 +383,9 @@ def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _c
     return _clean_ime_physical_records(all_records)
 
 
-_IME_FUTURES_REQUIRED = (
-    'ContractDay', 'ContractCode', 'ContractDescription', 'ActiveBrokers', 'ChangeOpenInterest',
-    'TodaySettlementPrice', 'SettlementPricePercent', 'DT', 'DeliveryDate',
-    'WeeklyOpenInterests', 'MonthlyOpenInterests', 'WeeklySettlementPrice', 'MonthlySettlementPrice')
+# The provider omits null metrics; only identity and the existing date contract
+# are mandatory. Present financial fields are still parsed and validated.
+_IME_FUTURES_REQUIRED = ('ContractCode', 'DT', 'DeliveryDate')
 
 
 def _ime_report_range(start_date, end_date, floor, chunk_size):
