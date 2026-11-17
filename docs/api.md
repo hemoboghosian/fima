@@ -4,7 +4,7 @@
 
 برای استفاده، نام تابع را به‌صورت صریح از `fima` یا ماژول مربوط وارد کنید. برای جلوگیری از واردشدن نام‌های کمکی، از `import *` استفاده نکنید. مثال‌های کوتاه در [راهنمای اصلی](../README.md)، [راهنمای سهام](tsetmc.md)، [راهنمای صندوق‌ها](funds.md)، [راهنمای طلا و ارز](tgju.md) و [مثال‌های بازارهای دیگر](markets.md) قرار دارند.
 
-## `fima.KILID` (Unreleased)
+## `fima.KILID` (0.15.0)
 
 [Housing-market schemas, source methodology, access/licensing and limitations](kilid.md)
 
