@@ -37,6 +37,22 @@ print(history[["ClosingPrice", "TradeVolume"]].head())
 
 ## مثال‌های کاربردی
 
+### IMF WEO (Unreleased)
+
+چهار تابع ماژول `IMF` کشف داده‌ها و دریافت سری‌های سالانهٔ منتخب WEO را فراهم می‌کنند.
+این قابلیت هنوز در نسخهٔ منتشرشدهٔ ۰٫۱۵٫۰ نیست؛ واحدهای منبع حفظ می‌شوند و
+داده‌ها ممکن است برآورد یا پیش‌بینی باشند. فیلتر کشور و سال فعلاً پس از دریافت
+یک شاخص در سمت کاربر اعمال می‌شود. [راهنمای API، پوشش و شرایط استفاده](https://github.com/hemoboghosian/fima/blob/master/docs/imf.md).
+
+```python
+from fima import get_imf_indicators, get_imf_series
+
+print(get_imf_indicators(search="inflation"))
+gdp = get_imf_series("NGDP_RPCH", ["IRN", "USA"], 2020, 2027)
+print(gdp[["Country", "Period", "Value", "Unit"]])
+print(gdp.attrs["Coverage"])
+```
+
 ### قیمت تعدیل‌شدهٔ سهام
 
 برای افزودن قیمت‌های تعدیل‌شده، گزینهٔ تعدیل را فعال کنید:

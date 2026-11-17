@@ -73,3 +73,13 @@ are not derived conversions. `SourceParentArea` records the source breadcrumb;
 modification/coverage metadata stays separate from UTC `RetrievedAt` and actual
 table months, with explicit metadata warnings. See the [KILID guide](kilid.md)
 for the complete schemas, validation limits and unresolved data licensing.
+
+IMF WEO (Unreleased) uses annual `Period` strings (`YYYY`) and `Frequency="A"`,
+without fabricated day/month labels or calendar alignment. `Value` retains
+native source units/scales and source nulls; omitted periods stay absent with
+explicit `Coverage` attrs. Country/region/group identifiers remain distinct,
+including non-ISO source IDs and null source names. Edition, revision timestamp
+and source projection-year stay in `IndicatorMetadata`; `ObservationStatus`
+remains `Unknown` because country-specific actual/estimate/projection boundaries
+are unavailable. Client-side geographic/year filtering is explicit. See the
+[IMF guide](imf.md) for schemas, completeness limits and statistical-data terms.
