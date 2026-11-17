@@ -1,13 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
 - Add official IMF DataMapper v2 annual WEO dataset/indicator/geographic
   discovery and selected time series. Preserve native units, source identities,
   edition/revision/projection metadata, missing values and explicit coverage;
   document client-side filtering and unknown actual/estimate/projection status.
   Add deterministic contracts, separate live comparisons and IMF usage terms.
-  No existing provider behavior, dependency or release version change.
+  Existing provider behavior and dependencies are unchanged.
 
 ## 0.15.0
 

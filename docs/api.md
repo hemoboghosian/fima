@@ -4,7 +4,7 @@
 
 برای استفاده، نام تابع را به‌صورت صریح از `fima` یا ماژول مربوط وارد کنید. برای جلوگیری از واردشدن نام‌های کمکی، از `import *` استفاده نکنید. مثال‌های کوتاه در [راهنمای اصلی](../README.md)، [راهنمای سهام](tsetmc.md)، [راهنمای صندوق‌ها](funds.md)، [راهنمای طلا و ارز](tgju.md) و [مثال‌های بازارهای دیگر](markets.md) قرار دارند.
 
-## `fima.IMF` (Unreleased)
+## `fima.IMF` (0.16.0)
 
 [Source audit, schemas, economic definitions, coverage and IMF usage terms](imf.md)
 
@@ -15,7 +15,7 @@
 
 All four return pandas DataFrames and are exported from `fima`. Annual WEO only;
 source filters currently require client-side enforcement. Actual/estimate/forecast
-classification is unknown. Not available in published 0.15.0.
+classification is unknown. Available starting with 0.16.0.
 
 ## `fima.KILID` (0.15.0)
 

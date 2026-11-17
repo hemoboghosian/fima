@@ -74,7 +74,7 @@ modification/coverage metadata stays separate from UTC `RetrievedAt` and actual
 table months, with explicit metadata warnings. See the [KILID guide](kilid.md)
 for the complete schemas, validation limits and unresolved data licensing.
 
-IMF WEO (Unreleased) uses annual `Period` strings (`YYYY`) and `Frequency="A"`,
+IMF WEO (0.16.0) uses annual `Period` strings (`YYYY`) and `Frequency="A"`,
 without fabricated day/month labels or calendar alignment. `Value` retains
 native source units/scales and source nulls; omitted periods stay absent with
 explicit `Coverage` attrs. Country/region/group identifiers remain distinct,
