@@ -105,7 +105,10 @@ def test_public_signatures_and_exports():
         fn = getattr(imf, name)
         assert getattr(fima, name) is fn
         sig = inspect.signature(fn)
-        assert str(sig.replace(return_annotation=inspect.Signature.empty)) == signature
+        structural = sig.replace(parameters=[p.replace(annotation=inspect.Parameter.empty)
+                                            for p in sig.parameters.values()],
+                                 return_annotation=inspect.Signature.empty)
+        assert str(structural) == signature
         assert sig.return_annotation is pd.DataFrame
 
 

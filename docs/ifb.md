@@ -536,3 +536,77 @@ cells can mix rial scales, quantity units, percentage fractions/points, hidden
 sheets, cached formulas and formula errors. Catalog availability must not become
 a fabricated financial time series. Further family-specific financial extraction
 and revision provenance are tracked in [#127](https://github.com/hemoboghosian/fima/issues/127).
+
+## Legacy bond snapshots and rate proxy
+
+`get_all_bonds_without_coupons(deprecated=True)` and
+`get_all_bonds_with_coupons(deprecated=True)` return current source yield tables,
+not historical cash-flow schedules. Here `deprecated=True` means **include matured
+instruments**; `False` excludes source rows marked matured. It is not a Python
+deprecation flag.
+
+Common fields are `Ticker`, `LastPrice` (source rials), `LastTradeJalaliDate`,
+`MaturityJalaliDate` and `YTM` (percentage points). Discount bonds additionally
+return `SimpleReturn`, also percentage points. Matured yields can be missing.
+Non-200 responses/missing tables print and return `None`; connection, parsing
+and schema exceptions may propagate. No source error is newly reclassified here.
+
+`get_risk_free_rate()` excludes matured discount bonds, selects tickers containing
+`سخاب`/`اخزا`, selects their latest available last-trade date, and returns the
+unweighted mean YTM divided by 100. `.30` is a 30% decimal annual proxy; an empty
+selection can produce NaN. It is not a tenor-matched risk-free curve and performs
+no rate-compounding conversion. See [Options model assumptions](options.md#analytics)
+before using it in continuous-discounting calculations.
+
+For selected historical YTM, use the newer history API above. Discover its exact
+ticker/IFB ID in the official YTM selector or linked instrument URL. The discount-
+bond snapshot gives tickers but no instrument IDs; another IFB catalog does not
+guarantee coverage in the history selector. Preserve leading zeros and resolve
+ambiguity rather than guessing a TSETMC code.
+
+## Legacy index and sukuk histories
+
+The five `get_ifb_*_index_historical_data()` functions take no arguments and return
+`IndexValue`, `GregorianDate`, `JalaliDate`. They respectively select equal-weight
+total, equal-weight price, price, total and total-sukuk indices. Source ordering
+is retained; sort dates before analysis. No date filter or independent archive
+completeness contract exists. Legacy network/JSON/key/shape/value failures return
+an empty, possibly columnless frame. An empty result does not certify no data.
+
+`get_sukuk_daily_trades_based_on_bs()` gives `TradeSide` Buyer/Seller and sector
+amounts `Government/CentralBank/Funds/Banks/Others`.
+`get_sukuk_daily_trades_based_on_ct()` gives `OpenMarketOperations`,
+`GovernmentSubscription`, `Others`. Both return descending `JalaliDate` strings,
+take no date filters and retain legacy amount parsing. A universal rial/billion-
+rial scale is unverified for these APIs; do not assume counts or scale by magnitude.
+Empty/missing/repeated pages can terminate traversal without proving completeness.
+
+## Legacy catalogs
+
+| Function | Selection and output |
+| --- | --- |
+| `get_all_standard_financing_instruments()` | Ticker, IFB TickerID/DetailURL, IssueVolume, AcceptVolume, ParValue, CouponPercent, issue date and market-making fields |
+| `get_all_special_financing_instruments()` | Separate financing universe; nominal coupon type and description instead of an inferred numerical coupon |
+| `get_ticker_info(ticker)` | Exact ticker from these catalogs → `(Section/Label/Value text table, payment table)`; payments use PaymentJalaliDate/PaymentAmountPerUnit |
+| `get_all_crowdfunding_plans(include_descriptions=True, _max_workers=8)` | Plan/company/NationalID/domain/status/start/end dates; optional extra description downloads can leave missing descriptions |
+| `get_all_crowdfunding_platforms()` | Platform/operator/institute, licensing dates, status, phone and domain |
+
+```python
+from fima import get_all_standard_financing_instruments, get_ticker_info
+
+instruments = get_all_standard_financing_instruments()
+if not instruments.empty:
+    selected = instruments.iloc[0]  # Illustrates selection from this catalog only.
+    info, payments = get_ticker_info(selected["Ticker"])
+    print(info)
+    print(payments)
+```
+
+Financing ticker ambiguity prints and returns `(None, None)`. Metadata display
+values intentionally remain text; payment amounts remain source numeric values
+without inferred fees or clean/dirty-price treatment. Payment/catalog pagination
+uses legacy stop conditions, not independent completeness validation. Empty
+catalogs/payments can lack columns; malformed/network/date errors may propagate.
+The platform request uses page size 100 without independently verified pagination.
+These contracts differ from the seven newer validated APIs above and from Options
+`ticker_info`, which returns option metadata rather than financing payments.

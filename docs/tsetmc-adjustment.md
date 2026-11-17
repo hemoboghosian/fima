@@ -14,10 +14,8 @@ prices = history[["ClosingPrice", "LastPrice", "AdjustmentFactor",
                   "AdjustedClosingPrice", "AdjustedLastPrice"]]
 
 # برای انتخاب تاریخ مبنای قدیمی‌تر، ابتدا دادهٔ خام را فیلتر کنید.
-import jdatetime as jd
-
 raw = get_ticker_historical_data(ticker="فملی")
-as_of = adjust_historical_prices(raw.loc[raw.index <= jd.date(1403, 12, 29)])
+as_of = adjust_historical_prices(raw.loc[raw.index <= "1403-12-29"])
 ```
 
 گزینهٔ `adjust_prices` فقط به‌صورت آرگومان نام‌دار پذیرفته می‌شود و مقدار پیش‌فرض آن

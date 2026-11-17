@@ -1,4 +1,5 @@
 """IFB's public market-value tables and whole-file historical CSV exports."""
+from typing import Literal as _Literal
 import csv
 from datetime import date
 from io import StringIO
@@ -141,7 +142,7 @@ def _industry_frames(soup):
     return summary, symbols
 
 
-def get_ifb_market_values(group_by="industry") -> pd.DataFrame:
+def get_ifb_market_values(group_by: _Literal["industry", "market"]="industry") -> pd.DataFrame:
     """Return IFB's aggregate market-value snapshot by ``industry`` or ``market``.
 
     Columns: Industry/Market, MarketValue (nullable integer rials), SymbolCount
@@ -150,6 +151,11 @@ def get_ifb_market_values(group_by="industry") -> pd.DataFrame:
     HTTP/request errors propagate; changed/incomplete source schemas raise
     ValueError. Includes debt/funds, not just equity capitalization. See
     docs/ifb.md for source universes and each field's meaning.
+
+    Usage
+    -----
+    group_by defaults industry. Copy returned Industry/Market labels into
+    matching snapshot filters; the two source universes are distinct.
     """
     if group_by not in ("industry", "market"):
         raise ValueError("group_by must be 'industry' or 'market'.")
@@ -187,7 +193,7 @@ def get_ifb_market_values(group_by="industry") -> pd.DataFrame:
     return frame
 
 
-def get_ifb_symbol_market_values(ticker=None, market=None, industry=None) -> pd.DataFrame:
+def get_ifb_symbol_market_values(ticker: str | None=None, market: str | None=None, industry: str | None=None) -> pd.DataFrame:
     """Return all industry-page constituents, optionally exact-filtered locally.
 
     Filters are exact source strings, combined with AND; no match is a typed
@@ -196,6 +202,11 @@ def get_ifb_symbol_market_values(ticker=None, market=None, industry=None) -> pd.
     SubIndustry, DetailURL. The snapshot includes financial instruments beyond
     companies. HTTP errors propagate; source/count/identity changes raise
     ValueError. No historical observation date is invented. See docs/ifb.md.
+
+    Usage
+    -----
+    ticker, market and industry default None (no filter). Discover exact values
+    in the unfiltered result before selecting rows; none is a fixed enum.
     """
     for value in (ticker, market, industry):
         if value is not None and (not isinstance(value, str) or not value.strip()):
@@ -287,7 +298,7 @@ def _history_export(response, spec, soup):
     return frame
 
 
-def get_ifb_market_value_history(start_date=None, end_date=None, *, jalali=True) -> pd.DataFrame:
+def get_ifb_market_value_history(start_date: str | None=None, end_date: str | None=None, *, jalali: bool=True) -> pd.DataFrame:
     """Return all three official market-value CSV histories, filtered inclusively.
 
     Bounds are YYYY-MM-DD Jalali strings by default, Gregorian with jalali=False.
@@ -298,6 +309,11 @@ def get_ifb_market_value_history(start_date=None, end_date=None, *, jalali=True)
     HTTP errors propagate; malformed/incomplete exports raise ValueError. No
     guarantee is made about dates absent from IFB's archives. See docs/ifb.md
     for the complete schema, regime transitions, units and source limitations.
+
+    Usage
+    -----
+    start_date/end_date default None and bound either side independently; jalali
+    defaults True. Rows are sorted by JalaliDate; a RangeIndex is returned.
     """
     start, end = _bounds(start_date, end_date, jalali)
     frames, counts = [], {}

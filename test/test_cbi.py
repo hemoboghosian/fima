@@ -264,7 +264,9 @@ def test_mixed_header_and_data_row_is_rejected(provider):
 
 def test_public_api_signature_exports_and_import_without_network():
     assert fima.get_cbi_policy_rates is CBI.get_cbi_policy_rates
-    assert str(inspect.signature(CBI.get_cbi_policy_rates)) == '()'
+    sig = inspect.signature(CBI.get_cbi_policy_rates)
+    assert not sig.parameters
+    assert sig.return_annotation is pd.DataFrame
     namespace = {}
     exec('from fima.CBI import *', namespace)
     assert set(namespace) - {'__builtins__'} == {

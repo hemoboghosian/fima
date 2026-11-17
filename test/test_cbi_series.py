@@ -240,7 +240,11 @@ def test_all_public_exports_and_signatures():
     assert set(CBI.__all__) == names
     for name in names:
         assert getattr(fima, name) is getattr(CBI, name)
-    assert str(inspect.signature(CBI.get_cbi_inflation_rates)) == "(frequency='monthly')"
+    sig = inspect.signature(CBI.get_cbi_inflation_rates)
+    structural = sig.replace(parameters=[p.replace(annotation=inspect.Parameter.empty)
+                                        for p in sig.parameters.values()],
+                             return_annotation=inspect.Signature.empty)
+    assert str(structural) == "(frequency='monthly')"
 
 
 def test_monthly_refreshed_state_and_initial_selected_year_reuse(provider):

@@ -1,3 +1,4 @@
+from typing import Literal as _Literal
 import requests, json, time, threading
 import pandas as pd
 import jdatetime as jd
@@ -246,16 +247,44 @@ def _clean_ime_physical_records(records) -> pd.DataFrame:
     return _public_frame(all_data[list(mapping)].rename(columns=mapping))
 
 
-def get_all_ime_physical_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 30, _max_workers: int = 2,
+def get_all_ime_physical_trades(start_date: str | None = None, end_date: str | None = None, _chunk_size: int = 30, _max_workers: int = 2,
                                 _timeout=(20, 120), _max_retries: int = 3, _strict: bool = True, _verbose: bool = False,
                                 _rescue_chunk_size: int = 7) -> pd.DataFrame:
-    """
-    Safer IME physical trades downloader.
+    """Return IME physical trades for an inclusive Jalali interval.
 
-    Main idea:
-    - first downloads normal chunks;
-    - if some chunks fail, retries only failed chunks sequentially in smaller chunks;
-    - if _strict=True, it raises only if rescue also fails.
+    Parameters
+    ----------
+    start_date, end_date : str or None, default None
+        YYYY-MM-DD or YYYY/MM/DD. Start defaults/clamps to 1385-01-01; end
+        defaults to today and future end dates clamp to today. Reversed ranges
+        return an empty frame. The start floor is not verified inception.
+    _chunk_size : int, default 30
+        Internal window increment in days, including its first day.
+    _max_workers : int, default 2
+        Internal parallel window requests.
+    _timeout : tuple, default (20, 120)
+        Connect/read timeout seconds.
+    _max_retries : int, default 3
+        Internal HTTP retry configuration.
+    _strict : bool, default True
+        Raise RuntimeError for windows still failing after rescue. False can
+        return partial data without a completeness report; use with care.
+    _verbose : bool, default False
+        Print progress and failed/rescued windows.
+    _rescue_chunk_size : int, default 7
+        Smaller internal retry-window increment.
+
+    Returns
+    -------
+    pandas.DataFrame
+        GoodsName, Symbol, ProducerName, raw prices, supply/demand, TradeVolume,
+        TradeValue, Currency, Unit and Jalali trading/delivery/settlement dates.
+        Empty results may be columnless. ClosingPrice is the source's weighted
+        price. Quantity, quotation and value bases can differ (including
+        thousand-rial display values); never assume price*volume equals value.
+        No unit conversion or source-total completeness guarantee is added.
+        Invalid dates/schema can raise ValueError. See docs/ime.md#physical-
+        trades-and-producers.
     """
 
     if start_date is None or (_date_key(start_date) < 13850101):
@@ -398,14 +427,25 @@ def _ime_report_range(start_date, end_date, floor, chunk_size):
     return max(floor, start), end
 
 
-def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None, end_date: str = None,
-                               _chunk_size: int = 100, _offset: int = 0, _timeout=(10, 45)) -> pd.DataFrame:
+def get_all_ime_futures_trades(only_active: bool = False, start_date: str | None = None, end_date: str | None = None,
+                               _chunk_size: int = 100, _offset: int = 0, _timeout=(10, 45)) -> pd.DataFrame | None:
     """Return complete official futures reports, or raise RuntimeError on failure.
 
     Preserve source prices/values in rials and volumes/open interest in contracts.
     Validate totals, pages, contract/date identities and dates. Source-omitted
     metrics remain missing. Existing arguments/defaults and empty/reversed-range
     behavior are retained. See docs/ime.md for units, coverage and exceptions.
+
+    Usage
+    -----
+    start_date/end_date default None: inclusive Jalali YYYY-MM-DD or YYYY/MM/DD;
+    start defaults/clamps to 1387-01-01, end defaults to system today. Reversed
+    ranges return None. _chunk_size defaults 100 (nonnegative day increment,
+    zero means single-day windows); _offset is unused; _timeout defaults (10,45)
+    connect/read seconds. These request floors do not prove inception.
+    only_active defaults False; True requests currently active contracts, even
+    for historical intervals, and a start string equal to today becomes
+    yesterday. Empty reports can be columnless; results sort by trading date.
     """
     if only_active and start_date == str(jd.date.today()):
         start_date = str(jd.date.today() - jd.timedelta(days=1))
@@ -435,9 +475,9 @@ def get_all_ime_futures_trades(only_active: bool = False, start_date: str = None
         raise RuntimeError(f'IME futures history {start} to {end}: {exc}') from exc
 
 
-def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = False, start_date: str = None,
-                               end_date: str = None, _chunk_size: int = 100, _offset: int = 0,
-                              _timeout=(10, 45), *, contract_code: str = None) -> pd.DataFrame:
+def get_all_ime_option_trades(option_type: _Literal["All", "Call", "Put"] = 'All', only_active: bool = False, start_date: str | None = None,
+                               end_date: str | None = None, _chunk_size: int = 100, _offset: int = 0,
+                              _timeout=(10, 45), *, contract_code: str | None = None) -> pd.DataFrame | None:
     """Return complete official daily option statistics for inclusive Jalali dates.
 
     ``option_type`` is All, Call or Put; ``only_active`` selects the provider's
@@ -450,6 +490,17 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
     Raises ValueError for invalid inputs and RuntimeError for failed, malformed,
     inconsistent or incomplete provider responses. No partial history is returned.
     Legacy date defaults and the unused _offset argument are preserved.
+
+    Usage
+    -----
+    option_type defaults All; only_active defaults False. start_date/end_date
+    default None: start defaults/clamps to 1395-01-01 and end to system
+    yesterday. With only_active=True, start equal to today becomes yesterday.
+    Reversed ranges return None; explicit end is not clamped. _chunk_size=100 is
+    a nonnegative day increment (zero gives single-day windows); _offset=0 is
+    unused; _timeout=(10,45) is connect/read seconds. contract_code defaults
+    None; discover ContractCode/ContractDescription in a short unfiltered
+    report. Rows sort by trading date; within-date order is unspecified.
     """
     if option_type not in ('All', 'Call', 'Put') or type(only_active) is not bool:
         raise ValueError('option_type must be All, Call or Put and only_active must be bool')
@@ -517,8 +568,27 @@ def get_all_ime_option_trades(option_type: str = 'All', only_active: bool = Fals
     return result
 
 
-def get_all_physical_producer_products(start_date: str = None, end_date: str = None,
-                                       all_ime_physical_trades: pd.DataFrame = None) -> pd.DataFrame:
+def get_all_physical_producer_products(start_date: str | None = None, end_date: str | None = None,
+                                       all_ime_physical_trades: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Group physical trade goods by their exact published producer names.
+
+    Parameters
+    ----------
+    start_date, end_date : str or None, default None
+        Inclusive Jalali bounds passed to get_all_ime_physical_trades when data
+        is not supplied; that downloader's broad defaults apply.
+    all_ime_physical_trades : pandas.DataFrame or None, default None
+        Reuse downloaded ProducerName/GoodsName rows without HTTP. When supplied,
+        aggregation uses those rows; the date arguments do not filter this frame.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ProducerName and Products (sorted distinct goods-name lists). Empty input
+        returns these columns. Pass a returned ProducerName to
+        get_producer_physical_trades. Download/schema errors propagate.
+        See docs/ime.md#physical-trades-and-producers.
+    """
     if all_ime_physical_trades is None:
         all_ime_physical_trades = get_all_ime_physical_trades(start_date=start_date, end_date=end_date)
     if all_ime_physical_trades is None or all_ime_physical_trades.empty:
@@ -529,8 +599,29 @@ def get_all_physical_producer_products(start_date: str = None, end_date: str = N
     return _public_frame(producer_products)
 
 
-def get_producer_physical_trades(producer: str, start_date: str = None, end_date: str = None,
-                                 all_ime_physical_trades: pd.DataFrame = None,) -> pd.DataFrame:
+def get_producer_physical_trades(producer: str, start_date: str | None = None, end_date: str | None = None,
+                                 all_ime_physical_trades: pd.DataFrame | None = None,) -> pd.DataFrame:
+    """Select physical trades for an exact producer and optional Jalali bounds.
+
+    Parameters
+    ----------
+    producer : str
+        Required ProducerName from get_all_physical_producer_products or a
+        physical-trades DataFrame; matching is exact, without fuzzy aliases.
+    start_date, end_date : str or None, default None
+        Inclusive YYYY-MM-DD or YYYY/MM/DD Jalali bounds. Applied locally even
+        when a frame is supplied; otherwise downloader defaults also apply.
+    all_ime_physical_trades : pandas.DataFrame or None, default None
+        Reuse current-format physical trades to avoid another download.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Selected rows with the physical report's native units and reset index.
+        Empty input or an unknown producer returns empty (unknown prints a
+        diagnostic). No new unit conversion; request/date/schema errors propagate.
+        See docs/ime.md#physical-trades-and-producers.
+    """
     if all_ime_physical_trades is None:
         all_ime_physical_trades = get_all_ime_physical_trades(start_date=start_date, end_date=end_date)
     if all_ime_physical_trades is None or all_ime_physical_trades.empty:
@@ -557,14 +648,23 @@ _IME_EXPORT_REQUIRED = (
     'NerkhArz', 'Currency', 'Unit', 'Talar')
 
 
-def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 40,
-                               _timeout=(10, 45)) -> pd.DataFrame:
+def get_all_ime_export_trades(start_date: str | None = None, end_date: str | None = None, _chunk_size: int = 100, _offset: int = 40,
+                               _timeout=(10, 45)) -> pd.DataFrame | None:
     """Return complete official export reports, preserving source Currency/Unit.
 
     Validate each whole-window response against its reported total. Failed,
     malformed, truncated or duplicate reports raise RuntimeError; no partial
     history is returned. Existing signatures/defaults and financial mappings
     remain intact. Invalid dates/window sizes raise ValueError. See docs/ime.md.
+
+    Usage
+    -----
+    start_date/end_date default None: inclusive Jalali YYYY-MM-DD or YYYY/MM/DD;
+    start defaults/clamps to 1387-12-01, end defaults to system today. Reversed
+    ranges return None. _chunk_size defaults 100 (nonnegative day increment,
+    zero means single-day windows); _offset is unused; _timeout defaults (10,45)
+    connect/read seconds. These request floors do not prove inception. Valid
+    empty reports can be columnless; nonempty results sort by trading date.
     """
     start, end = _ime_report_range(start_date, end_date, '1387-12-01', _chunk_size)
     if start > end:
@@ -600,8 +700,8 @@ def get_all_ime_export_trades(start_date: str = None, end_date: str = None, _chu
         raise RuntimeError(f'IME export history {start} to {end}: {exc}') from exc
 
 
-def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30,
-                               _timeout=(10, 45), *, ticker: str = None, instrument_code: str = None) -> pd.DataFrame:
+def get_all_ime_cd_trades(start_date: str | None = None, end_date: str | None = None, _chunk_size: int = 100, _offset: int = 30,
+                               _timeout=(10, 45), *, ticker: str | None = None, instrument_code: str | None = None) -> pd.DataFrame | None:
     """Return complete daily certificate statistics for inclusive Jalali dates.
 
     Optional exact ticker (Symbol) or instrument_code (Code) selection is local,
@@ -611,12 +711,34 @@ def get_all_ime_cd_trades(start_date: str = None, end_date: str = None, _chunk_s
     Reversed ranges return None. Valid empty reports retain the public schema.
     Raises ValueError for invalid inputs, RuntimeError for failed, malformed or
     incomplete reports. See docs/ime.md for schema and provider limitations.
+
+    Usage
+    -----
+    start_date/end_date default None: inclusive Jalali YYYY-MM-DD or YYYY/MM/DD;
+    start defaults/clamps to 1394-03-01, end defaults to system today. Reversed
+    ranges return None. _chunk_size defaults 100 (nonnegative day increment,
+    zero means single-day windows); _offset is unused; _timeout defaults (10,45)
+    connect/read seconds. These request floors do not prove inception.
+    ticker/instrument_code default None. Discover Symbol/Code in a short
+    unfiltered report and select at most one exact string; ticker can match
+    several codes. Prices are per reported security/certificate, without
+    inferred physical size.
     """
     return _ime_financial_history(1, '1394-03-01', start_date, end_date, _chunk_size,
                                   _timeout, ticker, instrument_code)
 
 
 def get_all_export_producer_products() -> pd.DataFrame:
+    """Group export goods by producer after downloading default export history.
+
+    No arguments. Returns ProducerName and Products (sorted distinct goods-name
+    lists). The underlying get_all_ime_export_trades() starts at its legacy
+    1387-12-01 floor and ends today, so this is not a cheap static catalog call.
+    For bounded discovery, inspect ProducerName/GoodsName in an already downloaded
+    short export interval. No history completeness beyond provider totals is
+    claimed. Download errors propagate; a columnless empty report can raise
+    KeyError. See docs/ime.md#physical-trades-and-producers.
+    """
     all_ime_export_trades = get_all_ime_export_trades()
     producer_products = (all_ime_export_trades.groupby('ProducerName')
                          ['GoodsName'].agg(lambda x: list(sorted(set(x)))).reset_index()
@@ -624,7 +746,26 @@ def get_all_export_producer_products() -> pd.DataFrame:
     return _public_frame(producer_products)
 
 
-def get_producer_export_trades(producer: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+def get_producer_export_trades(producer: str, start_date: str | None = None, end_date: str | None = None) -> pd.DataFrame:
+    """Return export trades matching an exact producer name.
+
+    Parameters
+    ----------
+    producer : str
+        Required ProducerName discovered in a short get_all_ime_export_trades
+        result, or get_all_export_producer_products(); no fuzzy matching.
+    start_date, end_date : str or None, default None
+        Inclusive Jalali YYYY-MM-DD or YYYY/MM/DD; export downloader defaults
+        start at 1387-12-01 and end today. Local bounds also filter matching rows.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Selected export rows with source Currency/Unit/FXRate and reset index.
+        Unknown producer prints and returns empty. Download failures propagate;
+        columnless empty/reversed downloads can raise KeyError/TypeError rather
+        than a typed empty result. See docs/ime.md#physical-trades-and-producers.
+    """
     all_ime_export_trades = get_all_ime_export_trades(start_date=start_date, end_date=end_date)
     if producer in all_ime_export_trades['ProducerName'].unique():
         producer_export_trades = all_ime_export_trades[all_ime_export_trades['ProducerName'] == producer].copy()
@@ -641,8 +782,8 @@ def get_producer_export_trades(producer: str, start_date: str = None, end_date: 
         return pd.DataFrame()
 
 
-def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chunk_size: int = 100, _offset: int = 30,
-                               _timeout=(10, 45), *, ticker: str = None, instrument_code: str = None) -> pd.DataFrame:
+def get_all_ime_salaf_trades(start_date: str | None = None, end_date: str | None = None, _chunk_size: int = 100, _offset: int = 30,
+                               _timeout=(10, 45), *, ticker: str | None = None, instrument_code: str | None = None) -> pd.DataFrame | None:
     """Return complete daily standard parallel salaf statistics for inclusive Jalali dates.
 
     Optional exact ticker (Symbol) or instrument_code (Code) selection is local,
@@ -652,14 +793,56 @@ def get_all_ime_salaf_trades(start_date: str = None, end_date: str = None, _chun
     Reversed ranges return None. Valid empty reports retain the public schema.
     Raises ValueError for invalid inputs, RuntimeError for failed, malformed or
     incomplete reports. See docs/ime.md for schema and provider limitations.
+
+    Usage
+    -----
+    start_date/end_date default None: inclusive Jalali YYYY-MM-DD or YYYY/MM/DD;
+    start defaults/clamps to 1393-05-01, end defaults to system today. Reversed
+    ranges return None. _chunk_size defaults 100 (nonnegative day increment,
+    zero means single-day windows); _offset is unused; _timeout defaults (10,45)
+    connect/read seconds. These request floors do not prove inception.
+    ticker/instrument_code default None. Discover Symbol/Code in a short
+    unfiltered report and select at most one exact string; ticker can match
+    several codes. Prices are per reported security/certificate, without
+    inferred physical size.
     """
     return _ime_financial_history(0, '1393-05-01', start_date, end_date, _chunk_size,
                                   _timeout, ticker, instrument_code)
 
 
-def get_gold_and_silver_cd_trades(contract_type: str, start_date: str = None, end_date: str = None,
-                                  _timeout=(10, 45)) -> pd.DataFrame:
+def get_gold_and_silver_cd_trades(contract_type: _Literal["gold_coin_cd", "gold_bar_cd", "silver_bar_cd"], start_date: str | None = None, end_date: str | None = None,
+                                  _timeout=(10, 45)) -> pd.DataFrame | None:
 
+    """Request legacy gold/silver CDC history using existing configured filters.
+
+    Parameters
+    ----------
+    contract_type : {'gold_coin_cd', 'gold_bar_cd', 'silver_bar_cd'}
+        Required configured selection. These strings are accepted by this code;
+        current consumer/filter validity remains unresolved in issues #62/#139.
+    start_date, end_date : str or None, default None
+        Jalali YYYY-MM-DD; start defaults/clamps to 1401-12-01, end to today.
+        Reversed ranges return None. Slash-form inputs are not supported here.
+    _timeout : tuple, default (10, 45)
+        Internal connect/read timeout seconds.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        Source contract/activity/price fields and Gregorian/Jalali trading and
+        delivery dates when supplied. A successful empty response returns a
+        smaller typed date/volume/value schema, not proof of an empty market.
+        No contract-size conversion or independently verified current coverage.
+
+    Raises
+    ------
+    KeyError
+        Unknown contract_type or missing provider keys (legacy behavior).
+    Exception
+        Non-200 response; network/JSON/date errors also propagate.
+
+    See docs/ime.md#legacy-gold-and-silver-cdc before relying on this source.
+    """
     if start_date is None or (int(start_date.replace('-', '')) < 14011201):
         start_date = '1401-12-01'
     if end_date is None:

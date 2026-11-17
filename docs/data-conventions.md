@@ -83,3 +83,18 @@ and source projection-year stay in `IndicatorMetadata`; `ObservationStatus`
 remains `Unknown` because country-specific actual/estimate/projection boundaries
 are unavailable. Client-side geographic/year filtering is explicit. See the
 [IMF guide](imf.md) for schemas, completeness limits and statistical-data terms.
+
+## Ordering, missing results and model rates
+
+There is no universal ordering/failure policy across older adapters. TSETMC raw
+history and IFB legacy index history preserve source order; sort explicitly before
+returns/rolling calculations. Legacy IFB index failures can return empty frames,
+bond snapshots can print/return None, and TSETMC per-date shareholder/client failures
+can omit dates. An empty/missing observation is not automatically an empty market
+or a verified complete history. Provider guides and docstrings state each contract.
+
+BSM uses continuous discounting; annual decimal scale alone does not establish
+compounding equivalence. Options convenience functions pass the default IFB
+treasury-yield proxy directly and estimate volatility from raw underlying closing
+prices. No automatic conversion, dividend model or corporate-action adjustment is
+implied. See [the model contract](options.md#analytics).

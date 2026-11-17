@@ -9,13 +9,17 @@ See [the breaking-key migration](data-migration.md#fima-0100-public-structured-k
 from fima import get_tsetmc_fund_types, get_tsetmc_funds, get_tsetmc_fund_details
 
 types = get_tsetmc_fund_types()
-funds = get_tsetmc_funds("mixed")
-print(funds[["FundName", "RegistrationNumber", "SubscriptionNAV", "RedemptionNAV"]])
-details = get_tsetmc_fund_details(funds.iloc[0]["FundName"], fund_type="mixed")
-print(details["FundName"])
-history = details.get("Stats") or []
-# Explicit registration selection also remains supported.
-details = get_tsetmc_fund_details(reg_no=funds.iloc[0]["RegistrationNumber"])
+print(types)
+mixed = types.loc[types["EnglishName"].eq("mixed")]
+if len(mixed) == 1:
+    group = mixed.iloc[0]["FundTypeID"]
+    funds = get_tsetmc_funds(group)
+    if not funds.empty:
+        print(funds[["FundName", "RegistrationNumber", "SubscriptionNAV", "RedemptionNAV"]])
+        details = get_tsetmc_fund_details(funds.iloc[0]["FundName"], fund_type=group)
+        print(details["FundName"])
+        history = details.get("Stats") or []
+        details_by_id = get_tsetmc_fund_details(reg_no=funds.iloc[0]["RegistrationNumber"])
 ```
 
 Snapshots use canonical PascalCase columns, numeric per-unit NAVs and separate

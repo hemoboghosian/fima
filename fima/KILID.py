@@ -3,6 +3,7 @@
 See docs/kilid.md for the source audit, data licenses, coverage and schemas.
 No authentication, undocumented endpoint, derived FX conversion or crawling.
 """
+from typing import Literal as _Literal
 import datetime as _dt
 from decimal import Decimal as _Decimal
 import json as _json
@@ -307,7 +308,7 @@ def _snapshot_rows(soup, identity):
     return rows, unavailable
 
 
-def get_kilid_house_price_history(area, period="1y", denomination="toman") -> _pd.DataFrame:
+def get_kilid_house_price_history(area: str, period: _Literal["6m", "1y", "3y"]="1y", denomination: _Literal["toman", "usd", "gold"]="toman") -> _pd.DataFrame:
     """Return KILID's complete published monthly listing-price table per m².
 
     area is a source slug from get_kilid_areas; period is '6m', '1y' or '3y';
@@ -394,7 +395,7 @@ def get_kilid_house_price_history(area, period="1y", denomination="toman") -> _p
                   {"MedianListingPricePerSquareMeter"}, attrs)
 
 
-def get_kilid_house_price_snapshot(area) -> _pd.DataFrame:
+def get_kilid_house_price_snapshot(area: str) -> _pd.DataFrame:
     """Return latest published sale/rental listing statistics in long format.
 
     area is a source slug. Each Metric/Value has its own JalaliMonth, Unit and
@@ -402,6 +403,11 @@ def get_kilid_house_price_snapshot(area) -> _pd.DataFrame:
     Chart values, undefined liquidity and forecasts are excluded. ValueError
     signals invalid input; RuntimeError signals failed/unverifiable retrieval.
     See docs/kilid.md for the supported metrics and missing-section behavior.
+
+    Usage
+    -----
+    area is required; copy Area from get_kilid_areas. Metrics are output
+    classifications, not a metric input argument.
     """
     soup, identity, attrs = _fetch(_area(area))
     rows, unavailable = _snapshot_rows(soup, identity)
@@ -469,19 +475,25 @@ def _comparisons(area):
     return _frame(rows, ["Area", "AreaName", "AreaLevel", "ListedUnderArea", "JalaliMonth"] + numeric + ["DataBasis", "SourceURL"], set(numeric), attrs)
 
 
-def get_kilid_areas(area=None) -> _pd.DataFrame:
+def get_kilid_areas(area: str | None=None) -> _pd.DataFrame:
     """Discover one page's published areas, without recursively crawling.
 
     None lists the source's cities. A source slug lists its related areas,
     including folded rows. ListedUnderArea is display context, not a verified
     geographic parent. Unknown geographic levels remain 'Area'. Raises
     ValueError for invalid slugs and RuntimeError for unverifiable retrieval.
+
+    Usage
+    -----
+    area defaults None. Select exact Area strings from returned rows for further
+    discovery, history, snapshot or comparison; AreaName is display text, not an
+    accepted slug.
     """
     frame = _comparisons(None if area is None else _area(area))
     return frame[["Area", "AreaName", "AreaLevel", "ListedUnderArea", "DataBasis", "SourceURL"]].copy()
 
 
-def get_kilid_area_comparison(area) -> _pd.DataFrame:
+def get_kilid_area_comparison(area: str) -> _pd.DataFrame:
     """Return all published related-area comparison rows for a source slug.
 
     Includes folded rows, source model classifications and reporting month.
@@ -489,5 +501,9 @@ def get_kilid_area_comparison(area) -> _pd.DataFrame:
     preserve missing values without derived conversions. Related areas may be
     siblings; ListedUnderArea is not an assertion of parentage. ValueError
     signals invalid input; RuntimeError signals failed/unverifiable retrieval.
+
+    Usage
+    -----
+    area is required; copy Area from get_kilid_areas. Comparison rows retain source order.
     """
     return _comparisons(_area(area))

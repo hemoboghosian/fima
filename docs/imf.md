@@ -5,6 +5,30 @@ Economic Outlook indicators in the official IMF DataMapper v2**. It is available
 starting with fima 0.16.0.
 No account or API key is needed for the tested DataMapper requests.
 
+## Start with definitions and geographic identifiers
+
+```python
+from fima import get_imf_indicators, get_imf_countries, get_imf_series
+
+indicators = get_imf_indicators(search="GDP")
+countries = get_imf_countries()
+print(indicators[["Indicator", "IndicatorName", "Unit"]])
+print(countries[["Country", "CountryName", "GeographyType"]])
+selected = indicators.loc[indicators["Indicator"].eq("NGDP_RPCH")]
+geographies = countries.loc[countries["Country"].isin(["IRN", "USA"])]
+if len(selected) == 1 and len(geographies) == 2:
+    series = get_imf_series(selected.iloc[0]["Indicator"], geographies["Country"].tolist(), 2020, 2027)
+    metadata = series.attrs.copy()
+    print(series.pivot(index="Period", columns="Country", values="Value"))
+    print(metadata["IndicatorMetadata"], metadata["Coverage"])
+```
+
+The example selects real GDP growth, not nominal GDP or a PPP level. Choose other
+Indicator/Country values from discovery rather than inferring IDs from names.
+`include_aggregates=True` additionally exposes regions/groups. Keep unit, edition,
+coverage and unknown observation-status metadata with transformed/exported data;
+a pivot alone does not preserve that analytical context.
+
 ## Source feasibility and choice
 
 Checked 2026-11-17 with ordinary GET, finite timeouts and verified HTTPS.

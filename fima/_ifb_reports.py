@@ -1,4 +1,5 @@
 """Bounded discovery of IFB's public statistical-report catalog, not its contents."""
+from typing import Literal as _Literal
 from datetime import date
 import re
 import time
@@ -180,8 +181,8 @@ def _page(soup, current, expected):
     return records, (current, tuple(numbers), last)
 
 
-def get_ifb_periodical_reports(start_date, end_date, *, report_type=None, reporting_period=None,
-                               title=None, breakdown=None, jalali=True, max_pages=20) -> pd.DataFrame:
+def get_ifb_periodical_reports(start_date: str, end_date: str, *, report_type: _Literal["trading", "descriptive", "ranking"] | None=None, reporting_period: _Literal["daily", "weekly", "monthly", "annual"] | None=None,
+                               title: str | None=None, breakdown: _Literal["market", "industry", "symbol", "investor_type", "trade_side", "channel", "broker"] | None=None, jalali: bool=True, max_pages: int=20) -> pd.DataFrame:
     """Discover all official reports in an inclusive reporting-period-end window.
 
     Both YYYY-MM-DD bounds are required, Jalali by default or Gregorian with
@@ -197,6 +198,12 @@ def get_ifb_periodical_reports(start_date, end_date, *, report_type=None, report
     Valid empty searches retain the schema. Invalid input, schema/filter changes,
     incomplete/changed catalogs or page limits raise ValueError. HTTP/network
     errors propagate. See docs/ifb.md for the full contract and limitations.
+
+    Usage
+    -----
+    start_date/end_date are required; report_type, reporting_period, title and
+    breakdown default None (all/no filter). jalali defaults True. These date
+    bounds select reporting-period end, not upload date.
     """
     if not isinstance(jalali, bool) or type(max_pages) is not int or not 1 <= max_pages <= 100:
         raise ValueError('IFB jalali must be boolean and max_pages must be an integer in 1..100.')
