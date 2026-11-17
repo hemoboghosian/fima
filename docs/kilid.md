@@ -2,8 +2,7 @@
 
 [User guide](../README.md) | [API](api.md) | [Data conventions](data-conventions.md)
 
-Added under **Unreleased**; these functions are not in the published 0.14.2
-wheel. This module reads KILID's public, server-rendered aggregate tables at
+Added in **0.15.0**. This module reads KILID's public, server-rendered aggregate tables at
 <https://kilid.com/house-prices>. It adds no dependency, paid-service requirement,
 import-time HTTP or recursive crawler.
 

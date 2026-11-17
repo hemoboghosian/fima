@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0
 
 - Add public KILID area discovery, native monthly toman/USD/18-karat-gold
   listing-price histories, per-metric listing-statistic snapshots and geographic
@@ -9,8 +9,10 @@
   modeled/imputed classifications, separate reporting periods and contradictory
   metadata. Add deterministic source fixtures, opt-in live numerical comparisons
   and an access/methodology guide. Listing medians are not completed transaction
-  prices; public access is not a redistribution license. No version bump or
-  publication; existing provider behavior and dependencies are unchanged.
+  prices; public access is not a redistribution license. Existing provider
+  behavior and dependencies are unchanged. The maintainer chose to publish the
+  public-data client while retaining the documented uncertainty about affirmative
+  data-reuse licensing; this is not legal clearance or KILID endorsement.
 
 ## 0.14.2
 
