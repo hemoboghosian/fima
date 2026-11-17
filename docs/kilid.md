@@ -92,7 +92,8 @@ The index is an ordinary RangeIndex. No day or Gregorian observation date is
 invented for a month label. Different denominations can end in different months;
 align explicitly on `Area` and `JalaliMonth`, retaining missing observations.
 The latest local-currency month can be incomplete. `CurrentMonthIncluded` in
-`attrs` identifies whether the last returned month is the retrieval month.
+`attrs` identifies whether the last returned month is the retrieval month in
+`Asia/Tehran`, including hours when UTC still has the previous calendar date.
 
 The parser validates the canonical URL, structured identity, visible heading,
 selected period/price mode/denomination, unit suffixes, methodology, full table,

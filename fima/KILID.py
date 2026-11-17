@@ -9,6 +9,7 @@ import json as _json
 import math as _math
 import re as _re
 from urllib.parse import parse_qsl as _parse_qsl, urlsplit as _urlsplit, urlencode as _urlencode
+from zoneinfo import ZoneInfo as _ZoneInfo
 
 import jdatetime as _jd
 import pandas as _pd
@@ -372,7 +373,8 @@ def get_kilid_house_price_history(area, period="1y", denomination="toman") -> _p
         _fail("unverifiable history completeness: interior missing months")
     if all(_pd.isna(r["MedianListingPricePerSquareMeter"]) for r in rows):
         _fail("history contains no numerical observations")
-    current = _jd.date.fromgregorian(date=_dt.datetime.fromisoformat(attrs["RetrievedAt"]).date())
+    iran_date = _dt.datetime.fromisoformat(attrs["RetrievedAt"]).astimezone(_ZoneInfo("Asia/Tehran")).date()
+    current = _jd.date.fromgregorian(date=iran_date)
     current_month = f"{current.year:04d}-{current.month:02d}"
     if last > current_month:
         _fail("future reporting month is not a historical observation")

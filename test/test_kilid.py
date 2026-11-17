@@ -128,6 +128,15 @@ def test_metadata_is_not_freshness(install):
     assert "SourceCoverageDiffersFromTable" in frame.attrs["MetadataWarnings"]
 
 
+def test_current_month_uses_tehran_calendar_at_utc_boundary(install, monkeypatch):
+    install('region5-toman-36')
+    # 22:00 UTC on 22 October is already 1 Aban in Tehran.
+    monkeypatch.setattr(kilid, '_now', lambda: datetime(2026, 10, 22, 22, tzinfo=timezone.utc))
+    frame = kilid.get_kilid_house_price_history('tehran-region5', '3y', 'toman')
+    assert frame.JalaliMonth.iloc[-1] == '1405-08'
+    assert frame.attrs['CurrentMonthIncluded'] is True
+
+
 @pytest.mark.parametrize("name,area,last", [
     ("region1", "tehran-region1", 571300000),
     ("moradabad", "tehran-region5-moradabad", 367800000),
