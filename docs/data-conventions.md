@@ -62,3 +62,14 @@ this focused key correction adds no date/dtype or calculation conversion there.
 TGJU pagination attrs use `Page`, `HasMore` and `SourceURL`.
 
 See [migration notes](data-migration.md) for the 0.10.0 structured keys and 0.9.0 schema/type changes.
+
+KILID uses `JalaliMonth` (`YYYY-MM`) for monthly labels without fabricated daily
+dates. Histories retain native toman/USD/grams-of-18K-gold per-square-meter units
+and source rounding. Listing medians are distinct from completed transactions,
+modeled prices and typical-dwelling estimates. Snapshot `Metric`/`Value` rows
+retain their own reporting months and `DataBasis`; comparison missing values
+are not derived conversions. `SourceParentArea` records the source breadcrumb;
+`ListedUnderArea` is comparison display context, not verified parentage. Source
+modification/coverage metadata stays separate from UTC `RetrievedAt` and actual
+table months, with explicit metadata warnings. See the [KILID guide](kilid.md)
+for the complete schemas, validation limits and unresolved data licensing.

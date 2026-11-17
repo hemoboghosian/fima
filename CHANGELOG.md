@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add public KILID area discovery, native monthly toman/USD/18-karat-gold
+  listing-price histories, per-metric listing-statistic snapshots and geographic
+  comparisons. Validate source identity, period/denomination, units, complete
+  published month bounds and comparison rows; preserve source-missing values,
+  modeled/imputed classifications, separate reporting periods and contradictory
+  metadata. Add deterministic source fixtures, opt-in live numerical comparisons
+  and an access/methodology guide. Listing medians are not completed transaction
+  prices; public access is not a redistribution license. No version bump or
+  publication; existing provider behavior and dependencies are unchanged.
+
 ## 0.14.2
 
 - Make existing IME futures and export histories reject failed date windows,

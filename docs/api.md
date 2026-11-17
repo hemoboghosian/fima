@@ -4,6 +4,19 @@
 
 برای استفاده، نام تابع را به‌صورت صریح از `fima` یا ماژول مربوط وارد کنید. برای جلوگیری از واردشدن نام‌های کمکی، از `import *` استفاده نکنید. مثال‌های کوتاه در [راهنمای اصلی](../README.md)، [راهنمای سهام](tsetmc.md)، [راهنمای صندوق‌ها](funds.md)، [راهنمای طلا و ارز](tgju.md) و [مثال‌های بازارهای دیگر](markets.md) قرار دارند.
 
+## `fima.KILID` (Unreleased)
+
+[Housing-market schemas, source methodology, access/licensing and limitations](kilid.md)
+
+- `get_kilid_areas(area=None)` — one page's published cities/related areas, including folded rows; no recursive crawl or assumed nationwide history.
+- `get_kilid_house_price_history(area, period="1y", denomination="toman")` — complete verified monthly listing-price table; `6m`/`1y`/`3y`, native toman/USD/18K-gold units and Jalali month labels.
+- `get_kilid_house_price_snapshot(area)` — per-metric sale/rental listing statistics with individual reporting months, numeric values, units and source model/imputation classification.
+- `get_kilid_area_comparison(area)` — published related-area price/growth comparisons; absent USD/gold remains missing.
+
+All four return pandas DataFrames and are also exported through `fima`.
+Listing medians are not completed transaction prices. Source access and
+redistribution permission are distinct; see the guide before collecting data.
+
 ## `fima.Options`
 
 [پارامترها، ستون‌ها و مهاجرت نسخه‌های قدیمی](options.md)

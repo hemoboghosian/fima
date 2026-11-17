@@ -26,3 +26,5 @@ from .TGJU import (get_tgju_categories, get_tgju_instruments, get_tgju_market,
                    get_tgju_history, get_tgju_instrument_details)
 from .CBI import (get_cbi_policy_rates, get_cbi_inflation_rates,
                   get_cbi_exchange_rates, get_cbi_ets_rates)
+from .KILID import (get_kilid_areas, get_kilid_house_price_history,
+                    get_kilid_house_price_snapshot, get_kilid_area_comparison)

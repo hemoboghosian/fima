@@ -4,6 +4,24 @@
 
 این مثال‌ها از توابع عمومی ماژول‌ها استفاده می‌کنند. داده‌های آنلاین به دسترسی ارائه‌دهنده وابسته‌اند؛ برای مشاهدهٔ خروجی‌های بزرگ از چند ردیف نخست استفاده کنید.
 
+### مسکن KILID (Unreleased)
+
+```python
+from fima import get_kilid_areas, get_kilid_house_price_history, get_kilid_area_comparison
+
+neighborhoods = get_kilid_areas("tehran-region5")
+usd = get_kilid_house_price_history("tehran-region5", period="3y", denomination="usd")
+comparison = get_kilid_area_comparison("tehran-region5")
+print(usd[["JalaliMonth", "MedianListingPricePerSquareMeter", "Unit"]].tail())
+print(comparison[["Area", "AreaName", "PublishedPricePerSquareMeterToman", "DataBasis"]])
+```
+
+این سری میانهٔ قیمت پیشنهادی آگهی‌های آپارتمان است، نه قیمت معاملهٔ قطعی.
+تعداد ردیف‌ها لزوماً برابر با ماه‌های درخواستی نیست؛ دلار و طلای ۱۸ عیار
+مقادیر منتشرشدهٔ منبع هستند و ماه پایانی آن‌ها ممکن است با تومان متفاوت باشد.
+قواعد جغرافیایی، داده‌های مدل‌شده، واحدها و مجوز استفاده را در
+[راهنمای KILID](kilid.md) ببینید. این قابلیت هنوز در PyPI نسخهٔ ۰٫۱۴٫۲ نیست.
+
 ### اختیار معامله
 
 نام ستون‌ها، تفاوت نسخه‌های قدیمی و شیوهٔ تشخیص خطای منبع در [راهنمای اختیار معامله](options.md) آمده است. تغییر نام ستون‌های اختیار در نسخهٔ ۰٫۹٫۰ انجام شده و مختص ۰٫۱۳٫۰ نیست؛ [راهنمای مهاجرت](data-migration.md#legacy-options-api) را ببینید.
