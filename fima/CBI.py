@@ -1,4 +1,5 @@
 """Official Central Bank of Iran policy, inflation and currency-rate data."""
+from typing import Literal as _Literal
 import datetime as _dt
 import re as _re
 import xml.etree.ElementTree as _ET
@@ -134,7 +135,7 @@ def _parse_year(soup, year):
     return result[_COLUMNS]
 
 
-def get_cbi_policy_rates():
+def get_cbi_policy_rates() -> _pd.DataFrame:
     """Return complete policy-rate history advertised by the CBI year selector.
 
     No parameters are required. All available Jalali years are discovered from
@@ -272,7 +273,7 @@ def _inflation_table(soup, frequency, year=None):
     return result
 
 
-def get_cbi_inflation_rates(frequency="monthly"):
+def get_cbi_inflation_rates(frequency: _Literal["monthly", "annual"]="monthly") -> _pd.DataFrame:
     """Return CBI's complete monthly or annual inflation table.
 
     Parameters
@@ -542,7 +543,7 @@ def _exchange_history(currency, start, end, transactions=None):
     return result.sort_values(order, kind="stable").reset_index(drop=True)
 
 
-def get_cbi_exchange_rates(currency=None, start_date=None, end_date=None, *, jalali=False):
+def get_cbi_exchange_rates(currency: str | list[str] | tuple[str, ...] | None=None, start_date: str | _dt.date | _jd.date | None=None, end_date: str | _dt.date | _jd.date | None=None, *, jalali: bool=False) -> _pd.DataFrame:
     """Return the normal CBI exchange dataset, separately from ETS buy/sell quotes.
 
     currency accepts a code, exact normalized Persian name, list/tuple, or None
@@ -562,13 +563,21 @@ def get_cbi_exchange_rates(currency=None, start_date=None, end_date=None, *, jal
     Invalid inputs or unknown/ambiguous currencies raise ValueError. Access,
     HTTP, transport, malformed export or schema failures raise RuntimeError
     (with original cause). A valid empty XML report returns a typed empty table.
+
+    Usage
+    -----
+    Discover currently observed CurrencyCode/CurrencyName with currency=None, or
+    historical advertised choices in the official advanced-search selector.
+    start_date/end_date default None; jalali defaults False and changes input
+    calendar only. Date objects matching the selected calendar, slash strings
+    and Persian digits remain accepted.
     """
     _currency_queries(currency)
     start, end = _date_range(start_date, end_date, jalali)
     return _exchange_history(currency, start, end)
 
 
-def get_cbi_ets_rates(currency=None, transaction_type="all", start_date=None, end_date=None, *, jalali=False):
+def get_cbi_ets_rates(currency: str | list[str] | tuple[str, ...] | None=None, transaction_type: _Literal["cash", "transfer", "all", "اسکناس", "حواله"]="all", start_date: str | _dt.date | _jd.date | None=None, end_date: str | _dt.date | _jd.date | None=None, *, jalali: bool=False) -> _pd.DataFrame:
     """Return ETS cash/transfer buy and sell quotes in one wide DataFrame.
 
     transaction_type is cash (اسکناس), transfer (حواله), or all; the two exact
@@ -588,6 +597,14 @@ def get_cbi_ets_rates(currency=None, transaction_type="all", start_date=None, en
     ValueError signals invalid inputs/currency; RuntimeError signals provider,
     network or schema failure. No failed request is replaced with partial data.
     Valid empty XML reports produce a typed empty table.
+
+    Usage
+    -----
+    currency/start_date/end_date default None; jalali defaults False (input
+    calendar only). Discover observed CurrencyCode/CurrencyName in the
+    unfiltered latest result; historical-only choices remain in the official ETS
+    advanced-search selector. A base code selects the currency while
+    CurrencyUnit preserves the quoted denomination.
     """
     aliases = {"اسکناس": "cash", "حواله": "transfer"}
     if not isinstance(transaction_type, str):

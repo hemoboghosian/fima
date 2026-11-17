@@ -75,7 +75,10 @@ def install(monkeypatch):
 def test_public_contract():
     assert fima.get_ifb_market_map is ifb.get_ifb_market_map
     signature = inspect.signature(ifb.get_ifb_market_map)
-    assert str(signature.replace(return_annotation=inspect.Signature.empty)) == \
+    structural = signature.replace(parameters=[p.replace(annotation=inspect.Parameter.empty)
+                                                for p in signature.parameters.values()],
+                                   return_annotation=inspect.Signature.empty)
+    assert str(structural) == \
         "(metric='market_value', ticker=None, market=None)"
     assert signature.return_annotation is pd.DataFrame
 

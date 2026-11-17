@@ -172,6 +172,17 @@ def _public_frame(frame):
 
 
 def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
+    """Return dated IFB sukuk trades grouped by buyer/seller sector.
+
+    No arguments or date filter. Returns JalaliDate strings and TradeSide
+    (Buyer/Seller), Government, CentralBank, Funds, Banks, Others,
+    in descending source-date order. Numeric amounts retain legacy source
+    parsing; a universal rial/billion-rial scale has not been verified for this
+    API. Do not infer units from magnitude or treat these as trade counts.
+    Missing tables/pages or repeated pages can terminate traversal without a
+    completeness error; malformed amount strings may become missing. Request/
+    HTTP/date errors can propagate. See docs/ifb.md#legacy-index-and-sukuk-histories.
+    """
     url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -240,6 +251,17 @@ def get_sukuk_daily_trades_based_on_bs() -> pd.DataFrame:
 
 
 def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
+    """Return dated IFB sukuk trades grouped by source transaction category.
+
+    No arguments or date filter. Returns JalaliDate strings and
+    OpenMarketOperations, GovernmentSubscription, Others,
+    in descending source-date order. Numeric amounts retain legacy source
+    parsing; a universal rial/billion-rial scale has not been verified for this
+    API. Do not infer units from magnitude or treat these as trade counts.
+    Missing tables/pages or repeated pages can terminate traversal without a
+    completeness error; malformed amount strings may become missing. Request/
+    HTTP/date errors can propagate. See docs/ifb.md#legacy-index-and-sukuk-histories.
+    """
     url = "https://ifb.ir/datareporter/DailySukukTrades.aspx"
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -288,7 +310,26 @@ def get_sukuk_daily_trades_based_on_ct() -> pd.DataFrame:
     return _public_frame(result)
 
 
-def get_all_crowdfunding_plans(include_descriptions=True, _max_workers=8) -> pd.DataFrame:
+def get_all_crowdfunding_plans(include_descriptions: bool=True, _max_workers: int=8) -> pd.DataFrame:
+    """Return published crowdfunding plans and optional descriptions.
+
+    Parameters
+    ----------
+    include_descriptions : bool, default True
+        Fetch additional plan-description requests. False avoids that work.
+    _max_workers : int, default 8
+        Legacy internal concurrency for description downloads.
+
+    Returns
+    -------
+    pandas.DataFrame
+        PlanName, Company, string NationalID, Domain, Status, StartJalaliDate,
+        EndJalaliDate and optional description data. Description failures may
+        remain missing. Dates are YYYY-MM-DD strings; status is source text.
+        Empty/repeated pages terminate legacy traversal, without independently
+        verified complete archive coverage. Empty catalogs can be columnless.
+        Initial request/schema failures propagate. See docs/ifb.md#legacy-catalogs.
+    """
     url = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx"
     show_desc = "https://ifb.ir/Finstars/AllCrowdFundingProject.aspx/showDesc"
     grid_unique_id = "ctl00$ContentPlaceHolder1$grdCrowdFundingData"
@@ -440,6 +481,17 @@ def _yield_fraction(value):
 
 
 def get_risk_free_rate() -> float:
+    """Return a decimal annual treasury-yield proxy from the IFB snapshot.
+
+    No arguments. Excludes source-matured discount bonds, selects tickers
+    containing سخاب or اخزا, takes the latest available last-trade date, then
+    returns the unweighted mean YTM divided by 100. Thus .30 means 30%, unlike
+    the snapshot's percentage-point YTM. An empty selection can return NaN.
+    No tenor matching, historical valuation date, compounding conversion or
+    freshness guarantee is supplied. This is a proxy, not a certified universal
+    risk-free curve. Upstream network/schema errors and legacy None results can
+    cause exceptions. See docs/ifb.md#legacy-bond-snapshots-and-rate-proxy.
+    """
     all_bonds_without_coupons = get_all_bonds_without_coupons(deprecated=False)
     all_t_notes = all_bonds_without_coupons[all_bonds_without_coupons['Ticker'].str.contains('سخاب|اخزا')].copy()
     last_traded_t_notes = all_t_notes[all_t_notes['LastTradeJalaliDate'] == all_t_notes['LastTradeJalaliDate'].dropna().max()]
@@ -447,7 +499,27 @@ def get_risk_free_rate() -> float:
     return rf
 
 
-def get_all_bonds_without_coupons(deprecated: bool = True) -> pd.DataFrame:
+def get_all_bonds_without_coupons(deprecated: bool = True) -> pd.DataFrame | None:
+    """Return IFB's published discount-bond yield snapshot.
+
+    Parameters
+    ----------
+    deprecated : bool, default True
+        Include source-matured instruments. False excludes rows marked matured;
+        this flag does not mean that the Python function is deprecated.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        Ticker, LastPrice, LastTradeJalaliDate, MaturityJalaliDate, YTM and
+        SimpleReturn. Prices are
+        source rials; yields/returns are percentage points (30 means 30%).
+        Jalali dates are YYYY-MM-DD strings. Matured yields can be missing.
+        Non-200 HTTP or a missing source table prints and returns None;
+        network/parsing errors can propagate. No historical date selector or
+        coupon-payment schedule is supplied. See docs/ifb.md#legacy-bond-
+        snapshots-and-rate-proxy.
+    """
     url = "https://ifb.ir/YTM.aspx"
 
     session = requests.Session()
@@ -485,7 +557,26 @@ def get_all_bonds_without_coupons(deprecated: bool = True) -> pd.DataFrame:
     return _public_frame(bonds_without_coupons)
 
 
-def get_all_bonds_with_coupons(deprecated: bool = True) -> pd.DataFrame:
+def get_all_bonds_with_coupons(deprecated: bool = True) -> pd.DataFrame | None:
+    """Return IFB's published coupon-bond yield snapshot.
+
+    Parameters
+    ----------
+    deprecated : bool, default True
+        Include source-matured instruments. False excludes rows marked matured;
+        this flag does not mean that the Python function is deprecated.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        Ticker, LastPrice, LastTradeJalaliDate, MaturityJalaliDate and YTM. Prices are
+        source rials; yields/returns are percentage points (30 means 30%).
+        Jalali dates are YYYY-MM-DD strings. Matured yields can be missing.
+        Non-200 HTTP or a missing source table prints and returns None;
+        network/parsing errors can propagate. No historical date selector or
+        coupon-payment schedule is supplied. See docs/ifb.md#legacy-bond-
+        snapshots-and-rate-proxy.
+    """
     url = "https://ifb.ir/YTM.aspx"
 
     session = requests.Session()
@@ -523,6 +614,16 @@ def get_all_bonds_with_coupons(deprecated: bool = True) -> pd.DataFrame:
 
 
 def get_ifb_equally_weighted_total_index_historical_data() -> pd.DataFrame:
+    """Return the source's available IFB equal-weight total index history.
+
+    No arguments or date filter. Returns IndexValue (index level), GregorianDate
+    (pandas datetime) and JalaliDate (YYYY-MM-DD string), in provider order.
+    Sort explicitly before time-series calculations. No gaps are filled and no
+    independent archive-completeness guarantee is supplied. Legacy network,
+    JSON/key/shape/value failures return an empty DataFrame without columns;
+    empty output therefore does not prove absent observations. See
+    docs/ifb.md#legacy-index-and-sukuk-histories.
+    """
     url = "https://ifb.ir/HistoricalInstrumentData.asmx/getTotalSameWeightIndexHistory"
 
     headers = {"Content-Type": "application/json; charset=utf-8",
@@ -543,6 +644,16 @@ def get_ifb_equally_weighted_total_index_historical_data() -> pd.DataFrame:
 
 
 def get_ifb_equally_weighted_price_index_historical_data() -> pd.DataFrame:
+    """Return the source's available IFB equal-weight price index history.
+
+    No arguments or date filter. Returns IndexValue (index level), GregorianDate
+    (pandas datetime) and JalaliDate (YYYY-MM-DD string), in provider order.
+    Sort explicitly before time-series calculations. No gaps are filled and no
+    independent archive-completeness guarantee is supplied. Legacy network,
+    JSON/key/shape/value failures return an empty DataFrame without columns;
+    empty output therefore does not prove absent observations. See
+    docs/ifb.md#legacy-index-and-sukuk-histories.
+    """
     url = "https://ifb.ir/HistoricalInstrumentData.asmx/getSameWeightPriceIndexHistory"
 
     headers = {"Content-Type": "application/json; charset=utf-8",
@@ -563,6 +674,16 @@ def get_ifb_equally_weighted_price_index_historical_data() -> pd.DataFrame:
 
 
 def get_ifb_price_index_historical_data() -> pd.DataFrame:
+    """Return the source's available IFB price index history.
+
+    No arguments or date filter. Returns IndexValue (index level), GregorianDate
+    (pandas datetime) and JalaliDate (YYYY-MM-DD string), in provider order.
+    Sort explicitly before time-series calculations. No gaps are filled and no
+    independent archive-completeness guarantee is supplied. Legacy network,
+    JSON/key/shape/value failures return an empty DataFrame without columns;
+    empty output therefore does not prove absent observations. See
+    docs/ifb.md#legacy-index-and-sukuk-histories.
+    """
     url = "https://ifb.ir/HistoricalInstrumentData.asmx/getPriceIndexHistory"
 
     headers = {"Content-Type": "application/json; charset=utf-8",
@@ -583,6 +704,16 @@ def get_ifb_price_index_historical_data() -> pd.DataFrame:
 
 
 def get_ifb_total_index_historical_data() -> pd.DataFrame:
+    """Return the source's available IFB total index history.
+
+    No arguments or date filter. Returns IndexValue (index level), GregorianDate
+    (pandas datetime) and JalaliDate (YYYY-MM-DD string), in provider order.
+    Sort explicitly before time-series calculations. No gaps are filled and no
+    independent archive-completeness guarantee is supplied. Legacy network,
+    JSON/key/shape/value failures return an empty DataFrame without columns;
+    empty output therefore does not prove absent observations. See
+    docs/ifb.md#legacy-index-and-sukuk-histories.
+    """
     url = "https://ifb.ir/HistoricalInstrumentData.asmx/getIndexHistory"
 
     headers = {"Content-Type": "application/json; charset=utf-8",
@@ -603,6 +734,16 @@ def get_ifb_total_index_historical_data() -> pd.DataFrame:
 
 
 def get_ifb_total_sukuk_index_historical_data() -> pd.DataFrame:
+    """Return the source's available IFB total sukuk index history.
+
+    No arguments or date filter. Returns IndexValue (index level), GregorianDate
+    (pandas datetime) and JalaliDate (YYYY-MM-DD string), in provider order.
+    Sort explicitly before time-series calculations. No gaps are filled and no
+    independent archive-completeness guarantee is supplied. Legacy network,
+    JSON/key/shape/value failures return an empty DataFrame without columns;
+    empty output therefore does not prove absent observations. See
+    docs/ifb.md#legacy-index-and-sukuk-histories.
+    """
     url = "https://ifb.ir/HistoricalInstrumentData.asmx/GetWeightedIndexHistory"
 
     headers = {"Content-Type": "application/json; charset=utf-8",
@@ -622,7 +763,17 @@ def get_ifb_total_sukuk_index_historical_data() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def get_all_crowdfunding_platforms():
+def get_all_crowdfunding_platforms() -> pd.DataFrame:
+    """Return the source's crowdfunding-platform licensing directory.
+
+    No arguments. Returns Platform, Operator, Institute, ActivityStartJalaliDate,
+    LicenseExpiryJalaliDate, Status, string PhoneNumber and Domain. Dates use
+    YYYY-MM-DD strings; no license validity is inferred from source status.
+    The legacy request sets page size 100 without independently establishing
+    all-page coverage. Missing page-size controls/table raise RuntimeError;
+    request, date and malformed/empty schema errors may also propagate.
+    See docs/ifb.md#legacy-catalogs.
+    """
     base = "https://ifb.ir"
     url = "https://ifb.ir/Finstars/AllCrowdFundingAgents.aspx"
     page_size = 100
@@ -698,6 +849,18 @@ def get_all_crowdfunding_platforms():
 
 
 def get_all_standard_financing_instruments() -> pd.DataFrame:
+    """Discover published IFB standard financing instruments.
+
+    No arguments. Returns Ticker, string TickerID (IFB website ID, not TSETMC
+    insCode), DetailURL, IssueVolume, AcceptVolume, ParValue, IssueJalaliDate,
+    MarketMaker, CouponPercent (percentage points), MarketMakingMethod and
+    VolatilityRange. Source quantities and
+    monetary units are preserved; dates are YYYY-MM-DD strings. Select an exact
+    Ticker for get_ticker_info. Missing/repeated pages can stop legacy traversal;
+    no independent complete-universe guarantee is made. Empty data may be
+    columnless; request/HTTP/schema/date errors can propagate. See
+    docs/ifb.md#legacy-catalogs.
+    """
     url = "https://ifb.ir/MFI/FinancialInstrument.aspx"
     grid_unique_id = "ctl00$ContentPlaceHolder1$grdFinancialData"
     table_css = "table[id$='grdFinancialData']"
@@ -835,8 +998,27 @@ def get_all_standard_financing_instruments() -> pd.DataFrame:
     return _public_frame(all_standard_financing_instruments)
 
 
-def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame | None, pd.DataFrame | None]:
 
+    """Return IFB financing-instrument display metadata and payment history.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact Ticker from get_all_standard_financing_instruments() or
+        get_all_special_financing_instruments(); not a TSETMC code or option.
+
+    Returns
+    -------
+    tuple
+        (info, payments). info is a Section/Label/Value DataFrame of heterogeneous
+        source display text. payments contains PaymentJalaliDate strings and
+        numeric PaymentAmountPerUnit when published. Empty payment data can be
+        columnless. Unknown or ambiguous tickers print and return (None, None).
+        Legacy pagination does not independently certify complete cash flows.
+        Request/HTTP/schema/date errors can propagate. This differs from Options
+        ticker_info. See docs/ifb.md#legacy-catalogs.
+    """
     all_standard_financing_instruments = get_all_standard_financing_instruments()
     all_special_financing_instruments = get_all_special_financing_instruments()
     all_financing_instruments = pd.concat([all_standard_financing_instruments, all_special_financing_instruments], ignore_index=True)
@@ -1001,6 +1183,17 @@ def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 def get_all_special_financing_instruments() -> pd.DataFrame:
 
+    """Discover published IFB special financing instruments.
+
+    No arguments. Returns Ticker, string TickerID (IFB website ID, not TSETMC
+    insCode), DetailURL, IssueVolume, AcceptVolume, ParValue, IssueJalaliDate,
+    MarketMaker, NominalCouponType and Description. Source quantities and
+    monetary units are preserved; dates are YYYY-MM-DD strings. Select an exact
+    Ticker for get_ticker_info. Missing/repeated pages can stop legacy traversal;
+    no independent complete-universe guarantee is made. Empty data may be
+    columnless; request/HTTP/schema/date errors can propagate. See
+    docs/ifb.md#legacy-catalogs.
+    """
     url = "https://ifb.ir/MFI/QualifiedMFI.aspx"
     grid_unique_id = "ctl00$ContentPlaceHolder1$grdFinancialData"
     table_css = "table[id$='grdFinancialData']"

@@ -1,6 +1,6 @@
 # fima
 
-با این کتابخانهٔ پایتون می‌توانید داده‌های بازارهای مالی ایران را برای تحلیل و پژوهش دریافت کنید؛ از تاریخچهٔ سهام و اطلاعات صندوق‌ها تا قیمت طلا و ارز، اختیار معامله، معاملات بورس کالا و سری‌های بانک مرکزی.
+با این کتابخانهٔ پایتون می‌توانید داده‌های بازارهای مالی ایران را برای تحلیل و پژوهش دریافت کنید؛ از تاریخچهٔ سهام و اطلاعات صندوق‌ها تا قیمت طلا و ارز، اختیار معامله، بورس کالا، سری‌های بانک مرکزی، مسکن و شاخص‌های اقتصادی IMF.
 
 ## نصب
 
@@ -12,158 +12,101 @@ pip install fima
 
 ## شروع سریع
 
-برای دریافت تاریخچهٔ قیمت سهام، نام نماد را وارد کنید:
+برای دریافت تاریخچهٔ خام قیمت سهام، نام نماد را وارد کنید:
 
 ```python
 from fima import get_ticker_historical_data
 
 history = get_ticker_historical_data(ticker="فملی")
-print(history[["ClosingPrice", "TradeVolume"]].head())
+if history is not None:
+    print(history[["ClosingPrice", "TradeVolume"]].head())
 ```
 
-خروجی یک جدول پانداس با نمایهٔ `JalaliDate` است؛ تاریخ‌های شمسی به‌شکل رشته‌هایی مانند `1405-07-26` برمی‌گردند. قیمت پایانی رسمی در ستون `ClosingPrice` و حجم معاملات در ستون `TradeVolume` قرار دارد.
+خروجی جدول پانداس با نمایهٔ `JalaliDate` است؛ تاریخ شمسی به‌شکل رشتهٔ `YYYY-MM-DD` برمی‌گردد. `ClosingPrice` قیمت پایانی رسمی به ریال و `TradeVolume` حجم معاملات است. ترتیب منبع حفظ می‌شود؛ پیش از محاسبهٔ بازده، تاریخ‌ها را مرتب کنید.
+
+برای افزودن ستون‌های قیمت تعدیل‌شده، `adjust_prices=True` را وارد کنید. قیمت خام حفظ می‌شود و مبنا آخرین مشاهدهٔ برگشتی است. این تعدیل بر پایهٔ قیمت مرجع بورس است و سری بازده کل تأییدشده نیست؛ [روش و مثال انتخاب تاریخ مبنا](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-adjustment.md).
 
 ## چه داده‌هایی در دسترس است؟
 
-- **سهام و شاخص‌ها:** تاریخچهٔ قیمت، معاملات و سهامداران از ماژول `TSETMC`.
-- **طلا، ارز و بازارهای جهانی:** فهرست نمادها، آخرین قیمت‌های موجود و تاریخچهٔ روزانه از ماژول `TGJU`.
-- **صندوق‌های سرمایه‌گذاری:** فهرست صندوق‌ها، ارزش خالص دارایی‌ها و ترکیب دارایی‌ها از ماژول `Funds`؛ اطلاعات صندوق‌ها از سامانهٔ بورس نیز در همین ماژول است.
-- **بورس کالا:** معاملات بازار فیزیکی، صادراتی، آتی، اختیار و گواهی سپرده از ماژول `IME`.
-- **اختیار معامله:** زنجیرهٔ قراردادها، تاریخچه و محاسبات قیمت و حساسیت‌ها از ماژول `Options`.
-- **فرابورس:** اوراق بدهی و تاریخچهٔ بازده، شاخص‌ها، نرخ بدون ریسک، تأمین مالی، ارزش بازار، نقشهٔ بازار با انتخاب معیار و فهرست گزارش‌های آماری از ماژول `IFB`.
-- **نهادهای مالی:** فهرست نهادها از ماژول `TSEInstitutions`.
-- **بانک مرکزی ایران:** نرخ‌های سیاستی با `get_cbi_policy_rates`، تورم با `get_cbi_inflation_rates`، نرخ عادی ارز با `get_cbi_exchange_rates` و نرخ‌های خرید/فروش ETS با `get_cbi_ets_rates`؛ [راهنما و محدودیت دسترسی منبع](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md).
-- **مسکن (از نسخهٔ ۰٫۱۵٫۰):** کشف محدوده‌ها، تاریخچهٔ ماهانهٔ قیمت پیشنهادی آپارتمان به تومان، دلار و گرم طلای ۱۸ عیار، آمار آگهی‌ها و مقایسهٔ محدوده‌ها از `KILID`؛ [روش، واحدها و محدودیت‌های دسترسی](https://github.com/hemoboghosian/fima/blob/master/docs/kilid.md). میانهٔ قیمت آگهی با قیمت معاملهٔ قطعی تفاوت دارد.
+| منبع | کاربرد و راهنما |
+| --- | --- |
+| TSETMC | [نمادها، قیمت سهام، شاخص‌ها، معاملات و سهامداران](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc.md) |
+| Funds | [فهرست فیپیران و تاریخچهٔ NAV و ترکیب دارایی از وب‌سایت صندوق](https://github.com/hemoboghosian/fima/blob/master/docs/funds.md)؛ [فهرست و جزئیات مستقل صندوق‌های TSETMC](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-funds.md) |
+| TGJU | [کشف نماد و قیمت‌های طلا، ارز و بازارهای جهانی](https://github.com/hemoboghosian/fima/blob/master/docs/tgju.md) |
+| Options | [زنجیره، قراردادها، تاریخچه، قیمت‌گذاری و Greeks](https://github.com/hemoboghosian/fima/blob/master/docs/options.md) |
+| IFB | [اوراق بدهی، بازده، شاخص‌ها، تأمین مالی و ارزش بازار فرابورس](https://github.com/hemoboghosian/fima/blob/master/docs/ifb.md) |
+| IME | [معاملات فیزیکی، صادراتی، آتی، اختیار، گواهی سپرده و سلف](https://github.com/hemoboghosian/fima/blob/master/docs/ime.md) |
+| CBI | [نرخ‌های سیاستی، تورم و دو مجموعهٔ مستقل نرخ ارز](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md) |
+| KILID | [محدوده‌ها و میانهٔ قیمت پیشنهادی آگهی آپارتمان](https://github.com/hemoboghosian/fima/blob/master/docs/kilid.md)؛ قیمت آگهی با معاملهٔ قطعی تفاوت دارد |
+| IMF | [کشف شاخص و دریافت سری‌های سالانهٔ منتخب WEO](https://github.com/hemoboghosian/fima/blob/master/docs/imf.md)؛ شامل برآورد و پیش‌بینی نیز می‌شود |
+| TSEInstitutions | [فهرست نهادهای مالی](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md#financial-institution-directory) |
 
-## مثال‌های کاربردی
+## نام یا شناسهٔ معتبر را چطور پیدا کنم؟
 
-### IMF WEO (0.16.0)
+ابتدا فهرست همان منبع را دریافت کنید و مقدار ستون معرفی‌شده در راهنما را به تابع بعدی بدهید. نام نمایشی، کد ابزار، شماره ثبت صندوق و شناسهٔ وب‌سایت فرابورس یکسان نیستند.
 
-چهار تابع ماژول `IMF` کشف داده‌ها و دریافت سری‌های سالانهٔ منتخب WEO را فراهم می‌کنند.
-این قابلیت از نسخهٔ ۰٫۱۶٫۰ در دسترس است؛ واحدهای منبع حفظ می‌شوند و
-داده‌ها ممکن است برآورد یا پیش‌بینی باشند. فیلتر کشور و سال فعلاً پس از دریافت
-یک شاخص در سمت کاربر اعمال می‌شود. [راهنمای API، پوشش و شرایط استفاده](https://github.com/hemoboghosian/fima/blob/master/docs/imf.md).
+برای سهام، `get_tickers(tse=True, ifb=True)` ستون‌های `Ticker` و `InstrumentCode` را می‌دهد. برای شاخص‌ها، نام را از نمایهٔ `get_indexes_status()` انتخاب کنید. [فهرست کامل توابع](https://github.com/hemoboghosian/fima/blob/master/docs/api.md) امضا و راهنمای هر بخش را دارد.
+
+### کشف نماد TGJU و دریافت تاریخچه
 
 ```python
-from fima import get_imf_indicators, get_imf_series
+from fima import get_tgju_categories, get_tgju_instruments, get_tgju_history
 
-print(get_imf_indicators(search="inflation"))
-gdp = get_imf_series("NGDP_RPCH", ["IRN", "USA"], 2020, 2027)
-print(gdp[["Country", "Period", "Value", "Unit"]])
-print(gdp.attrs["Coverage"])
+print(get_tgju_categories())
+matches = get_tgju_instruments("ارز", search="دلار")
+print(matches[["Symbol", "InstrumentName", "Category", "Currency"]])
+selected = matches.loc[matches["InstrumentName"].eq("دلار")]
+if len(selected) == 1:
+    symbol = selected.iloc[0]["Symbol"]
+    usd = get_tgju_history(symbol, "ارز", start_date="2026-10-01", end_date="2026-10-15")
+    print(usd[["GregorianDate", "ClosingPrice"]].tail())
+    print(usd.attrs)
 ```
 
-### قیمت تعدیل‌شدهٔ سهام
+نماد را از ستون `Symbol` ردیف مطلوب بردارید؛ نام فارسی و انگلیسی هم پذیرفته می‌شود، اما نام مبهم خطا می‌دهد. `category` خانوادهٔ کشف‌شده است؛ ستون `Category` فهرست می‌تواند زیرگروه متفاوتی باشد. اگر نتیجهٔ دلخواه در صفحه نیست، با توجه به `attrs["HasMore"]` صفحهٔ بعد را بررسی کنید. تاریخ‌های این مثال میلادی‌اند؛ واحد و منشأ تاریخچه در `attrs` قرار دارد.
 
-برای افزودن قیمت‌های تعدیل‌شده، گزینهٔ تعدیل را فعال کنید:
-
-```python
-from fima import get_ticker_historical_data
-
-history = get_ticker_historical_data(ticker="فملی", adjust_prices=True)
-print(history[["ClosingPrice", "AdjustedClosingPrice"]].head())
-```
-
-قیمت خام حفظ می‌شود. تعدیل بر پایهٔ قیمت مرجع بورس و با مبنای آخرین تاریخ برگشتی است؛ این خروجی، سری بازده کل تأییدشده نیست. روش محاسبه و انتخاب تاریخ مبنا در [راهنمای تعدیل](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-adjustment.md) آمده است.
-
-### تاریخچهٔ قیمت دلار
-
-برای دریافت داده‌های طلا و ارز، نام ابزار و گروه آن را مشخص کنید:
+### انتخاب صندوق
 
 ```python
-from fima import get_tgju_history
-
-usd = get_tgju_history("دلار", "ارز", start_date="2026-10-01", end_date="2026-10-15")
-print(usd[["GregorianDate", "ClosingPrice"]].tail())
-```
-
-در این مثال، تاریخ‌های ورودی میلادی‌اند. برای تاریخ شمسی و یافتن نام دقیق ابزارها، [راهنمای طلا و ارز](https://github.com/hemoboghosian/fima/blob/master/docs/tgju.md) را ببینید. واحد هر سری در مشخصات خروجی قرار دارد؛ ریال و تومان به هم تبدیل نمی‌شوند.
-
-### داده‌های بانک مرکزی
-
-چهار تابع عمومی ماژول `CBI` سری‌های سیاستی، تورم و دو مجموعهٔ مستقل نرخ ارز را برمی‌گردانند:
-
-```python
-from fima import (
-    get_cbi_policy_rates,
-    get_cbi_inflation_rates,
-    get_cbi_exchange_rates,
-    get_cbi_ets_rates,
-)
-
-policy_rates = get_cbi_policy_rates()
-monthly_inflation = get_cbi_inflation_rates()
-usd = get_cbi_exchange_rates("USD")
-usd_ets = get_cbi_ets_rates("USD", transaction_type="all")
-```
-
-توابع ارز بدون بازهٔ تاریخ، آخرین گزارش منبع را دریافت می‌کنند. معنی سری‌ها، ستون‌ها، واحدهای درصد و ریال، بازه‌های تاریخی و محدودیت دسترسی در [راهنمای بانک مرکزی](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md) آمده است.
-
-### اطلاعات صندوق‌های سرمایه‌گذاری
-
-برای دیدن فهرست صندوق‌ها و اطلاعات فعلی آن‌ها از این تابع استفاده کنید:
-
-```python
-from fima import get_all_funds
+from fima import get_all_funds, get_daily_navs
 
 funds = get_all_funds()
-print(funds[["FundName", "FundTypeName", "TotalNAV"]].head())
+print(funds[["FundName", "FundTypeName", "WebsiteAddress"]].head())
+selected = funds.loc[funds["FundName"].eq("ثروت آفرین تمدن")]
+if len(selected) == 1:
+    navs = get_daily_navs(selected.iloc[0]["FundName"])
+    print(navs.head())
 ```
 
-برای دریافت تاریخچهٔ ارزش خالص دارایی‌ها و ترکیب دارایی‌های یک صندوق، نام دقیق آن را از همین فهرست انتخاب کنید؛ نمونه‌ها در [راهنمای صندوق‌ها](https://github.com/hemoboghosian/fima/blob/master/docs/funds.md) آمده‌اند.
+فهرست فیپیران وجود تاریخچه در وب‌سایت صندوق را تضمین نمی‌کند. NAV هر واحد، ارزش کل دارایی‌ها و واحدهای عادی/ممتاز را جدا نگه دارید. برای اطلاعات منبع TSETMC، ابتدا `get_tsetmc_fund_types()`، سپس `get_tsetmc_funds(fund_type)` و `get_tsetmc_fund_details(...)` را به‌کار ببرید؛ شناسه‌های نوع صندوق در این دو منبع قابل جایگزینی نیستند.
 
-### فهرست و جزئیات صندوق‌ها از سامانهٔ بورس
-
-برای انتخاب صندوق از منبع `TSETMC`، نام گروه و نام کامل صندوق کافی است:
+### مقایسهٔ شاخص اقتصادی دو کشور
 
 ```python
-from fima import get_tsetmc_funds, get_tsetmc_fund_details
+from fima import get_imf_indicators, get_imf_countries, get_imf_series
 
-funds = get_tsetmc_funds("مختلط")
-print(funds[["FundName", "RegistrationNumber"]].head())
-details = get_tsetmc_fund_details(funds.iloc[0]["FundName"], fund_type="مختلط")
-print(details["FundName"])
+print(get_imf_indicators(search="GDP"))
+print(get_imf_countries())
+growth = get_imf_series("NGDP_RPCH", ["IRN", "USA"], 2020, 2027)
+print(growth[["Country", "Period", "Value", "Unit"]])
+print(growth.attrs["IndicatorMetadata"])
+print(growth.attrs["Coverage"])
 ```
 
-نام صندوق را از ستون `FundName` انتخاب کنید. جدول فهرست و دیکشنری جزئیات از نام‌های یکسان برای مفهوم‌های مشترک استفاده می‌کنند. فیلدهای نامشخص منبع فقط در بخش صریح `ProviderMetadata` حفظ می‌شوند. اطلاعات این منبع ممکن است با وب‌سایت صندوق از نظر تاریخ و پوشش متفاوت باشد؛ [راهنمای صندوق‌های بورس](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-funds.md) جزئیات بیشتری دارد.
+کد شاخص را از `Indicator` و شناسهٔ کشور یا گروه را از `Country` بردارید. واحد منبع، نسخهٔ داده و پوشش را پیش از مقایسه بررسی کنید؛ همهٔ مشاهدات دادهٔ قطعی نیستند. برای KILID نیز `get_kilid_areas()` مسیر کشف شناسهٔ `Area` است؛ انتخاب‌های تاریخچه `6m`، `1y` و `3y` و واحدها `toman`، `usd` و `gold` هستند.
 
-## قرارداد داده‌ها
+## قرارداد داده‌ها و محدودیت‌ها
 
-خروجی‌های عمومی پردازش‌شده از قرارداد مشترک زیر پیروی می‌کنند:
+- نام ستون‌ها و کلیدهای پردازش‌شده انگلیسی و `PascalCase` است؛ نام تابع و پارامتر پایتون `snake_case` باقی می‌ماند.
+- تاریخ روزانهٔ شمسی رشتهٔ لاتین `YYYY-MM-DD` و تاریخ میلادی در جای مناسب datetime پانداس است. دادهٔ ماهانه و سالانه تاریخ روزانهٔ ساختگی ندارد.
+- درصدهای جدول‌ها واحد درصد هستند: `2.5` یعنی `2.5%`. ورودی نرخ و نوسان توابع تحلیلی اعشاری است؛ واحد Greeks و فرض نرخ در [راهنمای اختیار](https://github.com/hemoboghosian/fima/blob/master/docs/options.md#analytics) آمده است.
+- واحد پول و مقدار فیزیکی منبع بدون تبدیل حفظ می‌شود. ریال، تومان، مقدار هر گواهی و تعداد قرارداد را با هم یکی نگیرید.
+- دادهٔ مفقود صفر نیست. داده‌ها به دسترسی و پوشش منبع وابسته‌اند و می‌توانند قدیمی باشند. رفتار خطا، خروجی خالی یا `None` در توابع قدیمی یکسان نیست؛ راهنمای همان تابع را بخوانید.
 
-- نام ستون‌های جدول‌ها و کلیدهای معمول دیکشنری‌ها انگلیسی و به‌شکل `PascalCase` است؛ نام توابع و پارامترهای پایتون به‌شکل `snake_case` باقی می‌ماند. مفهوم‌های مالی یکسان نیز تا جای ممکن نام یکسان دارند.
-- تاریخ‌های میلادی در جای مناسب به‌صورت datetime پانداس و تاریخ‌های شمسی به‌شکل رشتهٔ لاتین `YYYY-MM-DD` برمی‌گردند.
-- مقدارهای مالی قابل محاسبه عددی‌اند، اما شناسه‌هایی که کاربرد محاسباتی ندارند رشته باقی می‌مانند. مقدارهای ناموجود نیز با رفتار معمول داده‌های گمشده در پانداس نمایش داده می‌شوند.
-- درصدهای داخل جدول‌ها بر حسب واحد درصد هستند؛ برای نمونه `2.5` یعنی `2.5%`.
-- واحد پول و واحد فیزیکی اعلام‌شدهٔ ارائه‌دهنده بدون تبدیل حفظ می‌شود، مگر آنکه مستندات یک تابع صریحاً خلاف آن را بگویند.
-
-تعریف کامل نام‌ها، نوع داده‌ها و استثناها در [قرارداد داده‌های عمومی](https://github.com/hemoboghosian/fima/blob/master/docs/data-conventions.md) آمده است.
-
-## ارتقا از نسخه‌های قدیمی
-
-برخی انتشارهای پیشین برای یکپارچگی و اصلاح معنی مالی، نام ستون‌ها و کلیدها، نوع داده‌ها، مقیاس درصدهای جدولی و تعدادی محاسبه را تغییر داده‌اند. اگر کدی بر پایهٔ نسخه‌های قدیمی دارید، پیش از ارتقا [راهنمای کامل مهاجرت](https://github.com/hemoboghosian/fima/blob/master/docs/data-migration.md) را ببینید.
-
-## مستندات بیشتر
-
-- [قرارداد داده‌های عمومی](https://github.com/hemoboghosian/fima/blob/master/docs/data-conventions.md) و [راهنمای مهاجرت](https://github.com/hemoboghosian/fima/blob/master/docs/data-migration.md)
-- [راهنمای سهام و شاخص‌ها](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc.md) و [روش تعدیل قیمت](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-adjustment.md)
-- [راهنمای طلا، ارز و بازارهای جهانی](https://github.com/hemoboghosian/fima/blob/master/docs/tgju.md)
-- [راهنمای بانک مرکزی: نرخ‌های سیاستی، تورم و ارز](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md)
-- [راهنمای صندوق‌ها و تاریخچهٔ دارایی‌ها](https://github.com/hemoboghosian/fima/blob/master/docs/funds.md)
-- [راهنمای صندوق‌های بورس](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-funds.md)
-- [راهنمای اختیار معامله و مهاجرت کدهای قدیمی](https://github.com/hemoboghosian/fima/blob/master/docs/options.md)
-- [مثال‌های اختیار معامله، فرابورس، بورس کالا و نهادهای مالی](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md)
-- [ارزش بازار و تاریخچهٔ رسمی فرابورس](https://github.com/hemoboghosian/fima/blob/master/docs/ifb.md)
-- [IME instrument histories: options, certificates and salaf](https://github.com/hemoboghosian/fima/blob/master/docs/ime.md)
-- [فهرست توابع عمومی](https://github.com/hemoboghosian/fima/blob/master/docs/api.md)
-
-## نکات مهم
-
-- دریافت داده به اینترنت و در دسترس بودن منبع وابسته است؛ دادهٔ موجود ممکن است قدیمی یا ناقص باشد.
-- این کتابخانه مستقل از ارائه‌دهندگان داده است. شرایط استفادهٔ هر منبع را رعایت کنید.
+[قرارداد کامل داده‌ها](https://github.com/hemoboghosian/fima/blob/master/docs/data-conventions.md)، [مثال‌های بازارها](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md) و [راهنمای مهاجرت نسخه‌های قدیمی](https://github.com/hemoboghosian/fima/blob/master/docs/data-migration.md) جزئیات بیشتری دارند. این کتابخانه مستقل از ارائه‌دهندگان داده است؛ شرایط استفاده و محدودیت‌های هر منبع را رعایت کنید.
 
 ## مشارکت و گزارش مشکل
 
-برای گزارش مشکل، [یک مسئله در گیت‌هاب باز کنید](https://github.com/hemoboghosian/fima/issues). نام تابع، نمونهٔ کوتاه کد و متن خطا را بنویسید. برای توسعه و اجرای آزمون‌ها، [راهنمای مشارکت](https://github.com/hemoboghosian/fima/blob/master/docs/development.md) را ببینید.
+برای [گزارش مشکل](https://github.com/hemoboghosian/fima/issues)، نسخهٔ نصب‌شده، نام تابع، نمونهٔ کوتاه کد و متن خطا را بنویسید. روش نصب توسعه و آزمون‌های قطعی/زنده در [راهنمای مشارکت](https://github.com/hemoboghosian/fima/blob/master/docs/development.md) آمده است.
 
-این پروژه با [مجوز ام‌آی‌تی](https://github.com/hemoboghosian/fima/blob/master/LICENSE) منتشر می‌شود. نسخهٔ قابل نصب در [صفحهٔ بسته در پای‌پی‌آی](https://pypi.org/project/fima/) و راه تماس در [اطلاعات پروژه](https://github.com/hemoboghosian/fima/blob/master/pyproject.toml) قرار دارد.
+پروژه با [مجوز ام‌آی‌تی](https://github.com/hemoboghosian/fima/blob/master/LICENSE) منتشر می‌شود. نسخهٔ قابل نصب در [پای‌پی‌آی](https://pypi.org/project/fima/) و راه تماس در [اطلاعات پروژه](https://github.com/hemoboghosian/fima/blob/master/pyproject.toml) قرار دارد.

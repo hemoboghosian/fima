@@ -32,6 +32,14 @@ def _public_frame(frame):
 
 
 def get_share_changes() -> pd.DataFrame:
+    """Return recent TSE/IFB share-count changes published by TSETMC.
+
+    No arguments. Returns a DataFrame in provider order with Ticker,
+    InstrumentName, JalaliDate (YYYY-MM-DD strings), OldNumberOfShares and
+    NewNumberOfShares. Counts are shares, not trade volume or market value.
+    The source-selected recent window is not a complete corporate-action archive.
+    Request/JSON/schema errors propagate. See docs/tsetmc.md.
+    """
     tse_url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentShareChangeByFlow/1/7"
     tse_share_changes = pd.DataFrame(requests.get(tse_url, timeout=15).json()['instrumentShareChange'])
     tse_share_changes.rename(columns={'lVal30': 'InstrumentName', 'lVal18AFC': 'Ticker', 'insCode': 'InstrumentCode'}, inplace=True)
@@ -56,6 +64,15 @@ def get_share_changes() -> pd.DataFrame:
 
 
 def get_price_adjustments() -> pd.DataFrame:
+    """Return TSETMC's published TSE/IFB price-adjustment event records.
+
+    No arguments. Returns instrument identity, JalaliDate strings, ClosingPrice
+    and UnadjustedClosingPrice in source rials, in provider order. These are
+    event/reference records, not a continuous adjusted-price or total-return
+    series; use get_ticker_historical_data(adjust_prices=True) for added price
+    columns. Source coverage is not certified complete. Request/JSON/schema
+    errors propagate. See docs/tsetmc-adjustment.md.
+    """
     tse_url = "https://cdn.tsetmc.com/api/ClosingPrice/GetPriceAdjustByFlow/1/100000"
     tse_price_adjustments = pd.DataFrame(requests.get(tse_url, timeout=15).json()['priceAdjust'])
     tse_price_adjustments['Ticker'] = None
@@ -92,6 +109,13 @@ def get_price_adjustments() -> pd.DataFrame:
 
 
 def get_supervision_lists() -> pd.DataFrame:
+    """Return reasons from TSETMC's selected supervision lists.
+
+    No arguments. Returns InstrumentCode (string), Ticker, InstrumentName and
+    Reasons, with one row per nonempty published reason. An instrument can have
+    several rows. The selected source lists are not a complete exchange-status
+    history. Request/JSON/schema errors propagate. See docs/tsetmc.md.
+    """
     supervision_lists = []
     for index in range(1, 4):
         url = f"https://cdn.tsetmc.com/api/Supervision/GetSupervisionListBySourceID/1/{index}"
@@ -125,6 +149,30 @@ def _fetch_shareholders_for_date(args):
 
 
 def get_ticker_historical_shareholders(ticker: str, _max_workers: int = 10) -> pd.DataFrame:
+    """Return published shareholders across a ticker's available trading dates.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact Ticker from get_tickers(tse=True, ifb=True). This API
+        resolves a name, not a caller-supplied instrument code.
+    _max_workers : int, default 10
+        Legacy internal maximum concurrent date requests.
+
+    Returns
+    -------
+    pandas.DataFrame
+        JalaliDate strings, ShareholderName, NumberOfShares and SharePercentage
+        (percentage points), in collected provider order. Only published holders
+        are represented; this is not an ownership register of every investor.
+        Failed date requests are silently omitted; all failed/absent dates yield
+        an empty frame. No completeness metadata identifies those omissions.
+
+    Notes
+    -----
+    Initial lookup/history failures can propagate; per-date failures are suppressed.
+    Ticker lookup retains first-match behavior. See docs/tsetmc.md.
+    """
     instrument_code = _find_instrument_code(ticker)
     jdates = get_ticker_historical_data(ticker_instrument_code=instrument_code).index.tolist()
     args = [(jdate, instrument_code) for jdate in jdates]
@@ -167,6 +215,28 @@ def _fetch_client_types_for_date(args):
 
 
 def get_ticker_historical_trades_client_type(ticker: str, _max_workers: int = 10) -> pd.DataFrame:
+    """Return a ticker's daily retail/institutional trading breakdown.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact Ticker from get_tickers(tse=True, ifb=True); not an ID.
+    _max_workers : int, default 10
+        Legacy internal maximum concurrent date requests.
+
+    Returns
+    -------
+    pandas.DataFrame
+        String JalaliDate index; Retail/Institutional Buy/Sell Volume, Value and
+        Count columns. Values retain source rials; volume and investor counts
+        are distinct. Provider date order is retained. Failed date requests are
+        omitted and all failed/absent dates return an empty frame, without a
+        completeness report. Initial lookup/history errors can propagate.
+
+    Notes
+    -----
+    Ticker resolution retains first-match behavior. See docs/tsetmc.md.
+    """
     instrument_code = _find_instrument_code(ticker)
     jdates = get_ticker_historical_data(ticker_instrument_code=instrument_code).index.tolist()
     args = [(jdate, instrument_code) for jdate in jdates]
@@ -209,6 +279,28 @@ def _fetch_shares_no_for_date(args):
 
 
 def get_ticker_historical_market_caps(ticker: str, _max_workers: int = 10) -> pd.DataFrame:
+    """Calculate daily official closing price times historical shares.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact Ticker from get_tickers(tse=True, ifb=True); not an ID.
+    _max_workers : int, default 10
+        Legacy internal maximum concurrent share-count requests.
+
+    Returns
+    -------
+    pandas.DataFrame
+        String JalaliDate index with ClosingPrice (rials), NumberOfShares and
+        MarketCap (rials), in price-history order. Failed share-count dates stay
+        missing; they are not zero capitalization. This calculation is distinct
+        from IFB's official aggregate MarketValue series. Initial lookup/history
+        failures propagate; individual share-count failures are suppressed.
+
+    Notes
+    -----
+    Ticker resolution retains first-match behavior. See docs/tsetmc.md.
+    """
     ticker_instrument_code = _find_instrument_code(ticker)
     df = get_ticker_historical_data(ticker_instrument_code=ticker_instrument_code)[['ClosingPrice']]
     date_args = [(jdate, ticker_instrument_code) for jdate in df.index]
@@ -304,6 +396,10 @@ def adjust_historical_prices(data: pd.DataFrame) -> pd.DataFrame:
     Other zero non-closing prices require TransactionCount == 0. Positive
     reference prices of 1000 are valid.
     No network requests are made. This is not a validated total-return series.
+
+    Usage
+    -----
+    data is the required raw pandas DataFrame; see the input-column/date contract above.
     """
     prices = ['ClosingPrice', 'LastPrice', 'OpeningPrice', 'LowPrice', 'HighPrice']
     if not data.columns.is_unique:
@@ -379,8 +475,8 @@ def adjust_historical_prices(data: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=None, *,
-                               adjust_prices: bool=False) -> pd.DataFrame:
+def get_ticker_historical_data(ticker: str | None=None, ticker_instrument_code: str | None=None, *,
+                               adjust_prices: bool=False) -> pd.DataFrame | None:
     """Download official TSETMC daily history with a Jalali date index.
 
     ticker is resolved only when ticker_instrument_code is None. ClosingPrice is
@@ -391,6 +487,14 @@ def get_ticker_historical_data(ticker: str=None, ticker_instrument_code: str=Non
     All raw observations and non-price fields remain unchanged. No date filter
     is applied. Provider/network errors propagate; invalid adjustment inputs
     raise ValueError. An unresolved ticker retains the legacy None result.
+
+    Usage
+    -----
+    ticker/ticker_instrument_code default to None; supply at least one. Discover
+    Ticker/InstrumentCode with get_tickers(tse=True, ifb=True). An explicit code
+    takes precedence. Name lookup retains first-match behavior when the source
+    supplies duplicate exact names. Prices/value retain source rials; sort the
+    string date index explicitly before return calculations.
     """
     if ticker_instrument_code is None:
         ticker_instrument_code  = _find_instrument_code(ticker)
@@ -487,6 +591,26 @@ def _find_instrument_code(search_key: str, trade_type: List[Literal['Ordinary', 
 
 
 def get_ticker_intraday_trades(ticker: str) -> pd.DataFrame:
+    """Return the source's last-session individual trades for a ticker.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact Ticker from get_tickers(tse=True, ifb=True); not an ID.
+
+    Returns
+    -------
+    pandas.DataFrame
+        TradeNumber (sequence, not count), Time (HH:MM:SS), TradeVolume, Price
+        (source rials) and Canceled (nullable boolean), in provider order.
+        Canceled trades are retained. No date column or historical-session
+        selector is supplied; do not assume the session is today or finalized.
+
+    Notes
+    -----
+    Request/JSON/schema errors propagate; ticker resolution is first-match.
+    See docs/tsetmc.md.
+    """
     ticker_instrument_code  = _find_instrument_code(ticker)
     url = f"https://cdn.tsetmc.com/api/Trade/GetTrade/{ticker_instrument_code}"
     ticker_intraday_trades = pd.DataFrame(requests.get(url, timeout=15).json()['trade'])
@@ -515,6 +639,16 @@ def _get_instrument_codes_tree_map() -> pd.DataFrame:
 
 
 def get_indexes_status() -> pd.DataFrame:
+    """Discover selected TSE/IFB index names and latest published levels.
+
+    No arguments. Returns a DataFrame indexed by Index; pass an exact index label
+    to get_index_historical_data, get_index_last_intraday_data or
+    get_index_companies. InstrumentCode is a string, IndexValue/LowIndexValue/
+    HighIndexValue are levels, PercentageChange is percentage points, and Time
+    is HH:MM:SS. Source observation dates are not returned. This is a selected
+    index list, without a freshness guarantee. Request/JSON/schema errors
+    propagate. See docs/tsetmc.md.
+    """
     tse_url = "https://cdn.tsetmc.com/api/Index/GetIndexB1LastAll/SelectedIndexes/1"
     tse_idnexes_status = requests.get(tse_url, timeout=15).json()['indexB1']
 
@@ -534,6 +668,27 @@ def get_indexes_status() -> pd.DataFrame:
 
 
 def get_index_historical_data(index: str) -> pd.DataFrame:
+    """Return daily levels for an index selected by its exact published name.
+
+    Parameters
+    ----------
+    index : str
+        Required label from get_indexes_status().index, not InstrumentCode.
+
+    Returns
+    -------
+    pandas.DataFrame
+        IndexValue indexed by string JalaliDate (YYYY-MM-DD), in provider order.
+        No date filter or guaranteed continuous session coverage is supplied.
+        Price/total-return meaning follows the chosen index, not a conversion.
+
+    Raises
+    ------
+    KeyError
+        If index is absent from the current selected index catalog.
+
+    Request/JSON/schema errors also propagate. See docs/tsetmc.md.
+    """
     indexes_status = get_indexes_status()
     index_instrument_code = indexes_status.loc[index, 'InstrumentCode']
     url = f"https://cdn.tsetmc.com/api/Index/GetIndexB2History/{index_instrument_code}"
@@ -549,6 +704,22 @@ def get_index_historical_data(index: str) -> pd.DataFrame:
 
 
 def get_index_last_intraday_data(index: str) -> pd.DataFrame:
+    """Return the last available day's intraday observations for an index.
+
+    Parameters
+    ----------
+    index : str
+        Required exact label from get_indexes_status().index, not an ID.
+
+    Returns
+    -------
+    pandas.DataFrame
+        JalaliDate strings, Time (HH:MM:SS), IndexValue, LowIndexValue,
+        HighIndexValue and PercentageChange (percentage points), in provider
+        order. Last available day need not be today; no historical date selector
+        exists. Missing catalog names raise KeyError; request/JSON/schema errors
+        propagate. See docs/tsetmc.md.
+    """
     indexes_status = get_indexes_status()
     index_instrument_code = indexes_status.loc[index, 'InstrumentCode']
     url = f"https://cdn.tsetmc.com/api/Index/GetIndexB1LastDay/{index_instrument_code}"
@@ -564,6 +735,27 @@ def get_index_last_intraday_data(index: str) -> pd.DataFrame:
 
 
 def get_index_companies(index: str, thirty_days_history: bool=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Return index-constituent quotes and optional recent closing history.
+
+    Parameters
+    ----------
+    index : str
+        Required exact label from get_indexes_status().index.
+    thirty_days_history : bool, default False
+        Include the source's related-company thirty-day history when True;
+        this does not construct historical constituent membership.
+
+    Returns
+    -------
+    tuple of pandas.DataFrame
+        (quotes, history). Quotes are indexed by Ticker and contain string
+        InstrumentCode, raw source-rial prices, TransactionCount, TradeVolume
+        and TradeValue. History has Ticker, JalaliDate strings and ClosingPrice;
+        it is an empty frame when thirty_days_history=False. Provider order and
+        selected coverage are retained. A constituent snapshot is not a complete
+        instrument master. Unknown index raises KeyError; request/schema errors
+        propagate. See docs/tsetmc.md.
+    """
     indexes_status = get_indexes_status()
     index_instrument_code = indexes_status.loc[index, 'InstrumentCode']
     url = f"https://cdn.tsetmc.com/api/ClosingPrice/GetIndexCompany/{index_instrument_code}"
@@ -600,6 +792,27 @@ def get_index_companies(index: str, thirty_days_history: bool=False) -> Tuple[pd
 
 
 def get_tickers(tse: bool, ifb: bool, details: bool = False) -> pd.DataFrame:
+    """Discover TSE/IFB tickers from the selected index-constituent sources.
+
+    Parameters
+    ----------
+    tse, ifb : bool
+        Both required. Select either or both exchanges. Both False prints a
+        diagnostic and returns an empty DataFrame.
+    details : bool, default False
+        Request Codal metadata separately for every ticker. True moves Ticker
+        into the index and adds FiscalYear, Auditor, Website, Capital and
+        ActivitySubject; failed detail requests print and leave missing fields.
+
+    Returns
+    -------
+    pandas.DataFrame
+        InstrumentCode (string), Ticker, InstrumentName and Market (TSE/IFB),
+        plus optional details. Copy Ticker into ticker-based APIs, or pass
+        InstrumentCode as ticker_instrument_code to get_ticker_historical_data.
+        This current selected universe is not every expired/derivative instrument.
+        Initial request/JSON/schema failures propagate. See docs/tsetmc.md.
+    """
     if not tse and not ifb:
         print("At least one of ifb and tse must be True")
         return pd.DataFrame()

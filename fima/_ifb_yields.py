@@ -1,4 +1,5 @@
 """Official IFB fixed-income observations; no calculations or import-time I/O."""
+from typing import Literal as _Literal
 from collections import Counter
 from datetime import date
 import math
@@ -143,7 +144,7 @@ _CURVE_METHODS = {'treasury': 'GetITBtNelsonIndex',
 _CURVE_COLUMNS = ['CurveCategory', 'ComparisonLabel', 'ComparisonEnglishLabel', 'TenorDays', 'YTM']
 
 
-def get_ifb_yield_curve(category='treasury') -> pd.DataFrame:
+def get_ifb_yield_curve(category: _Literal["treasury", "government", "nongovernment"]='treasury') -> pd.DataFrame:
     """Return official fitted YTM comparison nodes from IFB's Nelson page.
 
     category is treasury, government or nongovernment. TenorDays is remaining
@@ -248,8 +249,8 @@ def _grid(soup, instrument_id, ticker, start, end):
     return _frame(data, instrument_id, ticker, start, end), more
 
 
-def get_ifb_bond_yield_history(start_date, end_date, ticker=None, *, instrument_id=None,
-                             jalali=True, on_conflict='raise') -> pd.DataFrame:
+def get_ifb_bond_yield_history(start_date: str, end_date: str, ticker: str | None=None, *, instrument_id: str | None=None,
+                             jalali: bool=True, on_conflict: _Literal["raise", "preserve"]='raise') -> pd.DataFrame:
     """Download a verified instrument's complete official filtered YTM export.
 
     Both inclusive YYYY-MM-DD bounds are required; jalali=False selects Gregorian
@@ -265,6 +266,14 @@ def get_ifb_bond_yield_history(start_date, end_date, ticker=None, *, instrument_
     This is provider archive coverage, not guaranteed continuous market history.
     Existing bond snapshots/risk-free calculations are not used or modified.
     See docs/ifb.md for the full schema, sources and financial limitations.
+
+    Usage
+    -----
+    start_date/end_date are required; jalali defaults True. ticker/instrument_id
+    default None, but at least one is required. If both are given they must
+    identify the same current YTM selector option. Discover its ticker/ID from
+    the official YTM selector or instrument link; an unrelated snapshot catalog
+    does not guarantee selector coverage. on_conflict defaults raise.
     """
     start, end = _bounds(start_date, end_date, jalali)
     if on_conflict not in ('raise', 'preserve'):

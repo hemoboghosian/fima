@@ -45,6 +45,29 @@ while True:
 
 `Category` زیرگروه نماد است، در حالی که آرگومان `category` نام خانواده از `get_tgju_categories()` است. برای انتخاب دقیق‌تر یک زیرگروه، ردیف مطلوب را در فهرست پیدا کرده و `Symbol` آن را استفاده کنید.
 
+## از فهرست تا تاریخچهٔ همان نماد
+
+```python
+from fima import get_tgju_categories, get_tgju_instruments, get_tgju_instrument_details, get_tgju_history
+
+print(get_tgju_categories())
+matches = get_tgju_instruments("ارز", search="دلار")
+print(matches[["Symbol", "InstrumentName", "Category", "Currency"]])
+selected = matches.loc[matches["InstrumentName"].eq("دلار")]
+if len(selected) == 1:
+    symbol = selected.iloc[0]["Symbol"]
+    details = get_tgju_instrument_details(symbol, "ارز")
+    history = get_tgju_history(symbol, "ارز", start_date="2026-10-01", end_date="2026-10-15")
+    print(details["CurrencyName"], details["Unit"])
+    print(history[["GregorianDate", "ClosingPrice"]])
+```
+
+در جستجوی سکه نیز ابتدا نام، زیرگروه و واحد ردیف مطلوب را بررسی کنید؛ از روی شباهت
+نوشتاری نمادهایی مانند `sekeb` و `sekee` معنی یا برابری ابزار را حدس نزنید. اگر چند
+ردیف مناسب دیده می‌شود، ابزار مورد نظر را با `Symbol` دقیق انتخاب کنید؛ نخستین نتیجه
+لزوماً انتخاب شما نیست. ادامهٔ صفحه‌ها را با `HasMore` بررسی کنید. نام‌های فارسی و
+انگلیسی همچنان کار می‌کنند؛ تطابق دقیقِ نرمال‌شده بر تطابق جزئی یکتا مقدم است.
+
 ## نمای آخرین داده‌های بازار
 
 ```python

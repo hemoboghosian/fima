@@ -1,4 +1,5 @@
 """The full collection behind IFB's metric-selected market-map table."""
+from typing import Literal as _Literal
 from decimal import Decimal
 import json
 import math
@@ -123,7 +124,7 @@ def _frame(response, metric):
     return frame
 
 
-def get_ifb_market_map(metric="market_value", ticker=None, market=None) -> pd.DataFrame:
+def get_ifb_market_map(metric: _Literal["trade_volume", "trade_value", "transaction_count", "market_value"]="market_value", ticker: str | None=None, market: str | None=None) -> pd.DataFrame:
     """Return all records from IFB's selected market-map snapshot response.
 
     metric: trade_volume (native instrument units), trade_value (rials),
@@ -148,6 +149,11 @@ def get_ifb_market_map(metric="market_value", ticker=None, market=None) -> pd.Da
     Invalid arguments, changed/incomplete schemas and malformed financial data
     raise ValueError. Request/HTTP errors propagate. A valid d=[] or unmatched
     filter returns a typed empty table. No network requests occur at import.
+
+    Usage
+    -----
+    Discover ticker/market strings from an unfiltered call for the same metric;
+    they are provider-defined, not fixed enums.
     """
     if not isinstance(metric, str) or metric not in _METRICS:
         raise ValueError("metric must be trade_volume, trade_value, transaction_count or market_value.")

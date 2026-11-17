@@ -65,6 +65,24 @@ own breadcrumb sits under Tehran; its individual-page level remains `Area`.
 Neighborhood slugs need not contain their region number. Boundary revisions and
 stable numeric geographic IDs were not established.
 
+### Reuse a discovered area identifier
+
+```python
+from fima import get_kilid_areas, get_kilid_house_price_history
+
+areas = get_kilid_areas("tehran")
+print(areas[["Area", "AreaName", "AreaLevel"]])
+selected = areas.loc[areas["Area"].eq("tehran-region5")]
+if len(selected) == 1:
+    history = get_kilid_house_price_history(selected.iloc[0]["Area"], period="3y", denomination="usd")
+    print(history[["JalaliMonth", "MedianListingPricePerSquareMeter", "Unit"]].tail())
+```
+
+Here the intended previously verified region is matched explicitly. For another
+location, choose its returned Area after inspecting name/context. Display names
+are not accepted slugs. Period and denomination have Literal annotations for the
+verified choices; runtime validation and all defaults remain unchanged.
+
 ## Monthly price history
 
 ```python

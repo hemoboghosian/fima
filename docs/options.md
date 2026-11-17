@@ -39,6 +39,29 @@ value; do not interchange them or multiply a supplied value by contract size.
 `ClosingPrice` and `LastPrice` are distinct. Instrument codes are strings;
 Jalali dates are `YYYY-MM-DD` strings and Gregorian dates are pandas datetimes.
 
+## Discover underlyings and contracts
+
+```python
+from fima import download_all_underlying_assets, download_chain_contracts, ticker_info
+
+assets = download_all_underlying_assets(market="All")
+print(assets[["Ticker", "InstrumentCode"]])
+chosen = assets.loc[assets["Ticker"].eq("اهرم")]
+if len(chosen) == 1:
+    chain = download_chain_contracts(chosen.iloc[0]["Ticker"])
+    print(chain[["CallTicker", "PutTicker", "StrikePrice", "EndJalaliDate"]])
+    if not chain.empty:
+        metadata = ticker_info(chain.iloc[0]["CallTicker"])
+        print(metadata)
+```
+
+The first contract illustrates metadata lookup, not a liquidity/expiry selection.
+Choose the intended strike, side and expiry before analysis. InstrumentCode is a
+TSETMC code; an underlying ticker and an option ticker are different arguments.
+`market` supports All/TSE/IFB and `stack` Horizontal/Vertical; misspellings retain
+legacy All/Horizontal fallback. They remain `str` annotations rather than a
+falsely closed runtime contract. Calendar and analytics flags are booleans.
+
 ## Minimal example
 
 This call and these columns were checked against live data on 2026-10-27,
@@ -48,8 +71,6 @@ including a 35-row Ahrom chain. Counts and quotes can change.
 from fima import download_chain_contracts
 
 chain = download_chain_contracts(underlying_ticker="اهرم", bsm=False)
-if chain is None:  # Released 0.13.0 can hide a download error this way.
-    raise RuntimeError("Download failed; inspect the provider error printed above.")
 if chain.empty:
     raise RuntimeError("No contracts matched this underlying.")
 print(chain[["CallTicker", "PutTicker", "StrikePrice", "EndJalaliDate",
@@ -80,6 +101,40 @@ The independent `calculate_black_scholes_merton`, `calculate_delta`,
 `calculate_gamma`, `calculate_theta`, `calculate_vega` and `calculate_rho`
 functions perform no provider download; `t` is years, `r_f`/`sigma` are decimals.
 See [conventions](data-conventions.md) for annualization and Greek units.
+
+### Model input and missing-result contract
+
+| Argument | Meaning |
+| --- | --- |
+| `s`, `k` | Spot and strike in the same price unit; positive and finite for scalar pricing |
+| `t` | Years; convenience APIs use calendar days/365 |
+| `r_f` | Annual decimal model rate; BSM uses continuous discounting `exp(-r_f*t)` |
+| `sigma` | Annual decimal volatility; .20 = 20% |
+| `option_type` | Exact Call/Put; scalar pricing rejects other strings, legacy side-dependent Greeks return None |
+| `volatility_window_size=None` | `min(30, max(5, min(history_rows, days_to_maturity)//2))`; explicit window is capped at that safe history/maturity limit |
+| `minimum_required_history=30` | Underlying row-count eligibility, including the IV convenience function |
+| `_ticker_info_df`, `_ua_historical_data` | Optional legacy data injection; current metadata/history schemas avoid the corresponding downloads |
+
+Convenience analytics use **raw official ClosingPrice** daily log returns with
+sample standard deviation and sqrt(252). Corporate-action jumps are not removed.
+No dividend yield is modeled. `r_f=None` passes the IFB treasury-yield proxy
+directly, without compounding conversion; its equivalence to a continuous model
+rate is not certified. Supply an explicitly chosen model rate when that matters.
+This documentation does not change the default calculation.
+
+`black_scholes_merton` returns `(decimal_volatility, price)`, not the reverse.
+`get_implied_volatility` returns a decimal or None; `get_greeks` returns a labeled
+Series, possibly all missing. Unavailable/insufficient history, less than ten
+remaining days, a window below five or zero-volatility checks produce diagnostics
+and missing outcomes; other request/schema errors may propagate. IV retains
+history eligibility checks even though it solves from a premium.
+
+Pure pricing validates its domain and handles expiry/zero-volatility limits.
+Pure Greeks retain existing numerical behavior without full domain validation:
+expiry/zero volatility can warn, raise or yield nonfinite values. Theta is annual;
+Vega/Rho are per whole decimal unit. Divide by 100 only when deliberately reporting
+a sensitivity per one percentage point. Use keyword arguments: pricing orders
+`sigma, r_f`, while Greek functions order `r_f, sigma`.
 
 ## Provider and failure diagnosis
 

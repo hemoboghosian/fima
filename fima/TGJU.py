@@ -321,31 +321,44 @@ def _metadata(client, row):
     return details
 
 
-def get_tgju_categories():
+def get_tgju_categories() -> _pd.DataFrame:
     """گروه‌های پشتیبانی‌شده را از پیکربندی عمومی سایت کشف می‌کند.
 
     خروجی DataFrame با ستون‌های Category، Market و EnglishName است.
     پیکربندی ده دقیقه در حافظه می‌ماند. خطاهای شبکه از خانواده requests و
     پاسخ نامعتبر با ValueError گزارش می‌شوند. پارامتری ندارد.
+
+    Usage
+    -----
+    Use Category or EnglishName from this table as the category argument to
+    get_tgju_instruments; the catalog row subgroup is a different concept.
     """
     with _Client() as client:
         return _public_table(_table(_categories(client), ['Category', 'Market', 'EnglishName']))
 
 
-def get_tgju_instruments(category=None, *, search=None, page=1):
+def get_tgju_instruments(category: str | None=None, *, search: str | None=None, page: int=1) -> _pd.DataFrame:
     """یک صفحه از فهرست عمومی نمادها را با نام فارسی یا انگلیسی دریافت می‌کند.
 
     category نام گروه یا None برای هر دو بازار است؛ search جستجوی اختیاری
     و page شماره صفحه از یک است. خروجی DataFrame است و attrs['HasMore']
     ادامه داشتن فهرست را نشان می‌دهد؛ خروجی به معنی فهرست کامل نیست.
     پارامتر یا پاسخ نامعتبر ValueError و خطاهای شبکه استثنای requests دارند.
+
+    Usage
+    -----
+    Read Symbol from the desired returned row for get_tgju_history or
+    get_tgju_instrument_details. Its Category column is a source subgroup;
+    category input selects the family from get_tgju_categories. Defaults:
+    category/search=None, page=1; page must be a positive integer and search
+    nonblank. Persian/English family aliases remain accepted.
     """
     with _Client() as client:
         rows, attrs = _page(client, category, search, page)
         return _public_table(_table(rows, _INSTRUMENT_COLUMNS, attrs))
 
 
-def get_tgju_market(category=None, *, search=None, page=1):
+def get_tgju_market(category: str | None=None, *, search: str | None=None, page: int=1) -> _pd.DataFrame:
     """آخرین داده‌های یک صفحه نماد را از منبع عمومی ویجت می‌گیرد.
 
     category، search و page مانند get_tgju_instruments هستند. خروجی
@@ -353,6 +366,12 @@ def get_tgju_market(category=None, *, search=None, page=1):
     HasSnapshot نبود داده را مشخص می‌کند؛ Unit در این منبع اعلام نشده است.
     زمان بدون فرض منطقه زمانی و واحد پول بدون تبدیل حفظ می‌شود.
     پاسخ/پارامتر نامعتبر ValueError و خطای شبکه استثنای requests دارد.
+
+    Usage
+    -----
+    Defaults: category/search=None and page=1. Read Symbol for details/history.
+    HasMore in attrs indicates further catalog pages; an empty page need not
+    mean the catalog ended. HasSnapshot is data presence, not trading status.
     """
     with _Client() as client:
         rows, attrs = _page(client, category, search, page)
@@ -387,13 +406,20 @@ def get_tgju_market(category=None, *, search=None, page=1):
         return _public_table(_table(result, _MARKET_COLUMNS, attrs))
 
 
-def get_tgju_instrument_details(instrument, category=None):
+def get_tgju_instrument_details(instrument: str, category: str | None=None) -> dict:
     """مشخصات نماد منتخب با نام فارسی، انگلیسی یا Symbol را برمی‌گرداند.
 
     category گروه اختیاری برای محدود کردن جستجو است. خروجی dict شامل
     فراداده فهرست، واحد، نام پول، کشور، نشانی پروفایل و داده خام منبع است.
     نام ناشناخته/مبهم یا پاسخ نامعتبر ValueError و خطای شبکه استثنای
     requests دارد. واحدها تبدیل نمی‌شوند؛ اطلاعات اعلام‌نشده None است.
+
+    Usage
+    -----
+    instrument is required: use Symbol from get_tgju_instruments or a supported
+    Persian/English display name. category defaults None; discover family names
+    with get_tgju_categories. Normalized exact matches take precedence over
+    unique partial matches; multiple source identities raise ValueError.
     """
     with _Client() as client:
         details = _metadata(client, _resolve(client, instrument, category))
@@ -401,16 +427,25 @@ def get_tgju_instrument_details(instrument, category=None):
         return details
 
 
-def get_tgju_history(instrument, category=None, *, start_date=None, end_date=None, jalali=False):
+def get_tgju_history(instrument: str, category: str | None=None, *, start_date: str | _dt.date | _jd.date | None=None, end_date: str | _dt.date | _jd.date | None=None, jalali: bool=False) -> _pd.DataFrame:
     """تاریخچه روزانه نماد را به ترتیب صعودی تاریخ در DataFrame برمی‌گرداند.
 
     instrument نام فارسی/انگلیسی یا Symbol، category گروه اختیاری،
     start_date و end_date حدود شامل ابتدا/انتها به صورت YYYY-MM-DD یا
     YYYY/MM/DD هستند. jalali=True تاریخ ورودی را شمسی تفسیر می‌کند؛
-    پیش‌فرض میلادی است. هر دو Date و JDate در خروجی موجودند. واحد و
+    پیش‌فرض میلادی است. هر دو GregorianDate و JalaliDate در خروجی موجودند. واحد و
     منشأ در attrs حفظ می‌شوند. تکرار کاملاً یکسان حذف و ردیف متناقض حفظ
     می‌شود. نام مبهم/ناشناخته، ورودی یا پاسخ نامعتبر ValueError و خطای
     شبکه استثنای requests دارد. هیچ قیمت یا تاریخ مفقودی ساخته نمی‌شود.
+
+    Usage
+    -----
+    instrument is required: select Symbol from get_tgju_instruments. category
+    defaults None; its family comes from get_tgju_categories. Both date bounds
+    default None for available source history; date/datetime objects matching
+    the selected input calendar also work. Pagination validates reported counts
+    before returning. See docs/tgju.md for schema, provider contradictions and
+    source limits.
     """
     if not isinstance(jalali, bool):
         raise ValueError('jalali must be a boolean')

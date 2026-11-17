@@ -223,3 +223,13 @@ Institutions use InstitutionName, string NationalID/SEORegisterNo/CEOMobileNo an
 the provider's existing boolean Status. Other contact/metadata fields stay as
 provided. TLS verification remains enabled; the package's existing truststore
 integration can succeed where a standalone requests probe lacks the same roots.
+
+## Financial-institution directory
+
+`get_all_institutions()` takes no arguments and returns InstitutionName,
+classifications, contact/status metadata and string identifiers where supplied.
+NationalID, SEORegisterNo and CEOMobileNo preserve leading zeros; source Status
+does not independently certify licensing today. One request asks for 10,000 rows,
+without verified pagination/total completeness. Network/HTTP errors propagate;
+empty or changed schemas can raise KeyError. See the function's help for the
+current contract; no geographic/type filter is exposed publicly.

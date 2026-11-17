@@ -534,7 +534,7 @@ def _tsetmc_fund_type(value):
                          "or supply a nonnegative numeric selector") from exc
 
 
-def get_tsetmc_funds(fund_type: int | str) -> pd.DataFrame:
+def get_tsetmc_funds(fund_type: int | float | str) -> pd.DataFrame:
     """Return a normalized TSETMC fund-group snapshot.
 
     ``fund_type`` accepts a Persian/English group name (e.g. "سهامی",
@@ -586,7 +586,7 @@ def _resolve_tsetmc_fund_name(fund_name, fund_type):
     return matches.pop()
 
 
-def get_tsetmc_fund_details(fund_name=None, *, fund_type=None, reg_no=None) -> dict:
+def get_tsetmc_fund_details(fund_name: str | int | float | None=None, *, fund_type: int | float | str | None=None, reg_no: int | float | str | None=None) -> dict:
     """Return a normalized TSETMC fund dict selected by name or registration.
 
     Supply a full ``fund_name`` positionally or by keyword. Resolve it against
@@ -1865,6 +1865,13 @@ def get_daily_navs(fund_name: str) -> pd.DataFrame:
         history rather than an underlying basket.
     requests.RequestException
         For connection, timeout, certificate, or HTTP errors from a provider.
+
+    Usage
+    -----
+    There are no date bounds: available website history is requested, with
+    provider-specific coverage/order and JalaliDate strings. Sort explicitly
+    before analysis. TotalSubscriptionNAV/TotalRedemptionNAV retain their
+    separate valuation bases; NAV/total/class columns are not interchangeable.
     """
     return _nav_frame(_get_fund_history(fund_name, allocation=False))
 
@@ -1899,6 +1906,13 @@ def get_daily_asset_allocation(fund_name: str) -> pd.DataFrame:
     requests.RequestException
         For connection, timeout, certificate, HTTP errors or an explicit WAF
         access-rejection page from a provider.
+
+    Usage
+    -----
+    There are no date bounds: the website determines history coverage/order.
+    JalaliDate is a canonical string column; sort before time-series analysis.
+    Amounts and Weight columns have different meanings and weights use
+    percentage points. See docs/funds.md for current schema examples.
     """
     return _allocation_frame(_get_fund_history(fund_name, allocation=True))
 

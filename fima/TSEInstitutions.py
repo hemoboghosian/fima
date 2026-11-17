@@ -68,6 +68,16 @@ def _get_activity_types():
 
 
 def get_all_institutions() -> pd.DataFrame:
+    """Return the published financial-institution directory.
+
+    No arguments. Returns a DataFrame with InstitutionName, classifications,
+    contact/status metadata and string NationalID/SEORegisterNo/CEOMobileNo when
+    supplied. Leading zeros are preserved; Status retains provider meaning and
+    is not inferred to certify a current license. One request asks for up to
+    10,000 records; no independent total/pagination completeness is verified.
+    HTTP/network errors propagate; malformed or empty schemas can raise
+    KeyError. See docs/markets.md#financial-institution-directory.
+    """
     url = "https://cfi.rbcapi.ir/institutes"
     params = {"offset": 0, "limit": 10000, "lng": "fa", "name": "", "city": "", "province": "", "instituteType": "",
               "instituteKind": "", "activityType": "", "licenseType": "", "status": ""}

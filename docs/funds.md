@@ -2,6 +2,28 @@
 
 [User guide](../README.md) | [TSETMC funds](tsetmc-funds.md)
 
+## انتخاب منبع و تفسیر خروجی
+
+| نیاز | مسیر و قرارداد |
+| --- | --- |
+| فهرست فیپیران | `get_all_funds()` → FundName، نوع، شماره ثبت، WebsiteAddress؛ وجود فهرست تضمین تاریخچه نیست |
+| تاریخچهٔ وب‌سایت | نام دقیق و یکتای FundName → `get_daily_navs` یا `get_daily_asset_allocation`؛ بدون فیلتر تاریخ، پوشش و ترتیب وابسته به ارائه‌دهنده |
+| اطلاعات TSETMC | [انواع → گروه → نام/شماره ثبت](tsetmc-funds.md)؛ مجموعه‌ای مستقل با تازگی و پوشش متفاوت |
+
+`JalaliDate` تاریخ شمسی رشته‌ای است؛ پیش از تحلیل، ترتیب را بررسی و مرتب کنید.
+ستون‌های مشترک NAV هر واحد `SubscriptionNAV`، `RedemptionNAV` و `StatisticalNAV` هستند؛
+ستون‌های موجود به ارائه‌دهنده و نوع واحد وابسته‌اند. برای اهرمی‌ها ستون‌های عادی/ممتاز
+و برای مبنا `TotalSubscriptionNAV`/`TotalRedemptionNAV` مبنای ارزش‌گذاری جدا دارند.
+`TotalNAV` ارزش تجمیعی مستقل است و از ضرب حدسی NAV در تعداد واحد ساخته نمی‌شود.
+ترکیب دارایی مقدار هر گروه و ستون `Weight` به واحد درصد دارد؛ فیلد ناشناخته در
+`ProviderAssets` باقی می‌ماند. دادهٔ ناموجود صفر نیست و خروجی خالی تاریخچه خطاست.
+
+ابتدا ردیف انتخابی را با نام حقوقی، وب‌سایت، شماره ثبت و نوع واحد بررسی کنید؛
+شماره ثبت مشترک می‌تواند بخش‌های صندوق را نشان دهد. انتخاب نام در ورودی فیپیران
+دقیق است و تطابق‌های نامی تکراری رفتار قدیمی انتخاب نخستین ردیف را دارند؛
+نام تکراری با هویت متفاوت نیازمند بررسی است. `_set_website_developers=True` در
+`get_all_funds` یک بررسی اضافی وب‌سایت‌هاست؛ برای استفادهٔ معمول لازم نیست.
+
 برای دریافت فهرست فیپیران و تاریخچه از وب‌سایت صندوق، ابتدا نام دقیق صندوق را در فهرست بررسی کنید. نمونهٔ زیر از نام صندوق به‌جای شناسه استفاده می‌کند؛ دسترسی به تاریخچه به وب‌سایت آن وابسته است.
 
 ```python
@@ -10,11 +32,13 @@ from fima import get_all_funds, get_daily_navs, get_daily_asset_allocation
 all_funds = get_all_funds()
 print(all_funds[["FundName", "WebsiteAddress"]].head())
 
-fund_name = "ثروت آفرین تمدن"
-navs = get_daily_navs(fund_name)
-asset_allocation = get_daily_asset_allocation(fund_name)
-print(navs.head())
-print(asset_allocation.head())
+selected = all_funds.loc[all_funds["FundName"].eq("ثروت آفرین تمدن")]
+if len(selected) == 1:
+    fund_name = selected.iloc[0]["FundName"]
+    navs = get_daily_navs(fund_name)
+    asset_allocation = get_daily_asset_allocation(fund_name)
+    print(navs.head())
+    print(asset_allocation.head())
 ```
 
 خروجی هر سه تابع یک جدول پانداس است. نام صندوق باید دقیقاً در ستون `FundName` فهرست وجود داشته باشد. قالب و واحد ستون‌های تاریخچه به ارائه‌دهنده وابسته است؛ جدول‌ها را پیش از مقایسه بررسی کنید. برای فهرست و جزئیات مستقل سامانهٔ بورس، [راهنمای صندوق‌های بورس](tsetmc-funds.md) را ببینید.

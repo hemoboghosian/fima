@@ -4,6 +4,7 @@ See docs/imf.md for native units, coverage, projection uncertainty and data term
 No HTTP occurs at import time. The source currently ignores geographic/year
 filters; each series call retrieves just one indicator and filters it locally.
 """
+from typing import Literal as _Literal
 import datetime as _dt
 from email.utils import parsedate_to_datetime as _parsedate
 import json as _json
@@ -170,7 +171,7 @@ def get_imf_datasets() -> _pd.DataFrame:
     return result
 
 
-def get_imf_indicators(dataset=None, search=None) -> _pd.DataFrame:
+def get_imf_indicators(dataset: _Literal["WEO"] | None=None, search: str | None=None) -> _pd.DataFrame:
     """Discover supported annual WEO indicators, definitions and native units.
 
     dataset: None or 'WEO'. search: optional literal case-insensitive substring
@@ -193,7 +194,7 @@ def get_imf_indicators(dataset=None, search=None) -> _pd.DataFrame:
     return result
 
 
-def get_imf_countries(include_aggregates=False) -> _pd.DataFrame:
+def get_imf_countries(include_aggregates: bool=False) -> _pd.DataFrame:
     """Discover exact source geographic IDs; they are not all ISO country codes.
 
     include_aggregates: bool, also fetch regions and analytical groups if True.
@@ -224,7 +225,7 @@ def get_imf_countries(include_aggregates=False) -> _pd.DataFrame:
     return _frame(rows, _GEOGRAPHIES).sort_values(["GeographyType", "Country"], ignore_index=True)
 
 
-def get_imf_series(indicator, countries, start_year, end_year) -> _pd.DataFrame:
+def get_imf_series(indicator: str, countries: str | list[str] | tuple[str, ...], start_year: _Integral, end_year: _Integral) -> _pd.DataFrame:
     """Retrieve one WEO annual indicator for explicit geographies and years.
 
     indicator: exact supported ID from get_imf_indicators. countries: one exact

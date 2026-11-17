@@ -143,7 +143,7 @@ history = get_cbi_exchange_rates(
 
 Signature:
 
-```python
+```text
 get_cbi_exchange_rates(currency=None, start_date=None, end_date=None, *, jalali=False)
 ```
 
@@ -171,6 +171,22 @@ catalog labels/codes can lag the export (for example `PKR` vs `PKR100`); the
 returned export code determines `CurrencyUnit`. Use a base code such as `PKR`
 or `JPY` to select that currency unambiguously.
 
+### Discover currency identifiers
+
+```python
+from fima import get_cbi_exchange_rates
+
+latest = get_cbi_exchange_rates()
+print(latest[["CurrencyCode", "CurrencyName", "CurrencyUnit"]].drop_duplicates())
+```
+
+Select the intended returned code/name; the normal and ETS catalogs are separate.
+The latest observations do not enumerate every historical currency. For historical-
+only advertised choices, consult the official advanced-search selector linked below.
+There is no separate public catalog API. Do not turn JPY100 into a one-yen quote
+or assume ETS JPY means one unit: read CurrencyUnit. Persian cash/transfer aliases
+remain accepted by ETS, including in its Literal annotation.
+
 ## ETS: `get_cbi_ets_rates(...)`
 
 ```python
@@ -187,7 +203,7 @@ latest_all = get_cbi_ets_rates()               # Latest cash + transfer, bounded
 
 Signature:
 
-```python
+```text
 get_cbi_ets_rates(currency=None, transaction_type="all", start_date=None, end_date=None, *, jalali=False)
 ```
 

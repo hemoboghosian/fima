@@ -81,7 +81,7 @@ deterministic CI uses synthetic source-shaped records.
 
 ## Option contract history
 
-```python
+```text
 get_all_ime_option_trades(
     option_type='All', only_active=False, start_date=None, end_date=None,
     _chunk_size=100, _offset=0, _timeout=(10, 45), *, contract_code=None,
@@ -164,7 +164,7 @@ comparisons must be explicitly selected; routine CI uses mocked source records.
 
 ## Certificate and standard parallel salaf histories
 
-```python
+```text
 get_all_ime_cd_trades(
     start_date=None, end_date=None, _chunk_size=100, _offset=30,
     _timeout=(10, 45), *, ticker=None, instrument_code=None,
@@ -244,3 +244,88 @@ invalid/missing/duplicate observations now raise instead of silently returning
 partial history. Live checks compare actual fields and inclusive dates across
 multiple real pages for both categories; a provider HTTP 500 was correctly raised
 during investigation and the unchanged comparison passed on a bounded retry.
+
+## Discover contracts and financial instrument codes
+
+```python
+from fima import get_all_ime_cd_trades, get_all_ime_option_trades
+
+certificates = get_all_ime_cd_trades("1405-08-16", "1405-08-17")
+print(certificates[["Symbol", "Code", "Description"]].drop_duplicates())
+if not certificates.empty:
+    code = certificates.iloc[0]["Code"]
+    selected = get_all_ime_cd_trades("1405-08-16", "1405-08-17", instrument_code=code)
+
+options = get_all_ime_option_trades(start_date="1405-08-16", end_date="1405-08-17")
+print(options[["ContractCode", "ContractDescription"]].drop_duplicates())
+```
+
+Choose the intended description/identity; the first row here only illustrates
+code reuse. `Code` is not row `ID`; ticker can match several codes across history.
+For salaf use the same short-report discovery with `get_all_ime_salaf_trades`.
+For futures inspect `ContractCode`/description in a short futures report and
+filter locally; there is no futures contract selector argument. Report membership
+does not establish an exhaustive instrument catalog or contract multiplier.
+
+## Physical trades and producers
+
+`get_all_ime_physical_trades(start_date=None, end_date=None, ...)` takes inclusive
+Jalali YYYY-MM-DD or YYYY/MM/DD. Start defaults/clamps to 1385-01-01, end to today,
+and future end dates clamp to today. Reversed/empty intervals give an empty,
+possibly columnless DataFrame. The floor is not independently verified inception.
+
+Important columns: `GoodsName`, `Symbol`, `ProducerName`, `ClosingPrice` (source
+weighted price), low/high prices, supply/demand, `TradeVolume`, `TradeValue`,
+`Currency`, `Unit`, trading/delivery/settlement Jalali dates. Quotation, quantity
+and value bases can differ, including thousand-rial physical trade-value displays.
+Keep native units; do not assume price times volume equals value or that export
+and physical quotations share a scale.
+
+Internal compatibility controls remain `_chunk_size=30`, `_max_workers=2`,
+`_timeout=(20,120)`, `_max_retries=3`, `_strict=True`, `_verbose=False`,
+`_rescue_chunk_size=7`. Windows are retried/rescued; default strict mode raises
+RuntimeError for final failures. `_strict=False` can return partial data without
+a completeness report. Shape/date errors can raise; no source-total guarantee
+is introduced for physical reports.
+
+```python
+from fima import (
+    get_all_ime_physical_trades, get_all_physical_producer_products,
+    get_producer_physical_trades,
+)
+
+trades = get_all_ime_physical_trades("1405-07-20", "1405-07-21")
+producers = get_all_physical_producer_products(all_ime_physical_trades=trades)
+print(producers)
+if not producers.empty:
+    producer = producers.iloc[0]["ProducerName"]
+    selected = get_producer_physical_trades(producer, all_ime_physical_trades=trades)
+```
+
+Producer matching is exact. The product aggregator returns `ProducerName` and
+sorted distinct `Products` lists; supplied-frame aggregation uses all supplied
+rows without applying date arguments. The producer-trades function does apply
+inclusive local date bounds to supplied data. Unknown producers print/return empty.
+
+For exports, discover exact `ProducerName` from a short `get_all_ime_export_trades`
+result and pass it to `get_producer_export_trades(producer, start_date, end_date)`.
+`get_all_export_producer_products()` has no bounds/reuse parameter and downloads
+default export history from 1387-12-01 to today before grouping; it is expensive
+catalog discovery. Columnless empty/reversed export results can cause legacy
+producer wrappers to raise KeyError/TypeError. Download failures propagate.
+
+## Legacy gold and silver CDC
+
+`get_gold_and_silver_cd_trades(contract_type, start_date=None, end_date=None,
+_timeout=(10,45))` accepts the configured strings `gold_coin_cd`, `gold_bar_cd`,
+`silver_bar_cd`. **Accepted syntax is not verified current filter coverage**:
+[#62](https://github.com/hemoboghosian/fima/issues/62) and
+[#139](https://github.com/hemoboghosian/fima/issues/139) remain unresolved.
+
+Dates here require Jalali YYYY-MM-DD, unlike other slash-capable IME functions.
+Start defaults/clamps to 1401-12-01 and end to today; reversed returns None.
+Unknown contract_type raises KeyError. Non-200 responses raise a generic Exception;
+network/JSON/schema/date errors also propagate. A valid empty response has a small
+typed date/volume/value schema, not the full nonempty contract/activity schema and
+not proof of an empty market. Source values are not multiplied by contract sizes.
+Do not substitute copper salaf, futures or standard certificates for CDC history.

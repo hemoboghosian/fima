@@ -1,3 +1,4 @@
+from typing import Literal as _Literal
 import pandas as pd
 import requests
 import jdatetime as jd
@@ -89,7 +90,32 @@ def _calculate_d2(s, k, t, r_f, sigma) -> float:
     return _calculate_d1(s, k, t, r_f, sigma) - sigma * np.sqrt(t)
 
 
-def calculate_delta(s, k, t, r_f, sigma, option_type) -> float:
+def calculate_delta(s, k, t, r_f, sigma, option_type: str) -> float:
+    """Calculate delta for the no-dividend European option model.
+
+    Parameters
+    ----------
+    s, k : numeric
+        Required spot and strike in the same price unit; strictly positive.
+    t : numeric
+        Required time to expiry in years; the regular formula needs t > 0.
+    r_f : numeric
+        Required continuously compounded annual decimal rate (.05 means 5%).
+    sigma : numeric
+        Required annual decimal volatility (.20 means 20%); needs sigma > 0.
+    option_type : str
+        Required exact Call or Put; other values retain the legacy None result.
+
+    Returns
+    -------
+    numeric or None
+        Delta: change per unit underlying price. NumPy-compatible inputs
+        retain existing broadcasting behavior. This function makes no network
+        requests and does not validate the full numerical domain: zero time/
+        volatility or invalid inputs can warn, raise or produce NaN/infinity.
+        See docs/options.md#analytics; prefer keyword arguments because pricing
+        orders sigma/r_f differently from the Greek functions.
+    """
     if option_type == 'Call':
         return norm.cdf(_calculate_d1(s, k, t, r_f, sigma))
     elif option_type == 'Put':
@@ -97,7 +123,32 @@ def calculate_delta(s, k, t, r_f, sigma, option_type) -> float:
     return None
 
 
-def calculate_theta(s, k, t, r_f, sigma, option_type) -> float:
+def calculate_theta(s, k, t, r_f, sigma, option_type: str) -> float:
+    """Calculate theta for the no-dividend European option model.
+
+    Parameters
+    ----------
+    s, k : numeric
+        Required spot and strike in the same price unit; strictly positive.
+    t : numeric
+        Required time to expiry in years; the regular formula needs t > 0.
+    r_f : numeric
+        Required continuously compounded annual decimal rate (.05 means 5%).
+    sigma : numeric
+        Required annual decimal volatility (.20 means 20%); needs sigma > 0.
+    option_type : str
+        Required exact Call or Put; other values retain the legacy None result.
+
+    Returns
+    -------
+    numeric or None
+        Theta: price change per year, not per day. NumPy-compatible inputs
+        retain existing broadcasting behavior. This function makes no network
+        requests and does not validate the full numerical domain: zero time/
+        volatility or invalid inputs can warn, raise or produce NaN/infinity.
+        See docs/options.md#analytics; prefer keyword arguments because pricing
+        orders sigma/r_f differently from the Greek functions.
+    """
     if option_type == 'Call':
         p1 = - s * norm.pdf(_calculate_d1(s, k, t, r_f, sigma)) * sigma / (2 * np.sqrt(t))
         p2 = r_f * k * np.exp(-r_f * t) * norm.cdf(_calculate_d2(s, k, t, r_f, sigma))
@@ -110,14 +161,87 @@ def calculate_theta(s, k, t, r_f, sigma, option_type) -> float:
 
 
 def calculate_gamma(s, k, t, r_f, sigma) -> float:
+    """Calculate gamma for the no-dividend European option model.
+
+    Parameters
+    ----------
+    s, k : numeric
+        Required spot and strike in the same price unit; strictly positive.
+    t : numeric
+        Required time to expiry in years; the regular formula needs t > 0.
+    r_f : numeric
+        Required continuously compounded annual decimal rate (.05 means 5%).
+    sigma : numeric
+        Required annual decimal volatility (.20 means 20%); needs sigma > 0.
+
+    Returns
+    -------
+    numeric
+        Gamma: delta change per unit underlying price. NumPy-compatible inputs
+        retain existing broadcasting behavior. This function makes no network
+        requests and does not validate the full numerical domain: zero time/
+        volatility or invalid inputs can warn, raise or produce NaN/infinity.
+        See docs/options.md#analytics; prefer keyword arguments because pricing
+        orders sigma/r_f differently from the Greek functions.
+    """
     return norm.pdf(_calculate_d1(s, k, t, r_f, sigma)) / (s * sigma * np.sqrt(t))
 
 
 def calculate_vega(s, k, t, r_f, sigma) -> float:
+    """Calculate vega for the no-dividend European option model.
+
+    Parameters
+    ----------
+    s, k : numeric
+        Required spot and strike in the same price unit; strictly positive.
+    t : numeric
+        Required time to expiry in years; the regular formula needs t > 0.
+    r_f : numeric
+        Required continuously compounded annual decimal rate (.05 means 5%).
+    sigma : numeric
+        Required annual decimal volatility (.20 means 20%); needs sigma > 0.
+
+    Returns
+    -------
+    numeric
+        Vega: price change per whole decimal volatility unit, not 1 percentage
+        point. NumPy-compatible inputs
+        retain existing broadcasting behavior. This function makes no network
+        requests and does not validate the full numerical domain: zero time/
+        volatility or invalid inputs can warn, raise or produce NaN/infinity.
+        See docs/options.md#analytics; prefer keyword arguments because pricing
+        orders sigma/r_f differently from the Greek functions.
+    """
     return s * np.sqrt(t) * norm.pdf(_calculate_d1(s, k, t, r_f, sigma))
 
 
-def calculate_rho(s, k, t, r_f, sigma, option_type) -> float:
+def calculate_rho(s, k, t, r_f, sigma, option_type: str) -> float:
+    """Calculate rho for the no-dividend European option model.
+
+    Parameters
+    ----------
+    s, k : numeric
+        Required spot and strike in the same price unit; strictly positive.
+    t : numeric
+        Required time to expiry in years; the regular formula needs t > 0.
+    r_f : numeric
+        Required continuously compounded annual decimal rate (.05 means 5%).
+    sigma : numeric
+        Required annual decimal volatility (.20 means 20%); needs sigma > 0.
+    option_type : str
+        Required exact Call or Put; other values retain the legacy None result.
+
+    Returns
+    -------
+    numeric or None
+        Rho: price change per whole decimal rate unit, not 1 percentage point.
+        NumPy-compatible inputs
+        retain existing broadcasting behavior. This function makes no network
+        requests and does not validate the full numerical domain: zero time/
+        volatility or invalid inputs can warn, raise or produce NaN/infinity.
+        See docs/options.md#analytics; prefer keyword arguments because pricing
+        orders sigma/r_f differently from the Greek functions.
+    """
     if option_type == 'Call':
         return k * t * np.exp(-r_f * t) * norm.cdf(_calculate_d2(s, k, t, r_f, sigma))
     elif option_type == 'Put':
@@ -134,6 +258,12 @@ def ticker_info(ticker: str, j_date: bool = True) -> pd.DataFrame:
     Request/HTTP and JSON errors propagate; invalid provider option names raise
     ValueError. The restored date selector does not restore the pre-0.4 full
     market-watch row; use ``download_market_watch(stack='Vertical')`` for that.
+
+    Usage
+    -----
+    ticker is required; select CallTicker/PutTicker from a chain or Ticker from
+    a Vertical watch. j_date defaults True and selects the output calendar only.
+    This is option metadata, unlike IFB get_ticker_info.
     """
     ticker_info_df = pd.DataFrame(columns=['UATicker', 'StrikePrice', 'MaturityDate', 'DaysToMaturity', 'Type'], index=[0])
     ticker_instrument_code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
@@ -184,9 +314,46 @@ def _calculate_row_wise_implied_volatility(row) -> float:
                                   _ua_historical_data=row['HistoricalData-UA'])
 
 
-def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None,
-                       r_f: float = None, minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame = None) -> float:
+def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame | None = None, volatility_window_size: int | None = None,
+                       r_f: float | None = None, minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame | None = None) -> float | None:
 
+    """Estimate decimal implied volatility from the option's observed premium.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact option Ticker from a Vertical download_market_watch or
+        CallTicker/PutTicker from download_chain_contracts, not the underlying.
+    _ticker_info_df : pandas.DataFrame or None, default None
+        Legacy injected one-row metadata; ticker_info output avoids that lookup.
+    volatility_window_size : int or None, default None
+        Trailing daily-return window. None uses min(30, max(5, safe_window//2));
+        an explicit value is capped at min(history rows, days to maturity).
+    r_f : float or None, default None
+        Annual decimal model rate (.30 means 30%). None calls the IFB treasury
+        proxy directly, without a compounding conversion. BSM discounting uses
+        a continuous rate; the proxy is not certified equivalent to that convention.
+    minimum_required_history : int, default 30
+        Minimum underlying-history row count, even for implied volatility.
+    _ua_historical_data : pandas.DataFrame or None, default None
+        Legacy injected underlying daily data; otherwise history is downloaded.
+        Requires ClosingPrice (legacy ClosePrice also works) and ordered dates.
+
+    Notes
+    -----
+    Historical volatility uses raw closing-price daily log returns, the trailing
+    window and sqrt(252); corporate-action jumps are not removed. Expiry uses
+    calendar days/365, and less than 10 remaining days or a window below 5 yields
+    missing estimates with a printed diagnostic. No dividend yield is modeled.
+    Other metadata/network/schema errors can propagate. See docs/options.md#analytics.
+
+    Returns
+    -------
+    Decimal annual volatility (.20 means 20%), or None for
+    unavailable/insufficient history, near expiry, zero historical volatility or
+    supported solver-failure paths. This function retains history eligibility
+    checks despite solving from a premium.
+    """
     if _ticker_info_df is None:
         _ticker_info_df = ticker_info(ticker=ticker)
 
@@ -252,9 +419,45 @@ def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame = None, vo
     return ticker_implied_volatility.impliedVolatility / 100
 
 
-def get_greeks(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None, r_f: float = None,
-           minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame = None) -> pd.Series:
+def get_greeks(ticker: str, _ticker_info_df: pd.DataFrame | None = None, volatility_window_size: int | None = None, r_f: float | None = None,
+           minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame | None = None) -> pd.Series:
 
+    """Estimate an option's Greeks using historical underlying volatility.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact option Ticker from a Vertical download_market_watch or
+        CallTicker/PutTicker from download_chain_contracts, not the underlying.
+    _ticker_info_df : pandas.DataFrame or None, default None
+        Legacy injected one-row metadata; ticker_info output avoids that lookup.
+    volatility_window_size : int or None, default None
+        Trailing daily-return window. None uses min(30, max(5, safe_window//2));
+        an explicit value is capped at min(history rows, days to maturity).
+    r_f : float or None, default None
+        Annual decimal model rate (.30 means 30%). None calls the IFB treasury
+        proxy directly, without a compounding conversion. BSM discounting uses
+        a continuous rate; the proxy is not certified equivalent to that convention.
+    minimum_required_history : int, default 30
+        Minimum underlying-history row count, even for implied volatility.
+    _ua_historical_data : pandas.DataFrame or None, default None
+        Legacy injected underlying daily data; otherwise history is downloaded.
+        Requires ClosingPrice (legacy ClosePrice also works) and ordered dates.
+
+    Notes
+    -----
+    Historical volatility uses raw closing-price daily log returns, the trailing
+    window and sqrt(252); corporate-action jumps are not removed. Expiry uses
+    calendar days/365, and less than 10 remaining days or a window below 5 yields
+    missing estimates with a printed diagnostic. No dividend yield is modeled.
+    Other metadata/network/schema errors can propagate. See docs/options.md#analytics.
+
+    Returns
+    -------
+    Series labeled Delta, Gamma, Theta, Vega, Rho. Insufficient inputs yield
+    missing labels with a diagnostic. Theta is per year; Vega/Rho are per whole
+    decimal volatility/rate unit, not per percentage point.
+    """
     delta, gamma, theta, vega, rho = (None, None, None, None, None)
 
     if _ticker_info_df is None:
@@ -346,9 +549,36 @@ def _calculate_volatility(ua_historical_data, window_size) -> float:
     return float(np.log(prices).diff().std() * np.sqrt(252))
 
 
-def calculate_black_scholes_merton(s, k, t, sigma, r_f, option_type) \
+def calculate_black_scholes_merton(s: float, k: float, t: float, sigma: float, r_f: float, option_type: _Literal["Call", "Put"]) \
         -> float:
-    """European option price; t in years, r_f and sigma in decimal annual units."""
+    """Calculate a no-dividend European option price without network requests.
+
+    Parameters
+    ----------
+    s, k : float
+        Required positive finite spot and strike in the same price unit.
+    t : float
+        Required nonnegative finite years to expiry.
+    sigma : float
+        Required nonnegative finite annual decimal volatility (.20 means 20%).
+    r_f : float
+        Required finite continuously compounded annual decimal rate (.05 = 5%).
+    option_type : {'Call', 'Put'}
+        Required exact side, case-sensitive.
+
+    Returns
+    -------
+    float
+        Price in spot/strike units. At expiry returns intrinsic value; zero
+        volatility uses discounted intrinsic value. No dividend yield is modeled.
+
+    Raises
+    ------
+    ValueError
+        Unsupported side or invalid numerical domain. Malformed types can raise
+        TypeError. Prefer keywords: sigma/r_f order differs from Greeks.
+        See docs/options.md#analytics.
+    """
     if option_type not in ('Call', 'Put'):
         raise ValueError(f"Unknown option type '{option_type}'. Expected 'Call' or 'Put'.")
     if s <= 0 or k <= 0 or t < 0 or sigma < 0 or not np.isfinite([s, k, t, sigma, r_f]).all():
@@ -368,10 +598,46 @@ def calculate_black_scholes_merton(s, k, t, sigma, r_f, option_type) \
     return price
 
 
-def black_scholes_merton(ticker: str, _ticker_info_df: pd.DataFrame = None, volatility_window_size: int = None,
-                         r_f: float = None, minimum_required_history: int = 30,
-                         _ua_historical_data: pd.DataFrame = None) -> Tuple[float, float]:
+def black_scholes_merton(ticker: str, _ticker_info_df: pd.DataFrame | None = None, volatility_window_size: int | None = None,
+                         r_f: float | None = None, minimum_required_history: int = 30,
+                         _ua_historical_data: pd.DataFrame | None = None) -> Tuple[float | None, float | None]:
 
+    """Estimate an option price using historical underlying volatility.
+
+    Parameters
+    ----------
+    ticker : str
+        Required exact option Ticker from a Vertical download_market_watch or
+        CallTicker/PutTicker from download_chain_contracts, not the underlying.
+    _ticker_info_df : pandas.DataFrame or None, default None
+        Legacy injected one-row metadata; ticker_info output avoids that lookup.
+    volatility_window_size : int or None, default None
+        Trailing daily-return window. None uses min(30, max(5, safe_window//2));
+        an explicit value is capped at min(history rows, days to maturity).
+    r_f : float or None, default None
+        Annual decimal model rate (.30 means 30%). None calls the IFB treasury
+        proxy directly, without a compounding conversion. BSM discounting uses
+        a continuous rate; the proxy is not certified equivalent to that convention.
+    minimum_required_history : int, default 30
+        Minimum underlying-history row count, even for implied volatility.
+    _ua_historical_data : pandas.DataFrame or None, default None
+        Legacy injected underlying daily data; otherwise history is downloaded.
+        Requires ClosingPrice (legacy ClosePrice also works) and ordered dates.
+
+    Notes
+    -----
+    Historical volatility uses raw closing-price daily log returns, the trailing
+    window and sqrt(252); corporate-action jumps are not removed. Expiry uses
+    calendar days/365, and less than 10 remaining days or a window below 5 yields
+    missing estimates with a printed diagnostic. No dividend yield is modeled.
+    Other metadata/network/schema errors can propagate. See docs/options.md#analytics.
+
+    Returns
+    -------
+    (decimal_volatility, price), in that order; insufficient/unavailable history
+    or near expiry returns (None, None). Price uses the same unit as spot and
+    strike.
+    """
     if _ticker_info_df is None:
         _ticker_info_df = ticker_info(ticker=ticker)
 
@@ -424,7 +690,27 @@ def black_scholes_merton(ticker: str, _ticker_info_df: pd.DataFrame = None, vola
     return sigma, price
 
 
-def download_all_underlying_assets(_all_options_market_watch: pd.DataFrame = None, market: str = 'All') -> pd.DataFrame:
+def download_all_underlying_assets(_all_options_market_watch: pd.DataFrame | None = None, market: str = 'All') -> pd.DataFrame:
+    """Discover underlying assets from an options market watch.
+
+    Parameters
+    ----------
+    _all_options_market_watch : pandas.DataFrame or None, default None
+        Reuse a current-format watch with Underlying-prefixed columns. None
+        downloads a Horizontal watch; supplied data avoids that request.
+    market : str, default 'All'
+        Used only when downloading: supported All, TSE, IFB. Other values retain
+        the watch's legacy All fallback. This is not an underlying ticker.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Distinct Ticker, InstrumentCode, ClosingPrice, LastPrice, YesterdayPrice,
+        URL rows from the watch. Prices retain rials; codes are strings. Choose
+        Ticker for download_chain_contracts. A supplied frame's columns determine
+        extraction; malformed input can raise. Download errors propagate.
+        See docs/options.md#discover-underlyings-and-contracts.
+    """
     if _all_options_market_watch is None:
         _all_options_market_watch = download_market_watch(market=market, stack='Horizontal', j_date=True)
     columns = [column for column in _all_options_market_watch if column.startswith('Underlying')]
@@ -432,13 +718,22 @@ def download_all_underlying_assets(_all_options_market_watch: pd.DataFrame = Non
     return result.rename(columns={column: column.removeprefix('Underlying') for column in columns})
 
 
-def download_historical_data(ticker: str, start_date: str = None, end_date: str = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def download_historical_data(ticker: str, start_date: str | None = None, end_date: str | None = None) -> Tuple[pd.DataFrame | None, pd.DataFrame | None]:
     """Option and underlying raw daily history, filtered by optional Jalali bounds.
 
     Returns two frames with JalaliDate strings, TransactionCount, TradeVolume,
     TradeValue and distinct opening/low/high/last/closing prices. Prices/value
     remain in source rial units. HTTP errors propagate; unavailable history
     retains the legacy (None, None) result. Bounds are inclusive and independent.
+
+    Usage
+    -----
+    ticker is required; choose CallTicker/PutTicker from a discovered chain.
+    start_date/end_date default None (unbounded) and accept Jalali YYYY-MM-DD,
+    YYYY/MM/DD or compact YYYYMMDD forms normalized by the shared parser. Each
+    returned frame has an ordinary index and JalaliDate column. Both histories
+    are raw; reversed bounds yield empty filtered frames when source histories
+    exist.
     """
     code = _find_instrument_code(search_key=ticker, trade_type='Ordinary')
     info = requests.get(f'https://cdn.tsetmc.com/api/Instrument/GetInstrumentInfo/{code}', timeout=30)
@@ -468,7 +763,7 @@ def download_historical_data(ticker: str, start_date: str = None, end_date: str 
     return tuple(frames)
 
 
-def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bool = False, greeks: bool = False,
+def download_chain_contracts(underlying_ticker: str, j_date: bool = True, bsm: bool = False, greeks: bool = False,
                              implied_volatility: bool = False) -> pd.DataFrame:
     """Return the current option chain for an exact underlying ticker.
 
@@ -476,6 +771,14 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
     analytics use the underlying history. An unmatched ticker returns an empty
     table. Request/HTTP, JSON, schema and analytical errors propagate instead
     of returning ``None``. Prices and trade values retain provider rial units.
+
+    Usage
+    -----
+    underlying_ticker is required; discover Ticker using
+    download_all_underlying_assets. j_date defaults True. bsm, greeks and
+    implied_volatility default False; enabling them adds model columns and
+    history/rate requests. Rate/volatility table fields use percentage points;
+    see docs/options.md#analytics for model assumptions and missing estimates.
     """
     url = "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch/0"
     response = requests.get(url, timeout=30)
@@ -589,7 +892,7 @@ def download_chain_contracts(underlying_ticker: str, j_date: str = True, bsm: bo
 
 
 def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date: bool = True,
-                          bsm: str = False, greeks: bool = False, implied_volatility: bool = False) -> pd.DataFrame:
+                          bsm: bool = False, greeks: bool = False, implied_volatility: bool = False) -> pd.DataFrame:
     """Return TSETMC options for ``All``, ``TSE`` or ``IFB``.
 
     ``stack='Horizontal'`` pairs Call/Put columns; ``Vertical`` returns one row
@@ -597,6 +900,15 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
     datetime event dates. Optional analytics use the underlying history.
     Request/HTTP, JSON, schema and analytical errors propagate; a valid empty
     provider list returns an empty table. Prices/values retain source rial units.
+
+    Usage
+    -----
+    market defaults All; stack defaults Horizontal. Unsupported market/stack
+    strings retain the legacy All/Horizontal fallback rather than raising.
+    j_date defaults True; bsm, greeks and implied_volatility default False.
+    Flags add model columns and history/rate requests. Rate/volatility table
+    fields use percentage points; see docs/options.md#analytics for raw-history
+    and rate assumptions.
     """
 
     if market == 'TSE':
