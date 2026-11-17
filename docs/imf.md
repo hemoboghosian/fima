@@ -1,8 +1,8 @@
-# IMF annual WEO data (Unreleased)
+# IMF annual WEO data (0.16.0)
 
 `fima.IMF` provides four pandas functions for the **selected annual World
 Economic Outlook indicators in the official IMF DataMapper v2**. It is available
-in the development branch/master after merge, not in published fima 0.15.0.
+starting with fima 0.16.0.
 No account or API key is needed for the tested DataMapper requests.
 
 ## Source feasibility and choice
@@ -154,7 +154,7 @@ Do not discard the coverage/status metadata when comparing countries.
 
 ## Examples
 
-These examples require the unreleased implementation, not PyPI 0.15.0:
+These examples require fima 0.16.0 or newer:
 
 ```python
 from fima import get_imf_datasets, get_imf_indicators, get_imf_countries, get_imf_series
