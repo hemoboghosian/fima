@@ -4,6 +4,19 @@
 
 برای استفاده، نام تابع را به‌صورت صریح از `fima` یا ماژول مربوط وارد کنید. برای جلوگیری از واردشدن نام‌های کمکی، از `import *` استفاده نکنید. مثال‌های کوتاه در [راهنمای اصلی](../README.md)، [راهنمای سهام](tsetmc.md)، [راهنمای صندوق‌ها](funds.md)، [راهنمای طلا و ارز](tgju.md) و [مثال‌های بازارهای دیگر](markets.md) قرار دارند.
 
+## `fima.IMF` (Unreleased)
+
+[Source audit, schemas, economic definitions, coverage and IMF usage terms](imf.md)
+
+- `get_imf_datasets()` — the supported DataMapper WEO subset and current indicator count.
+- `get_imf_indicators(dataset=None, search=None)` — current annual WEO definitions, units, edition and revision metadata; literal search.
+- `get_imf_countries(include_aggregates=False)` — source geographic IDs/names with distinct country/region/group classifications.
+- `get_imf_series(indicator, countries, start_year, end_year)` — one indicator, explicit geographies/years, tidy native numeric values and coverage/status metadata.
+
+All four return pandas DataFrames and are exported from `fima`. Annual WEO only;
+source filters currently require client-side enforcement. Actual/estimate/forecast
+classification is unknown. Not available in published 0.15.0.
+
 ## `fima.KILID` (0.15.0)
 
 [Housing-market schemas, source methodology, access/licensing and limitations](kilid.md)

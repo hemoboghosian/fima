@@ -4,6 +4,22 @@
 
 این مثال‌ها از توابع عمومی ماژول‌ها استفاده می‌کنند. داده‌های آنلاین به دسترسی ارائه‌دهنده وابسته‌اند؛ برای مشاهدهٔ خروجی‌های بزرگ از چند ردیف نخست استفاده کنید.
 
+### IMF WEO (Unreleased)
+
+```python
+from fima import get_imf_indicators, get_imf_series
+
+print(get_imf_indicators(search="current account"))
+growth = get_imf_series("NGDP_RPCH", ["IRN", "USA"], 2020, 2027)
+print(growth.pivot(index="Period", columns="Country", values="Value"))
+print(growth.attrs["IndicatorMetadata"])
+print(growth.attrs["Coverage"])
+```
+
+سری‌های سالانهٔ منتخب WEO شامل برآورد و پیش‌بینی هم می‌شوند؛ مرز کشوربه‌کشور
+دادهٔ قطعی و پیش‌بینی مشخص نشده است. واحدهای اصلی و شناسه‌های منبع حفظ می‌شوند.
+این قابلیت در ۰٫۱۵٫۰ منتشرشده نیست؛ [پوشش، محدودیت فیلترها و شرایط IMF](imf.md).
+
 ### مسکن KILID (0.15.0)
 
 ```python

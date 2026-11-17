@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add official IMF DataMapper v2 annual WEO dataset/indicator/geographic
+  discovery and selected time series. Preserve native units, source identities,
+  edition/revision/projection metadata, missing values and explicit coverage;
+  document client-side filtering and unknown actual/estimate/projection status.
+  Add deterministic contracts, separate live comparisons and IMF usage terms.
+  No existing provider behavior, dependency or release version change.
+
 ## 0.15.0
 
 - Add public KILID area discovery, native monthly toman/USD/18-karat-gold
