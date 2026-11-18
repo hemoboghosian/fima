@@ -108,3 +108,10 @@ compounding equivalence. Options convenience functions pass the default IFB
 treasury-yield proxy directly and estimate volatility from raw underlying closing
 prices. No automatic conversion, dividend model or corporate-action adjustment is
 implied. See [the model contract](options.md#analytics).
+
+Options IV candidates are checked against the same European no-dividend price
+bounds and independently repriced against the original premium. Lower-bound
+premiums can return zero model volatility; exact upper-bound premiums require
+infinite volatility and remain missing. Unverified/invalid estimates return
+None (NaN in watch/chain tables), not a numerical search ceiling. See
+[IV bounds, residual precision and numerical limits](options.md#iv-validation).
