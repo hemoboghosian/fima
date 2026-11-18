@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.17.0
+
+- Add offline `calculate_contract_metrics` for Vertical option watches: quote
+  status, absolute/relative bid-ask spread, intrinsic/time value, expiration
+  breakeven, multiplier-aware contract premium and volume/open-interest ratio.
+  Price bases and missing-value rules are explicit; negative time value is kept.
+- Add offline `calculate_expiration_payoff` for Call/Put and Long/Short scenario
+  prices, with a required contract multiplier. Separate full-position economic
+  payoff, entry premium cash flow and gross profit before costs.
+- Validate implied-volatility premiums against European no-dividend bounds and
+  independently reprice solutions. Refine rounded/unverified candidates with
+  finite numerical budgets, including valid high IV. Invalid/unverified results
+  remain missing; eligible zero-volatility boundary premiums return zero IV.
+- Preserve unknown watch/chain moneyness as `pd.NA` when underlying last price or
+  strike is missing, nonfinite or nonpositive. Valid ITM/ATM/OTM classifications,
+  schemas, existing signatures and financial units are retained.
+- Document discovery workflows and the intentional corrections to invalid-data
+  outcomes. No dividend model is added; existing rate-proxy and historical-
+  volatility eligibility conventions remain. Quotes do not guarantee freshness
+  or execution. Economic expiration payoff excludes actual settlement mechanics,
+  fees, financing, margin, allocation and default.
+
 ## 0.16.1
 
 - Complete public API usability guidance for all 85 existing functions. Improve
