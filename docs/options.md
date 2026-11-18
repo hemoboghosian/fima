@@ -39,6 +39,14 @@ value; do not interchange them or multiply a supplied value by contract size.
 `ClosingPrice` and `LastPrice` are distinct. Instrument codes are strings;
 Jalali dates are `YYYY-MM-DD` strings and Gregorian dates are pandas datetimes.
 
+Watch/chain `Status` (`CallStatus`/`PutStatus` horizontally) means moneyness,
+not exchange trading permission. It compares underlying **last price** with the
+strike: finite positive equality is ATM, otherwise Call/Put retain the usual
+ITM/OTM classifications. Missing, nonfinite or nonpositive spot/strike gives
+`pd.NA` (unknown), retaining the existing object dtype and column schema. Use
+`isna()` to find unknown values. There is no fallback to underlying closing
+price, and an unavailable price must not be interpreted as equality.
+
 ## Discover underlyings and contracts
 
 ```python

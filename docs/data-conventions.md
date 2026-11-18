@@ -57,6 +57,11 @@ Values in opaque metadata are not assigned guessed financial meanings.
   repaired by intuition. Raw provider metadata and heterogeneous display-value
   tables are documented exceptions to numeric conversion.
 
+Options watch/chain moneyness `Status` fields retain object dtype with ITM/ATM/OTM
+strings or `pd.NA`. Missing, nonfinite or nonpositive underlying last price or
+strike is unknown; only equal finite positive prices are ATM. This is distinct
+from a source instrument's trading-permission state and from quote quality.
+
 Offline option contract metrics use the caller-selected quote/underlying basis
 without substitution. `SpreadPercent` is percentage points; `SpotStrikeRatio`
 and `VolumeOpenPositionsRatio` are dimensionless ratios. Intrinsic/time value
