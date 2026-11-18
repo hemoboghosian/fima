@@ -75,7 +75,8 @@ def test_implied_volatility_passes_percent_rate_to_mibian(monkeypatch):
         return SimpleNamespace(impliedVolatility=25)
 
     monkeypatch.setattr(opt, "BS", bs)
-    info = pd.DataFrame([dict(DaysToMaturity=90, StrikePrice=100, Type="Call", LastPrice=8,
+    premium = opt.calculate_black_scholes_merton(105, 100, 90 / 365, .25, .05, 'Call')
+    info = pd.DataFrame([dict(DaysToMaturity=90, StrikePrice=100, Type="Call", LastPrice=premium,
                               **{"LastPrice-UA": 105})])
     history = pd.DataFrame({"ClosingPrice": np.linspace(90, 110, 50)})
     assert opt.get_implied_volatility("TEST", _ticker_info_df=info, r_f=.05,

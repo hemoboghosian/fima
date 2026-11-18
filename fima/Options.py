@@ -5,6 +5,7 @@ import jdatetime as jd
 from fima.IFB import get_risk_free_rate
 from mibian import BS
 from scipy.stats import norm
+from scipy.optimize import brentq as _brentq
 import numpy as np
 from typing import Tuple
 from typing import Sequence as _Sequence
@@ -316,6 +317,62 @@ def _calculate_row_wise_implied_volatility(row) -> float:
                                   _ua_historical_data=row['HistoricalData-UA'])
 
 
+def _validated_implied_volatility(s, k, t, r_f, premium, option_type):
+    """Validate the existing Mibian candidate against fima's pricing formula."""
+    with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+        discounted_strike = k * np.exp(-r_f * t)
+    if not np.isfinite(discounted_strike) or discounted_strike <= 0:
+        return None
+    lower = max(s - discounted_strike, 0) if option_type == 'Call' else max(discounted_strike - s, 0)
+    upper = s if option_type == 'Call' else discounted_strike
+    # Allow only floating-point roundoff below the zero-volatility boundary.
+    roundoff = 64 * np.finfo(float).eps * max(s, discounted_strike)
+    if premium < lower - roundoff or premium >= upper:
+        return None  # The exact upper bound requires infinite, not finite, IV.
+    if premium <= lower:
+        return 0.
+    tolerance = 1e-8 * premium + roundoff
+
+    def residual(volatility):
+        return calculate_black_scholes_merton(s, k, t, volatility, r_f, option_type) - premium
+
+    upper_volatility = 5.
+    upper_residual = residual(upper_volatility)
+    if not np.isfinite(upper_residual):
+        return None
+    candidate = np.nan
+    rounded = round(premium, 6)
+    # Do not send rounded-zero/boundary/out-of-range targets into Mibian's
+    # 10,000-iteration loop: they cannot have an interior root in its interval.
+    if lower < rounded < upper and rounded < upper_residual + premium:
+        try:
+            kwargs = {'callPrice' if option_type == 'Call' else 'putPrice': premium}
+            candidate = float(BS([s, k, r_f * 100, t * 365], **kwargs).impliedVolatility) / 100
+        except (TypeError, ValueError, ArithmeticError, UnboundLocalError, IndexError):
+            pass  # The original premium can still have a verifiable root.
+    if np.isfinite(candidate) and candidate >= 0 and abs(residual(candidate)) <= tolerance:
+        return candidate
+    # Expand a numerical bracket, never impose Mibian's 500% ceiling as a
+    # financial cutoff. Both expansion and the subsequent root search are finite.
+    for _ in range(16):
+        if upper_residual >= 0:
+            break
+        upper_volatility *= 2
+        upper_residual = residual(upper_volatility)
+        if not np.isfinite(upper_residual):
+            return None
+    if upper_residual < 0:
+        return None
+    try:
+        candidate = _brentq(residual, 0., upper_volatility, xtol=1e-12,
+                            rtol=8 * np.finfo(float).eps, maxiter=100)
+    except (ValueError, RuntimeError, ArithmeticError):
+        return None
+    if not np.isfinite(candidate) or candidate < 0:
+        return None
+    return float(candidate) if abs(residual(candidate)) <= tolerance else None
+
+
 def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame | None = None, volatility_window_size: int | None = None,
                        r_f: float | None = None, minimum_required_history: int = 30, _ua_historical_data: pd.DataFrame | None = None) -> float | None:
 
@@ -352,9 +409,16 @@ def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame | None = N
     Returns
     -------
     Decimal annual volatility (.20 means 20%), or None for
-    unavailable/insufficient history, near expiry, zero historical volatility or
-    supported solver-failure paths. This function retains history eligibility
-    checks despite solving from a premium.
+    unavailable/insufficient history, near expiry, zero historical volatility,
+    invalid model inputs/premiums or unverified solver results. The zero-model-
+    volatility premium returns 0.0 after the existing history/expiry checks.
+    The exact positive-time upper price bound has no finite IV and returns None.
+    Candidates must independently reprice within 1e-8*premium plus 64 machine
+    epsilons times max(spot, discounted strike), in premium units. Coarse Mibian
+    results use bounded refinement with at most 16 bracket doublings from 500%
+    and 100 root iterations. A high IV is accepted when verified, without a
+    financial volatility cutoff; an unbracketed/unverified root remains missing.
+    See docs/options.md#iv-validation for boundaries and missing-result examples.
     """
     if _ticker_info_df is None:
         _ticker_info_df = ticker_info(ticker=ticker)
@@ -381,12 +445,27 @@ def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame | None = N
             f"{minimum_required_history} days required).")
         return None
 
-    days_to_maturity = _ticker_info_df['DaysToMaturity'].values[0]
+    option_type = _ticker_info_df['Type'].values[0]
+    raw = [_ticker_info_df[column].values[0] for column in
+           ('LastPrice-UA', 'StrikePrice', 'DaysToMaturity', 'LastPrice')]
+    raw.append(r_f)
+    try:
+        if any(isinstance(value, (bool, np.bool_, complex, np.complexfloating)) for value in raw):
+            raise ValueError('Nonreal model input')
+        s, k, days_to_maturity, premium, r_f = map(float, raw)
+    except (TypeError, ValueError, OverflowError):
+        print(f'Invalid option model inputs for {ticker}.')
+        return None
+    if (not np.isfinite([s, k, days_to_maturity, premium, r_f]).all()
+            or s <= 0 or k <= 0 or premium < 0
+            or not isinstance(option_type, str) or option_type not in ('Call', 'Put')):
+        print(f'Invalid option model inputs for {ticker}.')
+        return None
     if days_to_maturity < 10:
         print(f"Option {ticker} expires too soon ({days_to_maturity} days left). Calculated implied volatility may not be reliable.")
         return None
 
-    max_safe_window = min(stock_days_available, days_to_maturity)
+    max_safe_window = min(stock_days_available, int(days_to_maturity))
     if volatility_window_size is None:
         volatility_window_size = min(30, max(5, max_safe_window // 2))  # dynamic choice
     else:
@@ -397,28 +476,16 @@ def get_implied_volatility(ticker: str, _ticker_info_df: pd.DataFrame | None = N
         return None
 
     sigma = _calculate_volatility(_ua_historical_data, volatility_window_size)
-    s = _ticker_info_df['LastPrice-UA'].values[0]
-    k = _ticker_info_df['StrikePrice'].values[0]
     t = days_to_maturity / 365
-    option_type = _ticker_info_df['Type'].values[0]
-    premium = _ticker_info_df['LastPrice'].values[0]
 
     if sigma == 0 or t == 0:
         print("Zero volatility or expired option.")
         return None
 
-    try:
-        if option_type == 'Call':
-            ticker_implied_volatility = BS([s, k, r_f * 100, t * 365], callPrice=premium)
-        elif option_type == 'Put':
-            ticker_implied_volatility = BS([s, k, r_f * 100, t * 365], putPrice=premium)
-        else:
-            print('Option type is not a valid one.')
-            return None
-    except (UnboundLocalError, IndexError):
-        print('mibian library error.')
-        return None
-    return ticker_implied_volatility.impliedVolatility / 100
+    result = _validated_implied_volatility(s, k, t, r_f, premium, option_type)
+    if result is None:
+        print(f'No verified model-consistent implied volatility for {ticker}.')
+    return result
 
 
 def get_greeks(ticker: str, _ticker_info_df: pd.DataFrame | None = None, volatility_window_size: int | None = None, r_f: float | None = None,

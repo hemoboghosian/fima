@@ -281,6 +281,50 @@ remaining days, a window below five or zero-volatility checks produce diagnostic
 and missing outcomes; other request/schema errors may propagate. IV retains
 history eligibility checks even though it solves from a premium.
 
+### IV validation
+
+An IV is reported only after independent repricing with the existing no-dividend
+European formula, continuous model rate and calendar days/365. Let
+`D = StrikePrice * exp(-r_f*T)`. Model-consistent price bounds are:
+
+| Side | Lower bound (zero model volatility) | Upper bound (infinite-volatility limit) |
+| --- | --- | --- |
+| Call | `max(Spot-D, 0)` | `Spot` |
+| Put | `max(D-Spot, 0)` | `D` |
+
+After the existing history/expiry eligibility checks, a lower-bound premium
+returns decimal IV `0.0`; the exact upper bound has no finite IV and returns
+`None`. Below-lower roundoff is allowed only within `64*eps*max(Spot,D)`, where
+`eps` is float64 machine precision. A strictly above-lower premium is not
+automatically clipped to the boundary.
+
+The candidate must reproduce the original, unrounded premium with absolute
+residual at most `1e-8*premium + 64*eps*max(Spot,D)`, in the same price unit.
+This combines relative price accuracy with a floating-point cancellation floor;
+it is not a fee/tick allowance. It scales with price units. Mibian rounds its
+input premium and may stop at a coarse candidate, so an inaccurate finite
+candidate is refined using the same pricing formula and the already-required
+SciPy bounded root solver. Its bracket starts at 0..500% and can double its
+upper endpoint at most 16 times until model prices enclose the original premium.
+Rounded-zero, rounded-boundary and out-of-range targets bypass Mibian's search.
+The root search has at most 100 iterations, volatility absolute tolerance
+`1e-12` and relative tolerance `8*eps`; the final price residual is checked again.
+
+A verified high IV, including 500%, is valid. A search-ceiling return is not
+evidence of calibration. Valid IV above 500% is supported when independently
+verified. A premium whose root cannot be bracketed or verified within the finite
+iteration budgets returns `None`, rather than a fabricated search-ceiling value.
+Missing/nonfinite or malformed model values, invalid sides, nonpositive
+spot/strike, out-of-bound premiums and failed/nonfinite solver results also give
+`None` (NaN in watch/chain analytics). Existing eligibility, rate selection,
+historical-volatility methodology and percentage/decimal units are unchanged;
+metadata, provider and malformed historical-series errors can still propagate.
+
+For example, a Call premium of 150 on spot/strike 100 is outside this model,
+whereas a valid 200% IV is not rejected merely for being high. Model mismatch,
+dividends, stale/asynchronous prices or source errors can explain a rejected
+premium; rejection is not a claim of executable arbitrage.
+
 Pure pricing validates its domain and handles expiry/zero-volatility limits.
 Pure Greeks retain existing numerical behavior without full domain validation:
 expiry/zero volatility can warn, raise or yield nonfinite values. Theta is annual;
