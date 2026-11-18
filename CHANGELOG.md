@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.16.1
+
+- Complete public API usability guidance for all 85 existing functions. Improve
+  82 interfaces through public docstrings and verified annotations, including
+  finite Literal choices, corrected boolean hints and accurate optional returns.
+  Preserve dynamic identifiers and permissive legacy argument behavior.
+- Refresh the primarily Persian README and provider guides with discovery-led
+  workflows, financial units, calendar/coverage/error guidance and model
+  assumptions. Correct the string-date adjustment example and stale TGJU names.
+- Add structural import/signature compatibility and deterministic documentation
+  example checks. Public parameters/defaults, return schemas, calculations,
+  financial meanings, providers, networking and dependencies remain unchanged.
+
 ## 0.16.0
 
 - Add official IMF DataMapper v2 annual WEO dataset/indicator/geographic
