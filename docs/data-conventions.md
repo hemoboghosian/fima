@@ -57,6 +57,16 @@ Values in opaque metadata are not assigned guessed financial meanings.
   repaired by intuition. Raw provider metadata and heterogeneous display-value
   tables are documented exceptions to numeric conversion.
 
+Offline option contract metrics use the caller-selected quote/underlying basis
+without substitution. `SpreadPercent` is percentage points; `SpotStrikeRatio`
+and `VolumeOpenPositionsRatio` are dimensionless ratios. Intrinsic/time value
+are per underlying unit, while `PremiumPerContract` applies the supplied
+multiplier once. Negative time-value residuals are preserved. Expiration
+scenarios separate signed payoff, entry premium cash flow and gross profit;
+the latter three are total money amounts for all specified contracts, before
+costs and financing. Economic exercise is assumed, without modeling settlement,
+margin, default or automatic exercise. See [examples and missing-value rules](options.md#contract-comparison).
+
 Fund details and nested `Stats` keep their existing JSON scalar values/types;
 this focused key correction adds no date/dtype or calculation conversion there.
 TGJU pagination attrs use `Page`, `HasMore` and `SourceURL`.

@@ -7,6 +7,8 @@ from mibian import BS
 from scipy.stats import norm
 import numpy as np
 from typing import Tuple
+from typing import Sequence as _Sequence
+from numbers import Real as _Real, Integral as _Integral
 from ._data import number_series, identifier_series, jalali_date, gregorian_series
 from fima.TSETMC import _find_instrument_code, get_ticker_historical_data
 
@@ -1045,3 +1047,241 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
     all_options_market_watch.reset_index(inplace=True, drop=True)
     all_options_market_watch.sort_values(by=['Ticker-UA', 'EndDate', 'StrikePrice'], inplace=True, ignore_index=True)
     return _option_frame(all_options_market_watch, j_date)
+
+
+def _option_metric_numbers(values: pd.Series) -> pd.Series:
+    """Read a numeric column without treating malformed observations as missing."""
+    if (pd.api.types.is_datetime64_any_dtype(values.dtype)
+            or pd.api.types.is_timedelta64_dtype(values.dtype)
+            or values.map(lambda value: isinstance(value, (bool, np.bool_, complex, np.complexfloating))).any()):
+        raise ValueError(f'{values.name} must contain real numbers or missing values.')
+    try:
+        numbers = pd.to_numeric(values, errors='raise').to_numpy(dtype=float, na_value=np.nan)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f'{values.name} must contain real numbers or missing values.') from error
+    result = pd.Series(numbers, index=values.index)
+    return result.where(np.isfinite(result) & (result >= 0))
+
+
+def calculate_contract_metrics(
+        watch: pd.DataFrame, *,
+        price: _Literal['Ask', 'Bid', 'Mid', 'Last', 'Closing'] = 'Ask',
+        underlying_price: _Literal['Last', 'Closing'] = 'Last') -> pd.DataFrame:
+    """Compare option quotes, valuation components and contract premium exposure.
+
+    Parameters
+    ----------
+    watch : pandas.DataFrame
+        Required existing Vertical download_market_watch output, or a filtered
+        subset. Discover UnderlyingTicker and exact option Ticker/InstrumentCode
+        in that watch (download_all_underlying_assets also lists underlyings).
+        Requires OptionType (Call/Put), StrikePrice, ContractSize, BidPrice,
+        BidVolume, AskPrice, AskVolume, TradeVolume, OpenPositions and the selected
+        underlying/premium columns. Identity, expiry and other columns are kept.
+    price : {'Ask', 'Bid', 'Mid', 'Last', 'Closing'}, default 'Ask'
+        Premium basis: AskPrice, BidPrice, valid midpoint, LastPrice or ClosingPrice.
+        Ask is an indicative buy/cover basis; Bid is an indicative sell basis.
+        No missing price is replaced by another basis. A quote needs positive
+        price and quantity. Crossed books invalidate Ask/Bid/Mid calculations;
+        an independently known side remains usable when the opposite is missing.
+    underlying_price : {'Last', 'Closing'}, default 'Last'
+        Select UnderlyingLastPrice or UnderlyingClosingPrice, without fallback.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A copy retaining rows, index, source columns and attrs, with these added
+        columns in order (numeric additions are float64 with NaN):
+        QuoteStatus (string: TwoSided/Locked/Crossed/BidOnly/AskOnly/NoQuote/Incomplete),
+        MidPrice=(ask+bid)/2, Spread=ask-bid, SpreadPercent=100*Spread/MidPrice,
+        ReferencePrice, UnderlyingReferencePrice, SpotStrikeRatio=S/K,
+        IntrinsicValue=max(S-K,0) for calls or max(K-S,0) for puts,
+        TimeValue=ReferencePrice-IntrinsicValue, BreakevenPrice=K+P for calls or
+        K-P for puts, PremiumPerContract=P*ContractSize, and
+        VolumeOpenPositionsRatio=TradeVolume/OpenPositions. Prices/values are
+        rials per underlying unit except PremiumPerContract (rials per contract).
+        SpreadPercent is percentage points; both ratios are dimensionless.
+
+    Notes
+    -----
+    This function makes no network requests or expiry filtering. Missing,
+    negative or nonfinite observations invalidate only dependent results; zero
+    snapshot prices/strike/size and zero OI denominators are unavailable. Zero
+    volume is valid. A locked book has zero spread; incomplete/one-sided/crossed
+    books have no midpoint or spread. Negative time-value residuals are retained.
+    A negative put breakeven is missing because no nonnegative spot reaches it.
+    Existing Status is unchanged and may use a different underlying basis.
+    QuoteStatus does not establish freshness, trading permission, liquidity or
+    execution. Breakeven excludes fees, financing and settlement constraints and
+    assumes economic exercise at expiration. No conversion to tomans, assumed
+    1000-unit multiplier, automatic exercise or arbitrage inference is made.
+    See docs/options.md#contract-comparison for a discovery/selection example.
+
+    Raises
+    ------
+    ValueError
+        Invalid selector, non-DataFrame/Horizontal input, missing/duplicate
+        columns, unknown OptionType, malformed numeric values, or existing
+        metric column names. Use the original watch to change the price basis.
+    """
+    if price not in ('Ask', 'Bid', 'Mid', 'Last', 'Closing'):
+        raise ValueError('price must be Ask, Bid, Mid, Last or Closing.')
+    if underlying_price not in ('Last', 'Closing'):
+        raise ValueError('underlying_price must be Last or Closing.')
+    metric_columns = [
+        'QuoteStatus', 'MidPrice', 'Spread', 'SpreadPercent', 'ReferencePrice',
+        'UnderlyingReferencePrice', 'SpotStrikeRatio', 'IntrinsicValue', 'TimeValue',
+        'BreakevenPrice', 'PremiumPerContract', 'VolumeOpenPositionsRatio',
+    ]
+    if not isinstance(watch, pd.DataFrame) or not watch.columns.is_unique:
+        raise ValueError('watch must be a DataFrame with unique Vertical watch columns.')
+    spot_column = 'Underlying' + underlying_price + 'Price'
+    required = {'OptionType', 'StrikePrice', 'ContractSize', 'BidPrice', 'BidVolume',
+                'AskPrice', 'AskVolume', 'TradeVolume', 'OpenPositions', spot_column}
+    if price in ('Last', 'Closing'):
+        required.add(price + 'Price')
+    missing = required - set(watch.columns)
+    if missing:
+        raise ValueError(f'Use a Vertical watch (stack="Vertical"); missing columns: {sorted(missing)}')
+    if set(metric_columns).intersection(watch.columns):
+        raise ValueError('watch already contains metric columns; use the original Vertical watch.')
+    if not watch['OptionType'].isin(['Call', 'Put']).all():
+        raise ValueError('OptionType must contain only Call or Put, without missing values.')
+    numeric = {name: _option_metric_numbers(watch[name]) for name in required - {'OptionType'}}
+    bid, ask = numeric['BidPrice'], numeric['AskPrice']
+    has_bid = (bid > 0) & (numeric['BidVolume'] > 0)
+    has_ask = (ask > 0) & (numeric['AskVolume'] > 0)
+    both = has_bid & has_ask
+    crossed = both & (bid > ask)
+    ordered = both & ~crossed
+    incomplete = pd.concat([numeric[c].isna() for c in
+                            ('BidPrice', 'BidVolume', 'AskPrice', 'AskVolume')], axis=1).any(axis=1)
+    status = np.select(
+        [incomplete, crossed, ordered & (bid == ask), ordered, has_bid, has_ask],
+        ['Incomplete', 'Crossed', 'Locked', 'TwoSided', 'BidOnly', 'AskOnly'], default='NoQuote')
+    # Halving before summation avoids overflow for large finite quote prices.
+    midpoint = (ask / 2 + bid / 2).where(ordered)
+    spread = (ask - bid).where(ordered)
+    if price == 'Mid':
+        premium = midpoint
+    elif price in ('Ask', 'Bid'):
+        premium = numeric[price + 'Price'].where((has_ask if price == 'Ask' else has_bid) & ~crossed)
+    else:
+        premium = numeric[price + 'Price'].where(numeric[price + 'Price'] > 0)
+    spot = numeric[spot_column].where(numeric[spot_column] > 0)
+    strike = numeric['StrikePrice'].where(numeric['StrikePrice'] > 0)
+    call = watch['OptionType'].eq('Call')
+    intrinsic = (spot - strike).where(call, strike - spot).clip(lower=0)
+    breakeven = (strike + premium).where(call, strike - premium)
+    size = numeric['ContractSize'].where(numeric['ContractSize'] > 0)
+    oi = numeric['OpenPositions'].where(numeric['OpenPositions'] > 0)
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        metrics = [midpoint, spread, spread / midpoint * 100, premium, spot,
+                   spot / strike, intrinsic, premium - intrinsic, breakeven.where(breakeven >= 0),
+                   premium * size, numeric['TradeVolume'] / oi]
+    result = watch.copy(deep=True)
+    result['QuoteStatus'] = pd.array(status, dtype='string')
+    for name, values in zip(metric_columns[1:], metrics):
+        result[name] = values.where(np.isfinite(values)).to_numpy(dtype=float)
+    return result
+
+
+def calculate_expiration_payoff(
+        underlying_prices: _Sequence[float], strike_price: float, premium: float,
+        option_type: _Literal['Call', 'Put'], *, contract_size: int,
+        contracts: int = 1, position: _Literal['Long', 'Short'] = 'Long') -> pd.DataFrame:
+    """Calculate economic expiration payoff and gross profit without HTTP.
+
+    Parameters
+    ----------
+    underlying_prices : Sequence[float]
+        Required one-dimensional scenario prices, not forecasts. Nonnegative
+        finite real numbers; NumPy arrays and pandas Series/Index also work.
+        Order and duplicates are preserved; an empty sequence is valid.
+    strike_price : float
+        Required positive finite strike per underlying unit.
+    premium : float
+        Required nonnegative finite entry premium per underlying unit, paid for
+        Long or received for Short. Supply the actual traded premium when known;
+        a displayed ask/bid is only an indicative entry price, not a fill.
+    option_type : {'Call', 'Put'}
+        Required exact option side. Discover Ticker/OptionType/StrikePrice and
+        ContractSize in download_market_watch(stack='Vertical'); inspect the
+        underlying, expiration and strike before selecting an exact contract.
+    contract_size : int
+        Required positive whole underlying units per contract, from the chosen
+        contract's ContractSize. There is no default 1000-unit assumption.
+    contracts : int, default 1
+        Positive whole number of contracts. Boolean values are not counts.
+    position : {'Long', 'Short'}, default 'Long'
+        Long owns the option; Short writes it. Buying to close an existing short
+        is not a new Long position in this single-entry expiration calculation.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Five float64 columns and a fresh RangeIndex: UnderlyingPrice,
+        IntrinsicValue, ExpirationPayoff, PremiumCashFlow, GrossProfit.
+        IntrinsicValue=max(S_T-K,0) for calls or max(K-S_T,0) for puts. With
+        a=+1 for Long or -1 for Short and Q=contracts*contract_size:
+        ExpirationPayoff=a*Q*IntrinsicValue; PremiumCashFlow=-a*Q*premium;
+        GrossProfit=ExpirationPayoff+PremiumCashFlow. The first two columns
+        are prices per underlying unit; the last three are total money amounts.
+        All prices must share one currency/unit (rials for fima watch data).
+
+    Notes
+    -----
+    Assumes economic exercise at expiration with the supplied fixed terms.
+    Payoff excludes the entry premium; GrossProfit includes it. Neither models
+    automatic exercise, request deadlines, physical delivery/strike funding,
+    fees, tax, financing, margin, allocation or default. The cash-equivalent
+    economic payoff is not a promised cash-settlement receipt. No annualization,
+    discounting, future term adjustment or early closing transaction is implied.
+    Input data is not mutated. See docs/options.md#expiration-scenarios.
+
+    Raises
+    ------
+    ValueError
+        Invalid side/position, nonnumeric or nonfinite input, invalid shape,
+        negative prices/premium, nonpositive strike, noninteger/nonpositive
+        contract_size/contracts, or amounts too large for finite float output.
+    """
+    if option_type not in ('Call', 'Put') or position not in ('Long', 'Short'):
+        raise ValueError('option_type must be Call or Put; position must be Long or Short.')
+    scalars = {}
+    for name, value in [('strike_price', strike_price), ('premium', premium)]:
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, _Real):
+            raise ValueError(f'{name} must be a finite real number.')
+        try:
+            scalars[name] = float(value)
+        except (ValueError, OverflowError) as error:
+            raise ValueError(f'{name} must be a finite real number.') from error
+        if not np.isfinite(scalars[name]) or scalars[name] < 0 or (name == 'strike_price' and value == 0):
+            raise ValueError(f'{name} must be finite and {"positive" if name == "strike_price" else "nonnegative"}.')
+    for name, value in [('contract_size', contract_size), ('contracts', contracts)]:
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, _Integral) or value <= 0:
+            raise ValueError(f'{name} must be a positive integer.')
+    if not isinstance(underlying_prices, (_Sequence, np.ndarray, pd.Series, pd.Index)) or isinstance(underlying_prices, (str, bytes)):
+        raise ValueError('underlying_prices must be a one-dimensional sequence of finite nonnegative real numbers.')
+    try:
+        raw = np.asarray(underlying_prices, dtype=object)
+        if raw.ndim != 1 or any(isinstance(v, (bool, np.bool_)) or not isinstance(v, _Real) for v in raw):
+            raise ValueError('invalid scenario values or shape')
+        spots = raw.astype(float)
+        quantity = float(int(contract_size) * int(contracts))
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError('underlying_prices and contract quantities must give finite real amounts.') from error
+    if not np.isfinite(spots).all() or (spots < 0).any() or not np.isfinite(quantity):
+        raise ValueError('underlying_prices and contract quantities must be finite and nonnegative.')
+    sign = 1 if position == 'Long' else -1
+    with np.errstate(over='ignore', invalid='ignore'):
+        intrinsic = np.maximum(spots - scalars['strike_price'] if option_type == 'Call'
+                               else scalars['strike_price'] - spots, 0)
+        payoff = sign * quantity * intrinsic
+        flow = -sign * quantity * scalars['premium']
+        profit = payoff + flow
+    if not np.isfinite(flow) or not np.isfinite(payoff).all() or not np.isfinite(profit).all():
+        raise ValueError('Scenario cash flows must be finite; reduce prices or contract quantities.')
+    return pd.DataFrame({'UnderlyingPrice': spots, 'IntrinsicValue': intrinsic,
+                         'ExpirationPayoff': payoff, 'PremiumCashFlow': np.full(len(spots), flow),
+                         'GrossProfit': profit}, dtype=float)

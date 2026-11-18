@@ -58,10 +58,11 @@ def substitute(monkeypatch, name, result):
     return calls
 
 
-def test_all_85_imports_and_structural_signatures_match_published_baseline():
+def test_published_imports_and_signatures_preserved_with_only_approved_additions():
     public = {n: v for n, v in vars(fima).items() if not n.startswith('_') and callable(v)}
-    assert set(public) == set(BASELINE)
-    for name, function in public.items():
+    assert set(public) == set(BASELINE) | {'calculate_contract_metrics', 'calculate_expiration_payoff'}
+    for name in BASELINE:
+        function = public[name]
         expected = BASELINE[name]
         assert function.__module__ == expected['module']
         assert function is getattr(importlib.import_module(expected['module']), name)
@@ -74,8 +75,9 @@ def test_all_85_imports_and_structural_signatures_match_published_baseline():
 
 def test_every_public_function_has_parameter_help_and_api_navigation():
     api = (ROOT / 'docs/api.md').read_text(encoding='utf-8')
-    for name in BASELINE:
-        function = getattr(fima, name)
+    for name, function in vars(fima).items():
+        if name.startswith('_') or not callable(function):
+            continue
         doc = inspect.getdoc(function)
         assert doc and len(doc.splitlines()) >= 5, name
         for parameter in inspect.signature(function).parameters:
@@ -97,6 +99,10 @@ def test_every_public_function_has_parameter_help_and_api_navigation():
     ('get_all_ime_option_trades', 'option_type', ('All', 'Call', 'Put')),
     ('get_gold_and_silver_cd_trades', 'contract_type', ('gold_coin_cd', 'gold_bar_cd', 'silver_bar_cd')),
     ('calculate_black_scholes_merton', 'option_type', ('Call', 'Put')),
+    ('calculate_contract_metrics', 'price', ('Ask', 'Bid', 'Mid', 'Last', 'Closing')),
+    ('calculate_contract_metrics', 'underlying_price', ('Last', 'Closing')),
+    ('calculate_expiration_payoff', 'option_type', ('Call', 'Put')),
+    ('calculate_expiration_payoff', 'position', ('Long', 'Short')),
 ])
 def test_verified_closed_choices_are_visible(function, parameter, choices):
     assert get_args(get_type_hints(getattr(fima, function))[parameter]) == choices
@@ -117,7 +123,7 @@ def forbidden(*a, **k):
     raise AssertionError("import made an HTTP request")
 requests.Session.request = forbidden
 import fima
-assert len([n for n,v in vars(fima).items() if not n.startswith("_") and callable(v)]) == 85
+assert len([n for n,v in vars(fima).items() if not n.startswith("_") and callable(v)]) == 87
 '''
     subprocess.run([sys.executable, '-B', '-c', code], check=True, capture_output=True, text=True)
 
@@ -230,6 +236,36 @@ def test_option_discovery_and_contract_example(monkeypatch):
     calls = substitute(monkeypatch, 'ticker_info', pd.DataFrame({'OptionType':['Call']}))
     run_example('docs/options.md', 'assets = download_all_underlying_assets')
     assert calls[0][0] == ('SYNTHETIC-C',)
+
+
+@pytest.mark.parametrize('path', ['README.md', 'docs/options.md'])
+def test_offline_option_comparison_examples_select_exact_identity(monkeypatch, path):
+    from types import SimpleNamespace
+    from test.test_tsetmc_options_contracts import option_record
+    import fima.Options as options
+    raw = option_record()
+    raw['contractSize'] = 1254
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: SimpleNamespace(
+        raise_for_status=lambda: None, json=lambda: {'instrumentOptMarketWatch': [raw]}))
+    watch = options.download_market_watch(stack='Vertical')
+    before = watch.copy(deep=True)
+    calls = substitute(monkeypatch, 'download_market_watch', watch)
+    replies = iter(['00002'] if path == 'README.md' else ['BASE', '00002'])
+    monkeypatch.setattr('builtins.input', lambda prompt: next(replies))
+    result = run_example(path, 'comparison = calculate_contract_metrics')
+    assert calls[0][1] == {'stack': 'Vertical'}
+    assert result['comparison'].InstrumentCode.tolist() == ['00002']
+    assert result['comparison'].PremiumPerContract.tolist() == [12540.]
+    pd.testing.assert_frame_equal(watch, before)
+    if path == 'docs/options.md':
+        monkeypatch.setattr('builtins.input', lambda prompt: '8')
+        result = run_example(path, 'position_payoff = calculate_expiration_payoff', result)
+        assert result['position_payoff'].GrossProfit.tolist() == pytest.approx([-10032., -10032., 2508.])
+
+
+def test_expiration_example_uses_real_offline_function():
+    result = run_example('docs/options.md', 'scenarios = calculate_expiration_payoff')
+    assert result['scenarios'].GrossProfit.tolist() == [-200640., -200640., 300960.]
 
 
 def test_ime_discovery_and_physical_reuse_examples(monkeypatch):

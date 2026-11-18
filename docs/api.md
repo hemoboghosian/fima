@@ -71,6 +71,8 @@
 | `get_implied_volatility(ticker, _ticker_info_df=None, volatility_window_size=None, r_f=None, minimum_required_history=30, _ua_historical_data=None)` | Estimate decimal implied volatility from the option's observed premium. |
 | `black_scholes_merton(ticker, _ticker_info_df=None, volatility_window_size=None, r_f=None, minimum_required_history=30, _ua_historical_data=None)` | Estimate an option price using historical underlying volatility. |
 | `download_market_watch(market='All', stack='Horizontal', j_date=True, bsm=False, greeks=False, implied_volatility=False)` | Return TSETMC options for ``All``, ``TSE`` or ``IFB``. |
+| `calculate_contract_metrics(watch, *, price='Ask', underlying_price='Last')` | مقایسهٔ مظنه‌ها، ارزش ذاتی/زمانی، سربه‌سر و مبلغ پریمیوم هر قرارداد، بدون شبکه. |
+| `calculate_expiration_payoff(underlying_prices, strike_price, premium, option_type, *, contract_size, contracts=1, position='Long')` | سناریوی ارزش و سود/زیان ناخالص در سررسید، با اندازهٔ قرارداد صریح و بدون شبکه. |
 | `download_all_underlying_assets(_all_options_market_watch=None, market='All')` | Discover underlying assets from an options market watch. |
 | `download_historical_data(ticker, start_date=None, end_date=None)` | Option and underlying raw daily history, filtered by optional Jalali bounds. |
 | `ticker_info(ticker, j_date=True)` | Return option metadata and last prices for an exact option ticker. |
