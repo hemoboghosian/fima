@@ -95,6 +95,23 @@ print(growth.attrs["Coverage"])
 
 کد شاخص را از `Indicator` و شناسهٔ کشور یا گروه را از `Country` بردارید. واحد منبع، نسخهٔ داده و پوشش را پیش از مقایسه بررسی کنید؛ همهٔ مشاهدات دادهٔ قطعی نیستند. برای KILID نیز `get_kilid_areas()` مسیر کشف شناسهٔ `Area` است؛ انتخاب‌های تاریخچه `6m`، `1y` و `3y` و واحدها `toman`، `usd` و `gold` هستند.
 
+### مقایسهٔ قراردادهای اختیار
+
+```python
+from fima import download_market_watch, calculate_contract_metrics
+
+watch = download_market_watch(stack="Vertical")
+print(watch[["UnderlyingTicker", "Ticker", "InstrumentCode", "EndJalaliDate", "StrikePrice"]])
+code = input("کد ابزار قرارداد موردنظر را از جدول وارد کنید: ").strip()
+selected = watch.loc[watch["InstrumentCode"].eq(code)]
+if len(selected) != 1:
+    raise ValueError("یک قرارداد مشخص از جدول انتخاب کنید.")
+comparison = calculate_contract_metrics(selected, price="Ask")
+print(comparison[["Ticker", "QuoteStatus", "TimeValue", "PremiumPerContract"]])
+```
+
+محاسبه روی جدول دریافت‌شده انجام می‌شود و درخواست شبکهٔ دیگری ندارد. پیش از انتخاب، دارایی پایه، سررسید، نوع اختیار و قیمت اعمال را بررسی کنید. قیمت‌ها ریال به‌ازای هر سهم یا واحد پایه‌اند؛ `PremiumPerContract` با اندازهٔ همان قرارداد، مبلغ ریالی یک قرارداد را نشان می‌دهد. مظنهٔ فروش تضمین اجرای خرید نیست و قیمت مفقود با قیمت دیگری جایگزین نمی‌شود. [راهنمای مقایسه و سناریوی سود/زیان سررسید](https://github.com/hemoboghosian/fima/blob/master/docs/options.md#contract-comparison) تفاوت ارزش ذاتی/زمانی، مبلغ پریمیوم و فرض‌های اعمال را توضیح می‌دهد.
+
 ## قرارداد داده‌ها و محدودیت‌ها
 
 - نام ستون‌ها و کلیدهای پردازش‌شده انگلیسی و `PascalCase` است؛ نام تابع و پارامتر پایتون `snake_case` باقی می‌ماند.

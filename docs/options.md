@@ -83,6 +83,158 @@ is not proof of an active or recently traded contract. If an application needs
 unexpired contracts, compare `EndJalaliDate` with today's Jalali date explicitly.
 Do not assume that a historical example ticker is still active.
 
+## Contract comparison
+
+`calculate_contract_metrics(watch, *, price='Ask', underlying_price='Last')`
+works on an existing **Vertical** watch; it never downloads data. Inspect the
+available underlyings and contracts, then select an exact `InstrumentCode` from
+the displayed table. The example reads that choice rather than picking the first
+contract as a recommendation:
+
+```python
+from fima import (download_market_watch, download_all_underlying_assets,
+                  calculate_contract_metrics)
+
+watch = download_market_watch(stack="Vertical")
+print(download_all_underlying_assets(watch)[["Ticker", "InstrumentCode"]])
+underlying = input("Underlying ticker from the table: ").strip()
+contracts = watch.loc[watch["UnderlyingTicker"].eq(underlying)]
+print(contracts[["Ticker", "InstrumentCode", "OptionType", "EndJalaliDate",
+                 "StrikePrice", "ContractSize", "BidPrice", "AskPrice"]])
+code = input("Exact option InstrumentCode from the table: ").strip()
+selected = contracts.loc[contracts["InstrumentCode"].eq(code)]
+if len(selected) != 1:
+    raise ValueError("Select exactly one displayed contract.")
+comparison = calculate_contract_metrics(selected, price="Ask", underlying_price="Last")
+print(comparison[["Ticker", "QuoteStatus", "SpreadPercent", "IntrinsicValue",
+                  "TimeValue", "BreakevenPrice", "PremiumPerContract"]])
+```
+
+Check the expiration and intended side/strike before choosing a contract. The
+helper does not filter expirations. Existing `Status` is retained unchanged: it
+uses underlying last price, even if you select a closing-price basis here.
+
+`price` choices are `Ask`, `Bid`, `Mid`, `Last`, `Closing`; `underlying_price`
+choices are `Last`, `Closing`. Ask is an indicative buy/cover price; Bid is an
+indicative sell price. A midpoint is a valuation reference, not an executable
+quote. Last/closing prices can be stale or asynchronous with the underlying.
+No other price is substituted when the selected basis is missing.
+
+The result copies all input columns, index, row order and attrs and adds these
+columns. Numeric additions have dtype `float64` and use NaN; `QuoteStatus` has
+pandas string dtype. `S` is the chosen underlying price, `K` the strike and `P`
+the chosen premium. Prices retain rials per underlying share or fund unit.
+
+| Added column | Formula / interpretation |
+| --- | --- |
+| `QuoteStatus` | `TwoSided`, `Locked`, `Crossed`, `BidOnly`, `AskOnly`, `NoQuote`, `Incomplete` |
+| `MidPrice` | `(ask + bid) / 2`, only for usable ordered two-sided books |
+| `Spread` | `ask - bid`, rials per underlying unit |
+| `SpreadPercent` | `100 * Spread / MidPrice`, percentage points; 20 means 20% |
+| `ReferencePrice`, `UnderlyingReferencePrice` | Explicitly selected premium and spot, rials per underlying unit |
+| `SpotStrikeRatio` | `S / K`, dimensionless; higher values favor call rather than put intrinsic value |
+| `IntrinsicValue` | Call: `max(S-K, 0)`; put: `max(K-S, 0)`, rials per unit |
+| `TimeValue` | `P - IntrinsicValue`, signed rials per unit; negative residuals are retained |
+| `BreakevenPrice` | Call: `K+P`; put: `K-P`, underlying price at economic expiration breakeven before costs |
+| `PremiumPerContract` | `P * ContractSize`, **rials per contract**; supplied trade value is not multiplied again |
+| `VolumeOpenPositionsRatio` | `TradeVolume / OpenPositions`, dimensionless, not a percentage |
+
+A quote side requires positive price **and** quantity. A locked book has valid
+zero spread; crossed books have missing spread/midpoint and Ask/Bid/Mid reference
+metrics. A known one-sided quote remains usable. Missing, negative or nonfinite
+book fields make `QuoteStatus="Incomplete"`; a known opposite side can still be
+used. Explicit zeros are empty sides, not missing observations. Price with zero
+quantity is not usable. No quote status certifies liquidity, freshness, trading
+permission or a fill.
+
+Missing, negative and nonfinite numeric observations invalidate only dependent
+metrics. Zero snapshot prices, strike or size are unavailable. Zero trading
+volume remains valid; zero OI gives a missing ratio, including 0/0. A negative
+put breakeven is missing because it cannot occur at a nonnegative spot price;
+zero breakeven is valid. Premium exposure/breakeven do not require spot, and
+intrinsic value does not require a premium. Contract size is taken from each
+row: it must not default to 1,000. No dividend, rate or pricing model is used.
+Negative time value alone is not an arbitrage signal.
+
+Required fields are `OptionType`, `StrikePrice`, `ContractSize`, `BidPrice`,
+`BidVolume`, `AskPrice`, `AskVolume`, `TradeVolume`, `OpenPositions`, the selected
+`UnderlyingLastPrice`/`UnderlyingClosingPrice`, and `LastPrice`/`ClosingPrice`
+when selected. Missing cells are allowed; missing columns, duplicate columns,
+unknown/missing option types, malformed required numeric cells and invalid selectors
+raise `ValueError`. Do not pass a horizontal chain or an already-enriched result;
+reuse the original Vertical watch to change the basis. Empty valid-schema input
+returns the same empty result schema. Source columns and their dtypes are retained.
+
+## Expiration scenarios
+
+`calculate_expiration_payoff(underlying_prices, strike_price, premium, option_type,
+*, contract_size, contracts=1, position='Long')` is entirely offline. Select
+`StrikePrice`, `OptionType` and `ContractSize` from the exact contract above;
+`ticker_info` alone does not return the multiplier. Supply your actual entry
+premium when known. Use one currency throughout; fima watch prices are rials,
+not tomans. Do not pass a full-contract premium as the per-unit `premium`.
+
+This independent example is **synthetic**, not a market quote or forecast:
+
+```python
+from fima import calculate_expiration_payoff
+
+scenarios = calculate_expiration_payoff(
+    [800, 1000, 1200], strike_price=1000, premium=80, option_type="Call",
+    contract_size=1254, contracts=2, position="Long",
+)
+print(scenarios)
+```
+
+For `a=1` (Long) or `a=-1` (Short), `Q=contracts*contract_size` and intrinsic
+`I=max(S_T-K,0)` for Call or `max(K-S_T,0)` for Put, the five `float64` columns are:
+
+| Column | Meaning and unit |
+| --- | --- |
+| `UnderlyingPrice` | Supplied scenario price, rials per underlying unit |
+| `IntrinsicValue` | `I`, rials per underlying unit |
+| `ExpirationPayoff` | `a * Q * I`, signed total rials, excluding entry premium |
+| `PremiumCashFlow` | `-a * Q * premium`, signed total entry rials |
+| `GrossProfit` | Payoff plus entry cash flow, total rials before costs/financing |
+
+The example's gross profits are `[-200640, -200640, 300960]` rials. Long buys the
+option and Short writes it; buying back a short is a closing transaction, not a
+new Long scenario. Calls break even at `K+premium`, puts at `K-premium` if that
+price is nonnegative. The calculation does not discount or annualize cash flows.
+
+The economic payoff assumes exercise when beneficial using fixed supplied terms.
+It does not model automatic exercise or missing a manual request deadline,
+physical delivery or strike funding, allocation, fees, tax, financing, margin,
+default, future term adjustments or closing a position before expiry. It is not
+a guarantee of actual cash settlement. Exchange/contract-specific settlement
+rules still apply; see the official contract notice before exercising.
+
+Option type is exactly `Call`/`Put`, position `Long`/`Short`. Scenario prices and
+premium must be finite nonnegative real numbers; strike is positive. Counts and
+multiplier are positive integers (including NumPy integers), not booleans or
+floating-point counts. Invalid inputs or overflowing monetary results raise
+`ValueError`. Zero premium/spot is allowed here as a supplied scenario, unlike
+an unavailable zero snapshot price. Scenario order/duplicates are preserved
+without mutating input; output uses a new RangeIndex. Empty scenarios return
+the five documented empty float columns. Neither helper makes an HTTP request.
+
+To use the selected contract from the comparison example, keep its exact terms
+and enter your actual per-unit entry premium. These three spots are scenarios
+around the strike, not price predictions:
+
+```python
+from fima import calculate_expiration_payoff
+
+row = selected.iloc[0]  # The exact contract selected above.
+entry_premium = float(input("Actual entry premium per unit, in rials: "))
+position_payoff = calculate_expiration_payoff(
+    [row["StrikePrice"] * .9, row["StrikePrice"], row["StrikePrice"] * 1.1],
+    strike_price=row["StrikePrice"], premium=entry_premium,
+    option_type=row["OptionType"], contract_size=row["ContractSize"], position="Long",
+)
+print(position_payoff)
+```
+
 ## Analytics
 
 `get_greeks`, `get_implied_volatility` and `black_scholes_merton` each accept
