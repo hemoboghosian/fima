@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.1
 
 - Preserve financial schemas across pandas 2 and 3: object-typed option
   moneyness with `pd.NA`, numeric Tadbir allocation values/percentage points,
