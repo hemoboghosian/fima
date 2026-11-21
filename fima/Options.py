@@ -962,7 +962,7 @@ def download_chain_contracts(underlying_ticker: str, j_date: bool = True, bsm: b
     valid_prices = (np.isfinite(chain_contracts['LastPrice-UA']) & (chain_contracts['LastPrice-UA'] > 0)
                     & np.isfinite(chain_contracts['StrikePrice']) & (chain_contracts['StrikePrice'] > 0))
     for column in ('Status-C', 'Status-P'):
-        chain_contracts[column] = chain_contracts[column].where(valid_prices, pd.NA)
+        chain_contracts[column] = chain_contracts[column].astype(object).where(valid_prices, pd.NA)
     return _option_frame(chain_contracts, j_date)
 
 
@@ -1124,7 +1124,7 @@ def download_market_watch(market: str = 'All', stack: str = 'Horizontal', j_date
     valid_prices = (np.isfinite(all_options_market_watch['LastPrice-UA']) & (all_options_market_watch['LastPrice-UA'] > 0)
                     & np.isfinite(all_options_market_watch['StrikePrice']) & (all_options_market_watch['StrikePrice'] > 0))
     for column in (('Status',) if stack == 'Vertical' else ('Status-C', 'Status-P')):
-        all_options_market_watch[column] = all_options_market_watch[column].where(valid_prices, pd.NA)
+        all_options_market_watch[column] = all_options_market_watch[column].astype(object).where(valid_prices, pd.NA)
     return _option_frame(all_options_market_watch, j_date)
 
 

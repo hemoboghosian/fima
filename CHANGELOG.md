@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Preserve financial schemas across pandas 2 and 3: object-typed option
+  moneyness with `pd.NA`, numeric Tadbir allocation values/percentage points,
+  and nanosecond IFB/IME dates and timestamps, including empty results. Keep
+  financial classifications, values, identities and public APIs unchanged.
+
 ## 0.17.0
 
 - Add offline `calculate_contract_metrics` for Vertical option watches: quote
