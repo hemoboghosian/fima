@@ -1,3 +1,4 @@
+from ._html import _find_descendant
 from ._data import jalali_date, gregorian_series, identifier_series, number_series
 import pandas as pd
 import numpy as np
@@ -46,13 +47,13 @@ def _ifb_mount_adapter(session, pool_size=20):
 
 
 def _ifb_find_page_size_control(soup, grid_name_part):
-    select = soup.select_one(f"div.sizeselector select[name*='{grid_name_part}']")
+    select = _find_descendant(soup, "div.sizeselector", f"select[name*='{grid_name_part}']")
     return select.get("name") if select else None
 
 
 def _ifb_best_page_size(soup, grid_name_part, requested=100):
     """Use the largest allowed page size up to requested. Falls back to requested."""
-    select = soup.select_one(f"div.sizeselector select[name*='{grid_name_part}']")
+    select = _find_descendant(soup, "div.sizeselector", f"select[name*='{grid_name_part}']")
     if not select:
         return str(requested)
 
@@ -907,7 +908,7 @@ def get_all_standard_financing_instruments() -> pd.DataFrame:
 
 
     def find_pagesize_control_name(fpscn_soup):
-        sel = fpscn_soup.select_one("div.sizeselector select[name*='grdFinancialData']")
+        sel = _find_descendant(fpscn_soup, "div.sizeselector", "select[name*='grdFinancialData']")
         return sel.get("name") if sel else None
 
 
@@ -1072,7 +1073,7 @@ def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame | None, pd.DataFrame | No
 
 
     def find_pagesize_control_name(pscn_soup, grid_suffix="grdPBs"):
-        sel = pscn_soup.select_one(f"div.sizeselector select[name*='{grid_suffix}']")
+        sel = _find_descendant(pscn_soup, "div.sizeselector", f"select[name*='{grid_suffix}']")
         return sel.get("name") if sel else None
 
 
@@ -1091,7 +1092,8 @@ def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame | None, pd.DataFrame | No
         """All key/value pairs from all .insTable blocks, with section titles."""
         out = []
         for panel in it_soup.select("div.subpanel"):
-            section = p2l((panel.select_one(".panelheader label") or {}).get_text(strip=True) if panel.select_one(".panelheader label") else "")
+            heading = _find_descendant(panel, ".panelheader", "label")
+            section = p2l(heading.get_text(strip=True) if heading else "")
             if section in ["", "اطلاعات ارکان"]:
                 continue  # exclude this section
             for tbl in panel.select("table.insTable"):
@@ -1137,7 +1139,7 @@ def get_ticker_info(ticker: str) -> Tuple[pd.DataFrame | None, pd.DataFrame | No
 
     # pager: read last page number (might be only 1)
     def get_last_page(s):
-        pager_tr = s.select_one("table[id$='grdPBs'] tr.pgr")
+        pager_tr = _find_descendant(s, "table[id$='grdPBs']", "tr.pgr")
         if not pager_tr: return 1
         nums = []
         for td in pager_tr.find_all("td"):
@@ -1230,7 +1232,7 @@ def get_all_special_financing_instruments() -> pd.DataFrame:
 
 
     def find_pagesize_control_name(fpscn_soup):
-        sel = fpscn_soup.select_one("div.sizeselector select[name*='grdFinancialData']")
+        sel = _find_descendant(fpscn_soup, "div.sizeselector", "select[name*='grdFinancialData']")
         return sel.get("name") if sel else None
 
 
@@ -1292,7 +1294,7 @@ def get_all_special_financing_instruments() -> pd.DataFrame:
 
 
     def get_last_page(s):
-        pager_tr = s.select_one("table[id$='grdFinancialData'] tr.pgr")
+        pager_tr = _find_descendant(s, "table[id$='grdFinancialData']", "tr.pgr")
         if not pager_tr:
             return 1
         nums = []

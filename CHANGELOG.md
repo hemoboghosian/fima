@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Mitigate Soup Sieve descendant-selector backtracking on provider HTML while
+  preserving Python 3.10, extraction scope, financial values and pagination.
+  The compatible dependency remains advisory-affected; see docs/security.md.
+
 ## 0.17.0
 
 - Add offline `calculate_contract_metrics` for Vertical option watches: quote
