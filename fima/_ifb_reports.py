@@ -278,7 +278,7 @@ def get_ifb_periodical_reports(start_date: str, end_date: str, *, report_type: _
         frame[name] = frame[name].astype('string')
     for prefix in ('PeriodEnd', 'Upload'):
         frame[prefix+'GregorianDate'] = pd.to_datetime(frame[prefix+'JalaliDate'].map(
-            lambda value: jd.date(*map(int, value.split('-'))).togregorian()))
+            lambda value: jd.date(*map(int, value.split('-'))).togregorian())).dt.as_unit('ns')
     frame = frame[_COLUMNS]
     frame.attrs = {'SourceURL': _URL, 'Snapshot': True, 'RecordCount': len(frame),
                    'PageCount': len(passes[0][1]) if len(frame) else 0, 'ValidationPasses': 2,

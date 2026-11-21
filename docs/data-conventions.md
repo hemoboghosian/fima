@@ -32,6 +32,9 @@ Values in opaque metadata are not assigned guessed financial meanings.
 - Gregorian date-only columns use pandas `datetime64[ns]` and `NaT`. Use
   `GregorianDate` when both calendars are relevant, and explicit calendar
   qualifiers for event dates. Do not turn timestamps into date-only values.
+- IME `CreateDateTime` keeps nanosecond precision, fractional seconds and any
+  supplied timezone. Naive source timestamps remain naive; missing or malformed
+  timestamps remain `NaT`. These dtype contracts apply across pandas 2 and 3.
 - Jalali date columns and date indexes contain ASCII `YYYY-MM-DD` strings;
   missing values are `pd.NA`. Use `JalaliDate`, or an event-qualified name.
   No custom Jalali dtype is required. Separate times use `HH:MM:SS` strings.

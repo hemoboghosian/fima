@@ -338,7 +338,7 @@ def get_ifb_market_value_history(start_date: str | None=None, end_date: str | No
         raise ValueError("IFB conflicting duplicate history dates; cannot select an authoritative record.")
     for column in _VALUE_COLUMNS:
         frame[column] = frame[column].astype("Int64")
-    frame.insert(1, "GregorianDate", pd.to_datetime(frame.JalaliDate.map(lambda d: _jdate(d).togregorian())))
+    frame.insert(1, "GregorianDate", pd.to_datetime(frame.JalaliDate.map(lambda d: _jdate(d).togregorian())).dt.as_unit('ns'))
     frame = frame[["JalaliDate", "GregorianDate", "MarketRegime"] + _VALUE_COLUMNS]
     if start is not None:
         frame = frame.loc[frame.JalaliDate.ge(start)]
