@@ -1,3 +1,4 @@
+from ._html import _descendants, _find_descendant
 import requests
 import pandas as pd
 import jdatetime as jd
@@ -1107,10 +1108,10 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
         soup = BeautifulSoup(response.text, "html.parser")
         # Extract headers (only once)
         if not headers:
-            headers = [th.get_text(strip=True) for th in soup.select("thead th")]
+            headers = [th.get_text(strip=True) for th in _descendants(soup, "thead", "th")]
         # Extract data rows
         rows = [tuple(td.get_text(strip=True).replace("\u200c", "") for td in tr.find_all("td"))
-                for tr in soup.select("tbody tr")]
+                for tr in _descendants(soup, "tbody", "tr")]
         if not headers or not rows or any(len(row) != len(headers) for row in rows):
             raise ValueError(f"Tadbir asset report is empty or malformed: {base_url}")
         page_rows = tuple(rows)
@@ -1119,7 +1120,7 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
         seen_pages.add(page_rows)
         all_rows.extend(rows)
         # Check if there is a next page
-        next_page_link = soup.select_one("tfoot .pager a[title='Next page']")
+        next_page_link = _find_descendant(soup, "tfoot", ".pager", "a[title='Next page']")
         if next_page_link:
             params = _tadbir_asset_page_params(params, next_page_link.get("href"))
             time.sleep(0.3)  # be polite

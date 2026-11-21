@@ -6,6 +6,9 @@
   moneyness with `pd.NA`, numeric Tadbir allocation values/percentage points,
   and nanosecond IFB/IME dates and timestamps, including empty results. Keep
   financial classifications, values, identities and public APIs unchanged.
+- Mitigate Soup Sieve descendant-selector backtracking on provider HTML while
+  preserving Python 3.10, extraction scope, financial values and pagination.
+  The compatible dependency remains advisory-affected; see docs/security.md.
 
 ## 0.17.0
 

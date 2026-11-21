@@ -3,6 +3,7 @@
 See docs/kilid.md for the source audit, data licenses, coverage and schemas.
 No authentication, undocumented endpoint, derived FX conversion or crawling.
 """
+from ._html import _descendants
 from typing import Literal as _Literal
 import datetime as _dt
 from decimal import Decimal as _Decimal
@@ -80,8 +81,9 @@ def _slug(url):
         raise RuntimeError("KILID: malformed geographic identifier") from exc
 
 
-def _one(node, selector):
-    matches = node.select(selector)
+def _one(node, selector, *descendants):
+    matches = list(_descendants(node, selector, *descendants)) if descendants else node.select(selector)
+    selector = " ".join((selector, *descendants))
     if len(matches) != 1:
         _fail("missing or ambiguous " + selector)
     return matches[0]
@@ -344,8 +346,8 @@ def get_kilid_house_price_history(area: str, period: _Literal["6m", "1y", "3y"]=
     price_stat = next(r for r in stats if r["Metric"] == "MedianListingPricePerSquareMeter")
     if price_stat["DataBasis"] != "PublishedListings":
         _fail("modeled/imputed area is not a verified observed listing history")
-    table = _one(soup, '[data-testid="trend-table"] table')
-    headers = [_norm(x.get_text()) for x in table.select("thead th")]
+    table = _one(soup, '[data-testid="trend-table"]', "table")
+    headers = [_norm(x.get_text()) for x in _descendants(table, "thead", "th")]
     second = {"toman": "مقدار", "usd": "قیمت هر متر مربع به دلار",
               "gold": "قیمت هر متر مربع به گرم طلای ۱۸ عیار"}[denomination]
     if headers != [_norm("دوره"), _norm(second)]:
@@ -358,7 +360,7 @@ def get_kilid_house_price_history(area: str, period: _Literal["6m", "1y", "3y"]=
     if _one(soup, '[data-testid="trend-chart"] > figcaption').get_text(" ", strip=True) != caption:
         _fail("conflicting chart/table history bounds")
     rows = []
-    for row in table.select("tbody tr"):
+    for row in _descendants(table, "tbody", "tr"):
         cells = row.find_all(["th", "td"], recursive=False)
         if len(cells) != 2:
             _fail("malformed history row")
@@ -431,10 +433,10 @@ def _comparisons(area):
     numeric = ["PublishedPricePerSquareMeterToman", "PublishedPricePerSquareMeterUSD",
                "PublishedPricePerSquareMeterGold18KGrams", "PublishedMonthlyPriceChange", "PublishedYearlyPriceChange"]
     for table in tables:
-        if [_norm(t.get_text()) for t in table.select("thead th")] != [_norm(t) for t in headers]:
+        if [_norm(t.get_text()) for t in _descendants(table, "thead", "th")] != [_norm(t) for t in headers]:
             _fail("changed geographic comparison headers")
         months.append(_period_label(_one(table, "caption").get_text(" ", strip=True), "قیمت‌ها بر اساس آگهی‌های"))
-        for row in table.select("tbody tr"):
+        for row in _descendants(table, "tbody", "tr"):
             if row.get("data-testid") == "comparison-parent-row":
                 continue  # This aggregate has a different identity/basis from children.
             if row.get("data-testid") != "comparison-row":

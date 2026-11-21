@@ -1,6 +1,7 @@
 include README.md
 include CHANGELOG.md
 include LICENSE
+include docs/security.md
 include docs/tgju.md
 include docs/cbi.md
 include docs/data-migration.md

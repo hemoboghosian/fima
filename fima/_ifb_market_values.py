@@ -1,4 +1,5 @@
 """IFB's public market-value tables and whole-file historical CSV exports."""
+from ._html import _find_descendant
 from typing import Literal as _Literal
 import csv
 from datetime import date
@@ -87,7 +88,7 @@ def _attrs(soup, url):
 
 
 def _container(soup):
-    table = soup.select_one("#ContentPlaceHolder1_tblContainer table.tblGrp")
+    table = _find_descendant(soup, "#ContentPlaceHolder1_tblContainer", "table.tblGrp")
     if table is None:
         raise ValueError("IFB market-value table missing; response is not a valid empty dataset.")
     return table
