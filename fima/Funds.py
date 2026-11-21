@@ -1151,10 +1151,10 @@ def _get_daily_asset_allocation_tadbirpardaz(fund_name: str) -> pd.DataFrame:
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(lambda date_str: str(int(date_str.replace('/', ''))))
     daily_asset_allocation['Date'] = daily_asset_allocation['Date'].apply(_jalali_str_to_date)
     for ValueColumn in ['Upper5%Stocks', 'OtherStocks', 'Bonds', 'CDs', 'CashAndBank', 'OtherAssets', 'FundUnits'] + extra_values:
-        daily_asset_allocation.loc[:, ValueColumn] = daily_asset_allocation[ValueColumn].str.replace(',', '').astype(int)
+        daily_asset_allocation[ValueColumn] = daily_asset_allocation[ValueColumn].str.replace(',', '').astype(int)
     for PercentageColumn in ['Upper5%Stocks Weight', 'OtherStocks Weight', 'Bonds Weight', 'CDs Weight',
                               'CashAndBank Weight', 'OtherAssets Weight', 'FundUnits Weight'] + [f"{name} Weight" for name in extra_values]:
-        daily_asset_allocation.loc[:, PercentageColumn] = daily_asset_allocation[PercentageColumn].str.replace(' %', '').astype(float)
+        daily_asset_allocation[PercentageColumn] = daily_asset_allocation[PercentageColumn].str.replace(' %', '').astype(float)
 
     daily_asset_allocation = daily_asset_allocation[['Date', 'OtherStocks', 'Upper5%Stocks', 'Bonds', 'CDs', 'CashAndBank',
                                                      'FundUnits', 'OtherAssets', 'OtherStocks Weight', 'Upper5%Stocks Weight',

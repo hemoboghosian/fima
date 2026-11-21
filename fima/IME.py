@@ -39,7 +39,12 @@ def _public_frame(frame):
         elif column.endswith('GregorianDate'):
             result[column] = gregorian_series(result[column])
         elif column == 'CreateDateTime':
-            result[column] = pd.to_datetime(result[column], format='mixed', errors='coerce')
+            timestamps = pd.to_datetime(result[column], format='mixed', errors='coerce')
+            instants = (timestamps.dt.tz_convert('UTC').dt.tz_localize(None)
+                        if timestamps.dt.tz is not None else timestamps)
+            # Keep errors='coerce' at the public nanosecond boundary as well.
+            result[column] = timestamps.where(
+                instants.between(pd.Timestamp.min, pd.Timestamp.max)).dt.as_unit('ns')
         elif column in ('ID', 'ContractID', 'ContractCode', 'Code', 'Symbol'):
             result[column] = identifier_series(result[column])
         elif column in quantities or column.startswith(('Retail', 'Institutional')):

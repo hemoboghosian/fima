@@ -111,7 +111,7 @@ def _frame(rows, instrument_id, ticker, start, end):
         frame[column] = frame[column].map(lambda v: _date(v, required=column == 'LastTradeJalaliDate'))
         gregorian = column.replace('Jalali', 'Gregorian')
         frame[gregorian] = pd.to_datetime(frame[column].map(
-            lambda v: jd.date(*map(int, v.split('-'))).togregorian() if pd.notna(v) else None))
+            lambda v: jd.date(*map(int, v.split('-'))).togregorian() if pd.notna(v) else None)).dt.as_unit('ns')
     if not frame.LastTradeJalaliDate.between(start, end).all():
         raise ValueError('IFB history export ignored the requested date bounds.')
     try:

@@ -67,6 +67,8 @@ def test_valid_moneyness_and_price_basis_are_preserved(source, layout, j_date, s
     source['instrumentOptMarketWatch'][0]['pDrCotVal_UA'] = spot
     result = download(layout, j_date)
     assert statuses(result, layout) == {'Call': call, 'Put': put}
+    columns = ['Status'] if layout == 'Vertical' else ['CallStatus', 'PutStatus']
+    assert all(result[column].dtype == object for column in columns)
     assert result.UnderlyingLastPrice.eq(spot).all()
     assert result.UnderlyingClosingPrice.eq(105).all()
     numeric = 'LastPrice' if layout == 'Vertical' else 'CallLastPrice'
