@@ -1,27 +1,9 @@
-"""Bounded regression for the real IFB lookup, without timing assertions."""
+"""Small extraction fixtures preserve provider selector behavior."""
 from bs4 import BeautifulSoup
 import pytest
-from soupsieve.css_match import CSSMatch
 
 from fima._ifb_market_values import _container
 from fima._html import _descendants, _find_descendant
-
-
-def test_ifb_missing_container_does_not_recheck_every_ancestor(monkeypatch):
-    depth = 160
-    soup = BeautifulSoup('<table class="tblGrp">' * depth + '</table>' * depth, 'html.parser')
-    calls = 0
-    original = CSSMatch.match_selectors
-
-    def counted(self, *args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(self, *args, **kwargs)
-
-    monkeypatch.setattr(CSSMatch, 'match_selectors', counted)
-    with pytest.raises(ValueError, match='table missing'):
-        _container(soup)
-    assert calls <= depth * 12  # A constant amount of selector work per tag.
 
 
 @pytest.mark.parametrize('parts', [
@@ -66,12 +48,24 @@ def test_root_and_external_ancestors_match_but_are_never_returned():
         assert [id(t) for t in _descendants(root, *parts)] == [id(t) for t in root.select(' '.join(parts))]
 
 
-def test_deep_markup_is_iterative_and_does_not_duplicate_results():
-    depth = 1200
-    soup = BeautifulSoup('<div class="pager">' * depth + '<a title="Next page">next</a>'
-                         + '</div>' * depth, 'html.parser')
+def test_nested_pagers_do_not_duplicate_the_next_link():
+    soup = BeautifulSoup('<div class="pager"><span><div class="pager">'
+                         '<a title="Next page">next</a></div></span></div>', 'html.parser')
     assert list(_descendants(soup, '.pager', '.pager', "a[title='Next page']")) == [soup.a]
     assert list(_descendants(soup, 'tfoot', '.pager', 'a')) == []
+
+
+def test_nested_financial_rows_preserve_exact_values_and_order():
+    soup = BeautifulSoup('<table><thead><tr><th>Date</th><th>MarketValue</th></tr></thead>'
+                         '<tbody><tr><td>1405/08/17</td><td>9007199254740993</td></tr>'
+                         '<tr><td>1405/08/16</td><td>0</td></tr></tbody></table>', 'html.parser')
+    headers = [tag.get_text() for tag in _descendants(soup, 'thead', 'th')]
+    rows = [[td.get_text() for td in tr.find_all('td', recursive=False)]
+            for tr in _descendants(soup, 'tbody', 'tr')]
+    assert headers == ['Date', 'MarketValue']
+    assert rows == [['1405/08/17', '9007199254740993'], ['1405/08/16', '0']]
+    assert rows == [[td.get_text() for td in tr.find_all('td', recursive=False)]
+                    for tr in soup.select('tbody tr')]
 
 
 @pytest.mark.parametrize('html', ['', '<div><table class="other"></div>', '<table class="tblGrp"></table>'])

@@ -32,11 +32,10 @@ Future changes must not pass descendant chains or untrusted selector strings
 to Soup Sieve on Python 3.10. Upstream selector-compilation advisories remain
 in the compatible dependency, but fima exposes no public CSS-selector input.
 
-A bounded reproduction of IFB's missing-container lookup on Soup Sieve 2.10
-performed 5,150 / 20,300 / 80,600 selector checks for 100 / 200 / 400 nested
-tables. The deterministic regression counts operations rather than timing.
-Normal provider fixtures, financial values, ambiguity errors, history and
-pagination are tested separately. This mitigation does not promise bounded
-resource use for every operation on arbitrary hostile HTML.
+Small deterministic HTML fixtures compare the refactored matching with the
+original selectors. Existing provider tests verify exact financial values,
+ambiguity errors, history and pagination. No stress tests or resource-exhaustion
+demonstrations are part of the regression suite. This mitigation does not
+promise bounded resource use for every operation on arbitrary external HTML.
 
 Reference: [upstream advisory](https://github.com/facelessuser/soupsieve/security/advisories/GHSA-mmhr-3c5m-f64f).
