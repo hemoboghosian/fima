@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from decimal import Decimal
+from fractions import Fraction
 from hashlib import sha256
 from json import JSONDecoder
 from os import PathLike
@@ -12,7 +13,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 
 
-__all__ = ["get_codal_report", "get_codal_tables", "get_codal_monthly_activity"]
+__all__ = ["get_codal_report", "get_codal_tables", "get_codal_monthly_activity", "get_codal_financial_statements"]
 
 _DATASOURCE = re.compile(r"(?m)^[ \t]*var[ \t]+datasource[ \t]*=\s*")
 _FORMAT = "CodalDatasourceHTML"
@@ -566,4 +567,372 @@ def get_codal_monthly_activity(report: dict) -> pd.DataFrame:
 
     result = pd.DataFrame(records, dtype=object)
     result.attrs = {key: deepcopy(report[key]) for key in ("Source", "ProviderMetadata", "PageMetadata", "Coverage")}
+    return result
+
+_STATEMENT_TEMPLATES = {
+    "FinancialStatement-OTC-Product-V5": 6,
+    "FinancialStatement-Registered-Product-V5": 6,
+    "Financial Statement - Product - Other - Child Companies - V2": 12,
+}
+_STATEMENT_LAYOUTS = {
+    "0": ("899", "5", "Balance Sheet", "BalanceSheet", "1", ()),
+    "1": ("904", "7", "Income Statement", "IncomeStatement", "0", ("941",)),
+    "9": ("906", "4", "Cash Flow", "CashFlow", "1", ("909",)),
+}
+# Provider row codes in coordinate order, including the hidden income row.
+_STATEMENT_ROW_CODES = {
+    "BalanceSheet": (
+        2, 12, 17, 15, 16, 14, 13, 45, 18, 19, 3, 9, 8, 44, 5, 4, 34, 10, 11,
+        33, 35, 36, 21, 22, 23, 37, 25, 26, 28, 38, 31, 24, 39, 40, 13, 14, 16,
+        46, 17, 18, 3, 41, 6, 7, 8, 9, 10, 42, 11, 12, 19, 43,
+    ),
+    "IncomeStatement": (
+        49, 3, 4, 5, 6, 44, 7, 8, 9, 10, 52, 13, 50, 45, 46, 15, 51, 21, 17, 18,
+        19, 20, 47, 48, 21, 41, 42, 43,
+    ),
+    "CashFlow": (
+        2, 56, 13, 5, 0, 15, 16, 41, 17, 18, 19, 22, 25, 26, 23, 24, 20, 21, 42,
+        7, 9, 27, 28, 29, 30, 31, 43, 32, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        53, 54, 55, 35, 36, 37, 38, 39, 40,
+    ),
+}
+_STATEMENT_SECTIONS = {
+    "BalanceSheet": {
+        3: "دارایی‌ها", 4: "دارایی‌های غیرجاری", 13: "دارایی‌های جاری",
+        23: "حقوق مالکانه و بدهی‌ها", 24: "حقوق مالکانه", 36: "بدهی‌ها",
+        37: "بدهی‌های غیرجاری", 43: "بدهی‌های جاری",
+    },
+    "IncomeStatement": {
+        3: "عملیات در حال تداوم:", 15: "هزینه مالیات بر درآمد:",
+        19: "عملیات متوقف شده:", 22: "سود(زیان) پایه هر سهم:",
+    },
+    "CashFlow": {
+        3: "جریان های نقدی حاصل از فعالیت‌های عملیاتی:",
+        7: "جریان های نقدی حاصل از فعالیت‌های سرمایه‌گذاری:",
+        26: "جریان های نقدی حاصل از فعالیت‌های تامین مالی:",
+    },
+}
+# Totals and disclosures can return to a parent section or sit outside a section.
+_STATEMENT_SECTION_TRANSITIONS = {
+    "BalanceSheet": {22: 3, 53: 36, 54: 23},
+    "IncomeStatement": {18: 3, 21: None, 28: None},
+    "CashFlow": {25: None, 44: None},
+}
+_STATEMENT_SPECIAL_ROWS = {
+    "BalanceSheet": {19: ("", "Stock"), 50: ("", "Stock")},
+    "IncomeStatement": {
+        23: ("عملیاتی (ریال)", "BasicEPS"),
+        24: ("غیرعملیاتی (ریال)", "BasicEPS"),
+        25: ("ناشی از عملیات در حال تداوم", "BasicEPS"),
+        26: ("ناشی از عملیات متوقف شده", "BasicEPS"),
+        27: ("سود(زیان) پایه هر سهم", "BasicEPS"),
+        28: ("سود (زیان) خالص هر سهم – ریال", "NetProfitPerShare"),
+        29: ("سرمایه", "ReportedCapital"),
+    },
+    "CashFlow": {
+        45: ("مانده موجودی نقد در ابتدای سال", "OpeningCash"),
+        47: ("مانده موجودی نقد در پایان سال", "ClosingCash"),
+        48: ("معاملات غیرنقدی", "NonCashTransactions"),
+    },
+}
+_STATEMENT_RECONCILIATIONS = {
+    "BalanceSheet": (
+        (22, (12, 21)), (53, (42, 52)), (54, (35, 53)), (54, (22,)),
+    ),
+    "IncomeStatement": (
+        (6, (4, 5)), (11, (6, 7, 8, 9, 10)), (14, (11, 12, 13)),
+        (18, (14, 16, 17)), (21, (18, 20)),
+    ),
+    "CashFlow": (
+        (6, (4, 5)), (24, tuple(range(8, 24))), (25, (6, 24)),
+        (43, tuple(range(27, 43))), (44, (25, 43)), (47, (44, 45, 46)),
+    ),
+}
+_STATEMENT_AUDIT_LABELS = {"حسابرسی شده": True, "حسابرسی نشده": False}
+_STATEMENT_RESTATED = "تجدید ارائه شده "
+_STATEMENT_LABEL_TRANSLATION = str.maketrans({"ى": "ی", "\u00ad": " ", "\u200f": ""})
+
+
+def _statement_error(detail):
+    return ValueError(f"Unsupported or inconsistent CODAL financial statement: {detail}")
+
+
+def _statement_heading(value):
+    return _heading(value.translate(_STATEMENT_LABEL_TRANSLATION)) if isinstance(value, str) else ""
+
+
+def _statement_month(date):
+    year, month = map(int, date.split("/")[:2])
+    return year * 12 + month
+
+
+def _statement_date(value, location):
+    if not isinstance(value, str) or not _JALALI_DATE.fullmatch(value):
+        raise _statement_error(f"invalid Jalali date at {location}: {value!r}")
+    return value
+
+
+def _statement_grid(table, statement, period):
+    grid = {}
+    row_codes = _STATEMENT_ROW_CODES[statement]
+    last_row = len(row_codes) + 2
+    balance = statement == "BalanceSheet"
+    visible_columns = {1, 2, 3, 4, 5} if period == 6 else {1, 2, 4, 6}
+    if balance:
+        visible_columns.add(3)
+    column_codes = (1, 2, 3, 4, 5, 6) if balance else (1, 2, 3, 5, 4, 6)
+    for cell in table["Cells"].itertuples(index=False):
+        row, col = key = cell.RowSequence, cell.ColumnSequence
+        if (key in grid or not 1 <= row <= last_row or not 1 <= col <= 6
+                or cell.Address != f"{chr(64 + col)}{row}" or cell.ColumnCode != column_codes[col - 1]):
+            raise _statement_error(f"invalid or duplicate coordinate {cell.Address!r}")
+        visible = col in visible_columns and (statement != "IncomeStatement" or row != last_row)
+        height = 2 if row == 1 and col in (1, 5, 6) else 1
+        if cell.IsVisible is not visible or (cell.RowSpan, cell.ColumnSpan) != (height, 1):
+            raise _statement_error(f"unexpected visibility or span at {cell.Address}")
+        if row <= 2:
+            if cell.CellGroup != "Header" or (row == 2 and col not in (2, 3, 4)):
+                raise _statement_error(f"unexpected header at {cell.Address}")
+        elif (cell.CellGroup != "Body" or cell.RowCode != row_codes[row - 3]
+              or cell.ProviderMetadata.get("rowTypeName") != "FixedRow"):
+            raise _statement_error(f"unexpected body cell at {cell.Address}")
+        grid[key] = cell
+    if len(grid) != 9 + 6 * len(row_codes):
+        raise _statement_error(f"incomplete {statement} grid")
+    return grid, visible_columns
+
+
+def _statement_columns(grid, visible, statement, provider):
+    balance = statement == "BalanceSheet"
+    period = provider["period"]
+    report_end = provider["periodEndToDate"]
+    fiscal_end = provider["yearEndToDate"]
+    if _heading(grid[1, 1].Value) != "شرح":
+        raise _statement_error("expected the account heading at A1")
+    heading = "به تاریخ" if balance else "دوره منتهی به"
+    if balance:
+        bases = {2: "Current", 3: "PriorFiscalYearEnd", 4: "PriorFiscalYearOpening"}
+    elif period == 6:
+        bases = {2: "Current", 3: "ComparativeInterim", 4: "PriorFiscalYear"}
+    else:
+        bases = {2: "Current", 4: "PriorFiscalYear"}
+
+    columns = {}
+    dates = {}
+    for col, basis in bases.items():
+        header, assurance = grid[1, col], grid[2, col]
+        meta = header.ProviderMetadata
+        end = _statement_date(meta.get("periodEndToDate"), header.Address)
+        fiscal = _statement_date(meta.get("yearEndToDate"), header.Address)
+        label = _heading(header.Value)
+        restated = label.startswith(_STATEMENT_RESTATED)
+        audited = _STATEMENT_AUDIT_LABELS.get(_heading(assurance.Value))
+        if (label.removeprefix(_STATEMENT_RESTATED) != f"{heading} {end}"
+                or audited is None
+                or any(assurance.ProviderMetadata.get(k) != meta[k]
+                       for k in ("periodEndToDate", "yearEndToDate"))
+                or assurance.ProviderMetadata.get("isAudited") is not audited):
+            raise _statement_error(f"unrecognized period or assurance at {header.Address}")
+        dates[col] = (end, fiscal)
+        columns[col] = {
+            "PeriodBasis": basis, "ColumnEndJalaliDate": end, "FiscalYearEndJalaliDate": fiscal,
+            "IsRestated": restated, "ColumnIsAudited": audited,
+            "ColumnHeading": header.Value, "ColumnAuditLabel": assurance.Value,
+        }
+    prior_close = dates[3][0] if balance else dates[4][0]
+    if (dates[2] != (report_end, fiscal_end)
+            or (period == 12 and report_end != fiscal_end)
+            or _statement_month(fiscal_end) - _statement_month(report_end) != 12 - period
+            or _statement_month(fiscal_end) - _statement_month(prior_close) != 12
+            or any(fiscal != prior_close for col, (_, fiscal) in dates.items() if col != 2)
+            or columns[2]["ColumnIsAudited"] is not provider["isAudited"]):
+        raise _statement_error("column periods or assurance disagree with the filing")
+    if balance:
+        opening = dates[4][0]
+        if _statement_month(prior_close) - _statement_month(opening) != 11 or not opening.endswith("/01"):
+            raise _statement_error("unexpected prior fiscal year opening date")
+    elif period == 6 and _statement_month(report_end) - _statement_month(dates[3][0]) != 12:
+        raise _statement_error("unexpected comparative flow period")
+
+    percent = 5 if 5 in visible else 6
+    header = grid[1, percent]
+    if _heading(header.Value) != "درصد تغییر":
+        raise _statement_error(f"expected a percentage change heading at {header.Address}")
+    columns[percent] = {
+        "PeriodBasis": "ReportedChange", "ColumnEndJalaliDate": None, "FiscalYearEndJalaliDate": None,
+        "IsRestated": None, "ColumnIsAudited": None, "ColumnHeading": header.Value, "ColumnAuditLabel": None,
+    }
+    return columns
+
+
+def _statement_value(cell, percent):
+    value = cell.Value
+    if value in (None, "") or (percent and value == "--"):
+        return None
+    if type(value) is int or (isinstance(value, Decimal) and value.is_finite()):
+        return Decimal(value)
+    if isinstance(value, str) and _REPORTED_DECIMAL.fullmatch(value):
+        return Decimal(value)
+    raise _statement_error(f"unrecognized value at {cell.Address}: {value!r}")
+
+
+def _statement_rows(table, statement, provider):
+    period = provider["period"]
+    grid, visible = _statement_grid(table, statement, period)
+    columns = _statement_columns(grid, visible, statement, provider)
+    sections = _STATEMENT_SECTIONS[statement]
+    transitions = _STATEMENT_SECTION_TRANSITIONS[statement]
+    special = _STATEMENT_SPECIAL_ROWS[statement]
+    last_row = len(_STATEMENT_ROW_CODES[statement]) + 2
+    section = None
+    records, values = [], {}
+    for row in range(3, last_row + 1):
+        label = grid[row, 1]
+        if not label.IsVisible:
+            continue
+        text = _statement_heading(label.Value)
+        if row in sections:
+            if text != sections[row] or any(grid[row, col].Value not in (None, "") for col in columns):
+                raise _statement_error(f"unexpected section heading at {label.Address}")
+            section = label.Value
+            continue
+        if row in transitions:
+            start = transitions[row]
+            section = grid[start, 1].Value if start is not None else None
+        if row in special:
+            expected, measurement = special[row]
+            if text != expected:
+                raise _statement_error(f"unexpected account heading at {label.Address}")
+        else:
+            if not text:
+                raise _statement_error(f"missing account heading at {label.Address}")
+            measurement = "Stock" if statement == "BalanceSheet" else "Flow"
+        per_share = measurement in ("BasicEPS", "NetProfitPerShare")
+        for col, column in columns.items():
+            cell = grid[row, col]
+            end, fiscal = column["ColumnEndJalaliDate"], column["FiscalYearEndJalaliDate"]
+            percent = end is None
+            meta = cell.ProviderMetadata
+            if (meta.get("periodEndToDate") or None, meta.get("yearEndToDate") or None) != (end, fiscal):
+                raise _statement_error(f"inconsistent dates at {cell.Address}")
+            value = _statement_value(cell, percent)
+            values[row, col] = value
+            if percent:
+                currency, unit, scale = None, "Percent", 1
+            elif per_share:
+                currency, unit, scale = "IRR", "IRR/Share", 1
+            else:
+                currency, unit, scale = "IRR", "IRR", 1_000_000
+            duration = None
+            if not percent and (per_share or measurement in ("Flow", "NonCashTransactions")):
+                duration = 12 if column["PeriodBasis"] == "PriorFiscalYear" else period
+            records.append({
+                **column,
+                "AccountLabel": label.Value, "StatementSection": section, "Measurement": measurement,
+                "AsOfJalaliDate": end if measurement in ("Stock", "ClosingCash") else None,
+                "DurationMonths": duration, "Value": value, "RawValue": cell.Value,
+                "ValuePresent": cell.ValuePresent, "Currency": currency, "Unit": unit, "Scale": scale,
+                "RowSequence": row, "ColumnSequence": col, "Address": cell.Address, "CellOrder": cell.CellOrder,
+            })
+    checks = _check_statement_totals(grid, columns, statement, values)
+    return records, checks
+
+
+def _check_statement_totals(grid, columns, statement, values):
+    checks = []
+    for col, column in columns.items():
+        if column["ColumnEndJalaliDate"] is None:
+            continue
+        for total, parts in _STATEMENT_RECONCILIATIONS[statement]:
+            target = grid[total, col].Address
+            inputs = [grid[row, col].Address for row in parts]
+            actual = values[total, col]
+            amounts = [values[row, col] for row in parts]
+            complete = actual is not None and all(value is not None for value in amounts)
+            if complete and sum(map(Fraction, amounts)) != Fraction(actual):
+                raise _statement_error(f"{statement} reconciliation failed at {target} using {', '.join(inputs)}")
+            checks.append({
+                "StatementType": statement, "Address": target, "Operands": inputs,
+                "Status": "Passed" if complete else "Missing",
+            })
+    return checks
+
+
+def get_codal_financial_statements(report: dict) -> pd.DataFrame:
+    """Normalize verified separate production statements in a saved CODAL report.
+
+    Parameters
+    ----------
+    report : dict
+        Report returned by get_codal_report for a verified annual or six-month
+        production template. Respects the requested sheet, when present.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Visible observations with exact Decimal values, source labels, date
+        bases, units and cell coordinates. Filing metadata and reconciliation
+        results are available in DataFrame.attrs.
+
+    Raises
+    ------
+    TypeError
+        The input is not a report from get_codal_report.
+    ValueError
+        The filing, selected sheets or grids are unsupported or inconsistent,
+        or a reported accounting reconciliation fails.
+    """
+    tables = get_codal_tables(report)
+    provider, page = report["ProviderMetadata"], report["PageMetadata"]
+    template = provider.get("title_En")
+    period = _STATEMENT_TEMPLATES.get(template) if isinstance(template, str) else None
+    if (period is None or provider.get("period") != period or provider.get("type") != 6
+            or provider.get("periodExtraDay") != 0 or provider.get("isConsolidated") is not False
+            or type(provider.get("isAudited")) is not bool):
+        raise _statement_error("expected a verified separate production filing")
+    tracing_no = provider.get("tracingNo")
+    if type(tracing_no) is not int or tracing_no <= 0 or not page.get("CompanyName"):
+        raise _statement_error("missing filing tracing number or company name")
+    report_end = _statement_date(provider.get("periodEndToDate"), "filing period end")
+    fiscal_end = _statement_date(provider.get("yearEndToDate"), "filing fiscal year end")
+    audit = _STATEMENT_AUDIT_LABELS.get(_heading(page.get("AuditLabel")).strip("()"))
+    if (page.get("PeriodEndDate") != report_end or page.get("FiscalYearEndDate") != fiscal_end
+            or audit is not provider["isAudited"]):
+        raise _statement_error("page dates or assurance disagree with the filing metadata")
+    filing = {
+        "TracingNo": tracing_no, "CompanyName": page["CompanyName"], "SubjectName": provider.get("subject"),
+        "Symbol": page.get("Symbol") or page.get("DisplaySymbol") or None, "FilingKind": provider.get("kind"),
+        "ReportPeriodEndJalaliDate": report_end, "FilingIsAudited": provider["isAudited"], "Scope": "Separate",
+        "ContentSha256": report["Source"]["ContentSha256"],
+    }
+    records, reconciliations = [], []
+    for sheet in report["Sheets"]:
+        sheet_id = sheet["SheetId"]
+        if sheet_id not in _STATEMENT_LAYOUTS:
+            continue
+        sheet_tables = [table for table in tables if table["SheetId"] == sheet_id]
+        if not sheet_tables:
+            continue
+        code, version, title, statement, sheet_version, auxiliary = _STATEMENT_LAYOUTS[sheet_id]
+        table = sheet_tables[0]
+        metadata = sheet["ProviderMetadata"]
+        if ([item["TableId"] for item in sheet_tables] != [code, *auxiliary]
+                or (table["Version"], table["TitleEn"], table["ProviderMetadata"].get("aliasName"))
+                != (version, title, statement)
+                or (metadata.get("versionNo"), metadata.get("title_En"), metadata.get("aliasName"))
+                != (sheet_version, title, statement)):
+            raise _statement_error(f"unverified layout on sheet {sheet_id}")
+        if (_heading(table["Description"]) != "کلیه مبالغ به میلیون ریال است"
+                or _heading(table["PagePriceNote"]) != "کلیه مبالغ درج شده به میلیون ریال می باشد"):
+            raise _statement_error(f"unverified monetary units on sheet {sheet_id}")
+        observations, checks = _statement_rows(table, statement, provider)
+        records.extend({
+            **filing, "StatementType": statement, "SheetId": sheet_id, "TableId": code, **item,
+        } for item in observations)
+        reconciliations.extend(checks)
+    if not records:
+        raise _statement_error("no supported loaded or requested statement sheet")
+    result = pd.DataFrame(records, dtype=object)
+    result.attrs = {key: deepcopy(report[key]) for key in ("Source", "ProviderMetadata", "PageMetadata", "Coverage")}
+    result.attrs["Reconciliations"] = reconciliations
     return result
