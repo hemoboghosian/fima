@@ -29,7 +29,7 @@ def _category(code, name, *types):
 
 
 @pytest.fixture
-def provider(monkeypatch):
+def provider(monkeypatch, tmp_path):
     routes = {}
     calls = []
     categories = [
@@ -74,6 +74,7 @@ def provider(monkeypatch):
 
     monkeypatch.setattr(requests.Session, "get", get)
     monkeypatch.setattr(codal, "_taxonomy_cache", None)
+    monkeypatch.setattr(codal, "_taxonomy_path", lambda: tmp_path / "taxonomy.json")
     monkeypatch.setattr(codal, "_rate_limit", None)
     routes["/api/search/v1/categories"] = categories
     return routes, calls
@@ -138,11 +139,14 @@ def test_aliases_use_category_and_type_not_letter_code(provider, name):
 
 def test_unknown_and_conflicting_taxonomy(provider, monkeypatch):
     routes, calls = provider
+    clock = [1000]
+    monkeypatch.setattr(codal, "time", lambda: clock[0])
+    monkeypatch.setattr(codal, "monotonic", lambda: clock[0])
     with pytest.raises(ValueError, match="صورت‌های مالی"):
         search_codal_filings("نمونه", "گزارش خیالی")
     assert len(calls) == 1
     routes["/api/search/v1/categories"].append(_category(9, "مقوله دیگر", (58, "گزارش فعالیت ماهانه")))
-    monkeypatch.setattr(codal, "monotonic", lambda: float("inf"))
+    clock[0] += codal._TAXONOMY_TTL
     with pytest.raises(CodalRequestError, match="conflicting categories"):
         search_codal_filings("نمونه", "گزارش ماهانه")
 
@@ -150,6 +154,7 @@ def test_unknown_and_conflicting_taxonomy(provider, monkeypatch):
 def test_taxonomy_cache_refreshes_conservatively(provider, monkeypatch):
     routes, calls = provider
     monkeypatch.setattr(codal, "monotonic", lambda: 1)
+    monkeypatch.setattr(codal, "time", lambda: 1000)
     first = list_codal_report_types()
     assert len(calls) == 1
     first.loc[0, "CategoryName"] = "changed"
@@ -157,10 +162,68 @@ def test_taxonomy_cache_refreshes_conservatively(provider, monkeypatch):
     assert len(calls) == 1
     assert again.iloc[0].CategoryName != "changed"
     monkeypatch.setattr(codal, "monotonic", lambda: 602)
+    monkeypatch.setattr(codal, "time", lambda: 1601)
     routes["/api/search/v1/categories"] = (429, {}, {})
     with pytest.raises(CodalRequestError, match="rate-limited"):
         list_codal_report_types()
     assert len(calls) == 2
+
+
+def test_snapshot_age_is_preserved_and_provider_changes_are_discovered(provider, monkeypatch):
+    routes, calls = provider
+    clock = [1000]
+    monkeypatch.setattr(codal, "time", lambda: clock[0])
+    monkeypatch.setattr(codal, "monotonic", lambda: clock[0])
+    categories = "/api/search/v1/categories"
+    routes[3, 58, 1] = _results(_letter(12, "a"))
+    assert search_codal_filings("نمونه", "گزارش عملکرد ماهانه").TracingNo.tolist() == [12]
+
+    routes[categories].append(_category(9, "مقوله جدید", (101, "گزارش جدید")))
+    routes[9, 101, 1] = _results(_letter(13, "b", type_id=101))
+    clock[0] += codal._TAXONOMY_TTL - 1
+    monkeypatch.setattr(codal, "_taxonomy_cache", None)
+    calls.clear()
+    assert search_codal_filings("نمونه", "گزارش ماهانه").TracingNo.tolist() == [12]
+    assert calls == [(codal._SEARCH, {"Category": 3, "LetterType": 58, "Symbol": "نمونه", "PageNumber": 1})]
+
+    clock[0] += 1
+    assert search_codal_filings("نمونه", "گزارش جدید").TracingNo.tolist() == [13]
+    assert [url for url, _ in calls] == [codal._SEARCH, codal._TAXONOMY, codal._SEARCH]
+    assert 101 in list_codal_report_types().LetterTypeId.tolist()
+
+
+@pytest.mark.parametrize("snapshot", ["invalid JSON", "invalid taxonomy", "future", "unwritable"])
+def test_unusable_snapshot_falls_back_to_validated_provider_taxonomy(provider, monkeypatch, snapshot):
+    routes, calls = provider
+    monkeypatch.setattr(codal, "time", lambda: 1000)
+    path = codal._taxonomy_path()
+    payload = routes["/api/search/v1/categories"]
+    if snapshot == "unwritable":
+        path.mkdir()
+    elif snapshot == "invalid JSON":
+        path.write_bytes(bytes([255]))
+    else:
+        path.write_text(json.dumps({
+            "fetched_at": 1001 if snapshot == "future" else 1000,
+            "payload": payload if snapshot == "future" else [_category(3, "Monthly", (True, "Report"))],
+        }), encoding="utf-8")
+
+    assert 58 in list_codal_report_types().LetterTypeId.tolist()
+    assert calls == [(codal._TAXONOMY, None)]
+    assert not list(path.parent.glob("*.tmp"))
+    if snapshot != "unwritable":
+        assert json.loads(path.read_text(encoding="utf-8")) == {"fetched_at": 1000, "payload": payload}
+
+
+def test_rate_limited_taxonomy_is_never_cached_or_sent_to_browser(provider, browser_transport):
+    routes, calls = provider
+    routes["/api/search/v1/categories"] = (429, {"Retry-After": "60"}, {})
+    with pytest.raises(CodalRequestError, match=r"HTTP 429.*Retry-After: 60.*Avoid retrying immediately"):
+        search_codal_filings("نمونه", "گزارش ماهانه", interactive=True)
+    assert calls == [(codal._TAXONOMY, None)]
+    assert not codal._taxonomy_path().exists()
+    assert codal._taxonomy_cache is None
+    assert not browser_transport.events
 
 
 def test_search_families_use_verified_type_or_period(provider):
@@ -342,9 +405,16 @@ def test_monthly_request_budget_includes_redirects_and_all_history(provider, mon
         assert all(set(params) == {"PageNumber", "Symbol", "Category", "LetterType"}
                    for _, params in searches)
 
+    cold = None
     for first_search in (1, 0):
+        monkeypatch.setattr(codal, "_taxonomy_cache", None)
         calls.clear()
         result = get_codal_data("نمونه", "گزارش عملکرد ماهانه", "1404/07")
+        if cold is None:
+            cold = result
+        else:
+            assert result.equals(cold)
+            assert result.attrs == cold.attrs
         assert result.attrs["RevisionTracingNos"] == [11, 12]
         assert result.attrs["Filing"]["TracingNo"] == 12
         assert len(calls) == first_search + 12

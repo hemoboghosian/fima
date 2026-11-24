@@ -1,11 +1,18 @@
 """Deterministic coverage of the optional browser's lifecycle and handoff."""
 
 from contextlib import contextmanager
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
+from packaging.requirements import Requirement
 import pytest
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from fima import _codal_browser as browser, codal
 
@@ -74,6 +81,7 @@ def chromium(monkeypatch, tmp_path):
     tick = [10]
     callbacks = {}
     report_calls = []
+    chrome_errors = []
 
     def new_page():
         page = Page()
@@ -87,6 +95,8 @@ def chromium(monkeypatch, tmp_path):
 
     def launch(**kwargs):
         actions.append(("launch", kwargs))
+        if kwargs.get("channel") == "chrome" and chrome_errors:
+            raise chrome_errors[0]
         return runtime
 
     def new_context(**kwargs):
@@ -112,7 +122,8 @@ def chromium(monkeypatch, tmp_path):
     monkeypatch.setattr(codal, "monotonic", lambda: tick[0])
     monkeypatch.setattr(codal, "_rate_limit", None)
     return SimpleNamespace(actions=actions, context=context, callbacks=callbacks,
-                           new_page=new_page, executable=executable, report_calls=report_calls)
+                           new_page=new_page, executable=executable, report_calls=report_calls,
+                           chrome_errors=chrome_errors)
 
 
 _REPORT_URL = "https://www.codal.ir/Reports/Decision.aspx?LetterSerial=a"
@@ -130,7 +141,7 @@ def test_search_verification_keeps_the_original_page_and_context(chromium, monke
         assert session.get(_REPORT_URL, None, True).content == Response(_REPORT_URL).body()
 
     assert chromium.actions == [
-        "start", ("launch", {"headless": False, "timeout": browser._NAVIGATION_MS}),
+        "start", ("launch", {"headless": False, "timeout": browser._NAVIGATION_MS, "channel": "chrome"}),
         ("context", {"accept_downloads": False}), "context close", "browser close", "stop",
     ]
     entry_url = urlsplit(search_page.actions[0][1])
@@ -212,9 +223,29 @@ def test_installed_chrome_is_used_when_bundled_chromium_is_missing(chromium):
     )
 
 
+def test_managed_chromium_is_used_when_chrome_cannot_launch(chromium):
+    chromium.chrome_errors.append(FakePlaywrightError("Chrome is unavailable"))
+    with browser.open_browser():
+        pass
+    options = {"headless": False, "timeout": browser._NAVIGATION_MS}
+    assert chromium.actions[1:3] == [("launch", {"channel": "chrome", **options}), ("launch", options)]
+
+
+def test_standard_installation_contains_playwright_and_accepts_browser_extra():
+    from playwright.sync_api import Error, sync_playwright
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject.open("rb") as file:
+        project = tomllib.load(file)["project"]
+    requirements = [Requirement(value) for value in project["dependencies"]]
+    assert Requirement("playwright>=1.52") in requirements
+    assert "codal-browser" in project["optional-dependencies"]
+    assert issubclass(Error, Exception) and callable(sync_playwright)
+
+
 def test_missing_playwright_has_install_instructions(monkeypatch):
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
-    with pytest.raises(codal.CodalRequestError, match="fima\\[codal-browser\\].*playwright install chromium"):
+    with pytest.raises(codal.CodalRequestError, match="python -m pip install --upgrade fima"):
         with browser.open_browser():
             pytest.fail("Browser unexpectedly opened")
 
@@ -230,7 +261,8 @@ def test_failed_chromium_launch_has_install_instructions(monkeypatch, tmp_path):
 
     monkeypatch.setitem(sys.modules, "playwright.sync_api",
                         SimpleNamespace(Error=FakePlaywrightError, sync_playwright=sync_playwright))
-    with pytest.raises(codal.CodalRequestError, match="Could not open.*playwright install chromium"):
+    message = "Could not open.*Install Google Chrome or run python -m playwright install chromium"
+    with pytest.raises(codal.CodalRequestError, match=message):
         with browser.open_browser():
             pytest.fail("Browser unexpectedly opened")
 

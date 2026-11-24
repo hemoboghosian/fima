@@ -2,6 +2,12 @@
 
 ## دریافت مستقیم گزارش با نام فارسی
 
+ابتدا fima را نصب کنید. نصب عادی، وابستگی Python به Playwright را هم فراهم می‌کند.
+
+```sh
+pip install fima
+```
+
 برای شروع، نماد و نام گزارش را وارد کنید. تاریخ پایان دوره را می‌توانید
 به‌شکل ماه یا روز شمسی بنویسید. این مثال، نسخهٔ اصلاح‌شدهٔ گزارش عملکرد
 شهریور ۱۴۰۵ فولاد را در یک DataFrame برمی‌گرداند.
@@ -13,6 +19,7 @@ df = get_codal_data(
     symbol="فولاد",
     report_type="گزارش عملکرد ماهانه",
     period="1405/06",
+    interactive=True,
 )
 print(df[["ProductName", "PeriodBasis", "Metric", "Value", "Unit", "Scale"]].head())
 print(df.attrs["Filing"]["TracingNo"])
@@ -55,32 +62,13 @@ print(income[["AccountLabel", "PeriodBasis", "Value", "Unit", "Scale"]].head())
 
 ### تأیید انسانی در مرورگر
 
-دریافت عادی با HTTP انجام می‌شود. برای فعال کردن تأیید انسانی، یک‌بار
-وابستگی اختیاری را نصب کنید. اگر Google Chrome از قبل نصب است، نصب
-Chromium اختیاری است.
-
-```sh
-python -m pip install "fima[codal-browser]"
-```
-
-اگر Chrome نصب نیست، Chromium را نصب کنید.
+دریافت با HTTP شروع می‌شود. برای تأیید انسانی با `interactive=True`، از
+Google Chrome نصب‌شده استفاده می‌شود. اگر Chrome در دسترس نباشد، fima از
+Chromium نصب‌شدهٔ Playwright استفاده می‌کند. برای نصب اولیهٔ Chromium در
+همان محیط پایتون این دستور را اجرا کنید.
 
 ```sh
 python -m playwright install chromium
-```
-
-اگر fima را از مخزن اجرا می‌کنید، از پوشهٔ مخزن
-`python -m pip install ".[codal-browser]"` را برای نصب بسته اجرا کنید.
-
-```python
-from fima import get_codal_data
-
-df = get_codal_data(
-    symbol="فولاد",
-    report_type="گزارش عملکرد ماهانه",
-    period="1405/06",
-    interactive=True,
-)
 ```
 
 اگر کدال نیاز به تأیید انسانی را اعلام کند، مرورگر صفحهٔ رسمی کدال را برای
@@ -92,8 +80,14 @@ DataFrame را با اطلاعات منبع برمی‌گرداند. برای ل
 `search_codal_filings` و `fetch_codal_report` نیز `interactive=True` را
 می‌پذیرند و پیش‌فرض هر سه تابع `False` است. اگر فرم قابل استفاده نمایش
 داده نشود یا کدال پس از تأیید دسترسی به درخواست بعدی را رد کند،
-`CodalRequestError` دریافت می‌کنید. پاسخ HTTP 429 دریافت را فوراً متوقف
-می‌کند و مهلت اعلام‌شده در `Retry-After` رعایت می‌شود.
+`CodalRequestError` دریافت می‌کنید.
+
+### محدودیت موقت دسترسی (HTTP 429)
+
+پاسخ HTTP 429 محدودیت موقت دسترسی از طرف کدال است. دریافت در هر دو حالت HTTP
+و مرورگر فوراً متوقف می‌شود. درخواست را بلافاصله تکرار نکنید. اگر کدال
+`Retry-After` را اعلام کند، مقدار آن در پیام خطا نمایش داده می‌شود. تا پایان
+مهلت اعلام‌شده صبر کنید.
 
 ### Search results, raw cells, and source limits
 
@@ -152,9 +146,14 @@ categories plus the all-categories entry, 167 distinct letter-type IDs, and
 monthly activity to category `3` and letter type `58`. Filings carry the
 separate letter code `ن-۳۰`. Issuer financial statements used category
 `1` and letter type `6`, including both annual and interim filings, with
-`ن-۱۰` as the observed letter code. fima reads the current taxonomy when
-called and reuses it for up to ten minutes. The public site uses these routes
-for anonymous lookups.
+`ن-۱۰` as the observed letter code. fima reuses the last validated
+issuer taxonomy for up to ten minutes from the fetch, including across Python
+processes. The snapshot contains public taxonomy metadata in
+`~/.cache/fima/codal-taxonomy-v1.json`. A missing, invalid, or expired snapshot
+requires a new taxonomy request. An unavailable cache directory leaves the
+in-memory cache available for the current process. Filing searches and reports
+are still retrieved from CODAL, where any request can encounter HTTP 429.
+The public site uses these routes for anonymous lookups.
 [CODAL search page](https://www.codal.ir/ReportList.aspx?search)
 
 ### Public endpoint availability
