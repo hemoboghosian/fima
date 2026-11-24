@@ -1,4 +1,4 @@
-# CODAL offline report reader
+# CODAL offline report reader and monthly activity
 
 Stage 1 reads a local copy of a CODAL filing page and returns the structured
 cells carried by that page. It keeps provider identities, native values, source
@@ -112,6 +112,68 @@ and `ValueError` for unsupported or malformed content, inconsistent structural
 identities, or a requested sheet absent from the payload. `get_codal_tables`
 expects the dictionary returned by `get_codal_report` and raises `TypeError`
 for an unrelated input.
+
+## Normalize manufacturing production and sales
+
+`get_codal_monthly_activity(report)` accepts the dictionary returned by
+`get_codal_report`. It reads the **Production and sales** table (code `1197`,
+table version `4`, sheet `1000000`) in standalone one-month **Monthly Activity
+Product V3 and V4** filings. It validates the grid, merged headings, period
+metadata and row groups. V3 leaves two rows between the headers and the body.
+The rest of the report remains available through the Stage 1 functions.
+
+```python
+from fima import get_codal_monthly_activity, get_codal_report
+
+activity = get_codal_monthly_activity(get_codal_report("report.html"))
+monthly_export = activity.loc[
+    (activity["PeriodBasis"] == "CurrentMonth")
+    & (activity["MarketSegment"] == "Export")
+    & (activity["Metric"] == "SalesAmount")
+    & (activity["RowKind"] == "Detail"),
+    ["ProductName", "Value", "Unit", "Scale", "Address"],
+]
+```
+
+The DataFrame has one row per metric cell in each named detail, subtotal,
+discount and total row. Physically present blank cells in these rows are
+included. Section headings and unfilled CODAL entry rows are omitted. Results
+are ordered by source row sequence and then by column sequence. All columns
+use pandas `object` dtype.
+
+| Columns | Contents |
+| --- | --- |
+| `TracingNo`, `CompanyName`, `SubjectName`, `Symbol`, `FilingKind` | The filing tracing number, the company label, the provider's `subject` when present, the page symbol (or display symbol when the first is empty), and the original provider `kind`. Persistent issuer and product IDs were unavailable in the verified grid. |
+| `ReportPeriodEndJalaliDate`, `PeriodEndJalaliDate`, `FiscalYearEndJalaliDate`, `PeriodBasis` | The filing end date, the observation end date, the source cell's fiscal year end and one of `PreviousYTD`, `Adjustment`, `AdjustedYTD`, `CurrentMonth`, `CurrentYTD`, or `PriorYearYTD`. Adjustment cells have undated headings in the verified grid and carry `None` in both observation date columns. |
+| `ActivitySection`, `MarketSegment`, `RowKind` | The source section (`DomesticSales`, `ExportSales`, `Services`, `SalesReturns`, `Discounts`, or `Total`), market (`Domestic`, `Export`, or `None`), and row kind (`Detail`, `Subtotal`, `Discount`, or `Total`). A market identifies the source subsection, including when that subsection reports production. |
+| `RowLabel`, `ProductName`, `ProductUnit`, `ProductStatus` | The exact source row label and, on detail rows, the original product name, product-unit label and product status. Different rows remain separate even if they share a product label. |
+| `Metric`, `Value`, `Unit`, `Scale` | `ProductionQuantity`, `SalesQuantity`, `SalesRate`, or `SalesAmount`. `Value` is the exact reported number as `Decimal`, or `None` for a blank. Product quantities use the original product unit and scale 1. Rates keep the heading's `IRR` and scale 1, with the product unit recorded separately. Amounts have unit `IRR` and scale 1,000,000 because the heading specifies millions of rials. Unlabelled subtotal or total quantities keep their values with unknown unit and scale. |
+| `RawValue`, `ValuePresent` | Original decoded value and whether the source cell had a `value` key. Together these distinguish empty text, explicit null, a missing value key and zero. |
+| `ContentSha256`, `SheetId`, `TableId`, `RowSequence`, `ColumnSequence`, `Address`, `CellOrder` | Hash of the exact source HTML, provider codes, source grid coordinates, address and position in the original cell array. |
+
+The DataFrame's `attrs` contain copies of the Stage 1 `Source`,
+`ProviderMetadata`, `PageMetadata` and `Coverage`, including source revision
+links where supplied. Each call represents one filing. Keep its metadata with
+the result when combining filings. There is no rescaling, rate recomputation,
+aggregation, conversion of year-to-date values to monthly values, or automatic
+selection of a corrected version.
+
+An unrelated input raises `TypeError`. A different template, a missing target
+table or an ambiguous grid raises `ValueError`. This function requires the
+supported Stage 1 HTML representation. It covers only the verified
+production-and-sales grid, so raw-material, energy, currency, and narrative
+tables and non-manufacturing templates remain outside this API.
+
+The grid was verified using [کترام 1494376](https://codal.ir/Reports/Decision.aspx?LetterSerial=dz8uAPkDiymNiKygk9FSoA%3d%3d&rt=0&let=58&ct=0&ft=-1),
+[شیفته 1482763](https://codal.ir/Reports/MonthlyActivity.aspx?LetterSerial=fjWk0Qaja8r9lxGyp53EXw%3d%3d),
+[1492711](https://www.codal.ir/Reports/MonthlyActivity.aspx?LetterSerial=jpQQQaQQQqfZKLzOnAkQQQaQQQAA1yexDg%3d%3d),
+[its correction 1500481](https://www.codal.ir/Reports/MonthlyActivity.aspx?LetterSerial=WVDQQQaQQQOOOObOOOOOObOOOtcchv3IoOnp9spQ%3d%3d),
+[1612377](https://codal.ir/Reports/Decision.aspx?LetterSerial=EMme9rpkeQQQaQQQR6rFXe75w6Vg%3d%3d&ct=0&ft=-1&let=58&rt=0),
+and [سآبیک 1063618](https://www.codal.ir/Reports/MonthlyActivity.aspx?LetterSerial=KoPobBXLPGSYeU8m8LLOiw%3d%3d)
+and [1225799](https://www.codal.ir/Reports/MonthlyActivity.aspx?LetterSerial=I5i8m1JusmQQQaQQQXJzoDADOOObOOOOYQ%3d%3d).
+The original and corrected production-and-sales grids have identical values.
+The source correction links and separate tracing numbers preserve the
+distinction. The adjustment columns in these filings contain blanks or zeros.
 
 ## Feasibility and next stage
 

@@ -2,7 +2,7 @@
 
 [شروع کار](../README.md) | [قرارداد داده‌ها](data-conventions.md)
 
-تمام ۸۵ تابع زیر از `fima` و ماژول عمومی مربوط قابل واردسازی‌اند. امضاها ترتیب، آرگومان‌های الزامی، پیش‌فرض‌ها و مرز `*` برای آرگومان‌های صرفاً نام‌دار را نشان می‌دهند؛ نوع‌ها و توضیحات کامل در `help(fima.function)` و راهنمای هر منبع آمده‌اند. از import صریح استفاده کنید.
+تمام ۹۰ تابع زیر از `fima` و ماژول عمومی مربوط قابل واردسازی‌اند. امضاها ترتیب، آرگومان‌های الزامی، پیش‌فرض‌ها و مرز `*` برای آرگومان‌های صرفاً نام‌دار را نشان می‌دهند؛ نوع‌ها و توضیحات کامل در `help(fima.function)` و راهنمای هر منبع آمده‌اند. از import صریح استفاده کنید.
 
 برای انتخاب شناسه، ابتدا ابزار کشف همان منبع را بخوانید. شناسه‌های پویا `Literal` نیستند؛ انتخاب‌های کوچکِ واقعاً محدود در annotation مشخص شده‌اند. این نوع‌ها کنترل جدیدی در زمان اجرا اعمال نمی‌کنند. نمایش پیشنهادها به ویرایشگر و تنظیمات آن وابسته است.
 
@@ -185,6 +185,7 @@
 | --- | --- |
 | `get_codal_report(path, sheet_id=None)` | Read structured CODAL HTML and preserve filing metadata, original bytes and sheet coverage. |
 | `get_codal_tables(report)` | Return source-ordered tables with cell DataFrames, source units and provenance. |
+| `get_codal_monthly_activity(report)` | Normalize the verified manufacturing production and sales grid from a saved filing. |
 
 ### واردسازی و سازگاری
 
