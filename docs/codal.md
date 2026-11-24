@@ -1,4 +1,101 @@
-# CODAL offline reports
+# CODAL reports
+
+## دریافت مستقیم گزارش با نام فارسی
+
+برای شروع، نماد و نام گزارش را وارد کنید. تاریخ پایان دوره را می‌توانید
+به‌شکل ماه یا روز شمسی بنویسید. این مثال، نسخهٔ اصلاح‌شدهٔ گزارش عملکرد
+شهریور ۱۴۰۵ فولاد را در یک DataFrame برمی‌گرداند.
+
+```python
+from fima import get_codal_data
+
+df = get_codal_data(
+    symbol="فولاد",
+    report_type="گزارش عملکرد ماهانه",
+    period="1405/06",
+)
+print(df[["ProductName", "PeriodBasis", "Metric", "Value", "Unit", "Scale"]].head())
+print(df.attrs["Filing"]["TracingNo"])
+```
+
+برای صورت‌های مالی، نام صورت را در `statement` بنویسید یا همان نام را
+در `report_type` وارد کنید. نمونهٔ بمپنا ۹۲ مشاهده از صورت سود و زیان
+حسابرسی‌شدهٔ شش‌ماهه برمی‌گرداند.
+
+```python
+income = get_codal_data(
+    symbol="بمپنا",
+    report_type="صورت‌های مالی",
+    statement="سود و زیان",
+    period="1402/06",
+    audited=True,
+)
+print(income[["AccountLabel", "PeriodBasis", "Value", "Unit", "Scale"]].head())
+```
+
+| نام گزارش | نام‌های دیگر و پوشش |
+| --- | --- |
+| گزارش عملکرد ماهانه | گزارش فعالیت ماهانه، گزارش ماهانه. تبدیل به دادهٔ مالی برای قالب‌های تولیدی V3 و V4. |
+| صورت‌های مالی | صورت مالی، صورت‌های مالی میان‌دوره‌ای، صورت‌های مالی سالانه. پوشش مالی برای صورت‌های جداگانهٔ تولیدی در قالب‌های زیر. |
+| صورت سود و زیان | سود و زیان. صورت پیش‌فرض برای «صورت‌های مالی». |
+| صورت وضعیت مالی | ترازنامه. |
+| صورت جریان وجوه نقد | جریان وجوه نقد، صورت جریان‌های نقدی. |
+| افشای اطلاعات بااهمیت | اطلاعات بااهمیت. جست‌وجوی اطلاعیه. |
+| آگهی دعوت به مجمع، تصمیمات مجمع | جست‌وجوی انواع آگهی دعوت یا تصمیمات مجمع. |
+
+یک ماه مانند `۱۴۰۵/۰۶` یا `شهریور ۱۴۰۵` با تاریخ **پایان دوره** مطابقت
+دارد. تاریخ انتشار در `PublishDateTime` است. بدون `period`، جدیدترین
+تاریخ پایان دوره انتخاب می‌شود. اگر چند تاریخ، مدت یا وضعیت حسابرسی
+در محدودهٔ خواسته شده باقی بماند، روز دقیق یا `duration_months` و
+`audited` را مشخص کنید. دریافت خودکار گزارش خود ناشر و صورت‌های جداگانه
+را انتخاب می‌کند. اگر چند نسخهٔ مرتبط وجود داشته باشد، جدیدترین نسخه با
+بررسی پیوندهای اصلاحیهٔ کدال برگزیده می‌شود. شماره‌های زنجیره در
+`df.attrs["RevisionTracingNos"]` و مشخصات گزارش و منبع در `df.attrs`
+قرار دارند.
+
+### Search results, raw cells, and source limits
+
+`list_codal_report_types()` lists the current Persian names and IDs
+under CODAL's exchange-issuer publisher type. `search_codal_filings(symbol,
+report_type, period=None, *, max_pages=100)` returns filing metadata with
+separate category, letter-type and textual letter-code fields. Search keeps
+original and corrected notices, subsidiary reports published under the exact
+symbol, and both separate and consolidated reports where present. It walks the
+provider's reported pages and raises `CodalRequestError` if the page limit,
+changing counts, duplicate tracing numbers, HTTP errors, or human verification
+prevent full coverage. A completed query with no matching rows returns an empty
+DataFrame. Reporting-period filters apply to monthly and financial types. Search
+disclosures and meeting notices using the Persian name alone.
+
+`get_codal_data(..., raw=True)` returns source cells and sheet coverage when
+the filing carries structured data. This can be used with newer templates such
+as the فولاژ income statement for `1405/06` (`audited=False`). To choose a
+specific filing from search results, pass a single row to
+`fetch_codal_report(row, statement="سود و زیان")`. It preserves the original
+HTML bytes, SHA-256, source URL and provider metadata. Pass its result to
+`get_codal_tables(report)` for separate cell tables. PDF-only filings, legacy
+HTML grids, and files lacking the structured datasource are outside this reader's
+coverage. An unavailable statement or unsupported normalization raises
+`ValueError`. `from fima.codal import CodalRequestError` provides the exception
+for transport, access, and incomplete search failures. HTTP 429 stops the search
+and includes CODAL's Retry-After value when provided.
+
+The public CODAL search page uses `/api/search/v1/categories` and
+`/api/search/v2/q`. On November 24, 2026, its taxonomy contained 11 report
+categories plus the all-categories entry, 167 distinct letter-type IDs, and
+105 category/type pairs for exchange issuers. The issuer taxonomy linked
+monthly activity to category `3` and letter type `58`. Filings carry the
+separate letter code `ن-۳۰`. Issuer financial statements used category
+`1` and letter type `6`, including both annual and interim filings, with
+`ن-۱۰` as the observed letter code. fima reads the current taxonomy when
+called and reuses it for up to ten minutes. The public site uses these routes for anonymous lookups. CODAL's
+published automated-client terms and rate limits remain unconfirmed.
+[CODAL search page](https://www.codal.ir/ReportList.aspx?search)
+
+Run the live examples with `python -m pytest -m integration test/test_codal_integration.py`.
+The deterministic suite runs without contacting CODAL.
+
+## Read saved files
 
 Stage 1 reads a local copy of a CODAL filing page and returns the structured
 cells carried by that page. It keeps provider identities, native values, source
@@ -63,7 +160,7 @@ income statement in separate responses under the same filing identity. See
 
 If CODAL requires human verification, use its normal browser workflow and save
 a copy only through permitted site and browser features. fima accepts local
-files and performs no online access. CAPTCHA pages, legacy HTML grids without
+files through the offline reader. CAPTCHA pages, legacy HTML grids without
 the structured payload, auditor-only pages without it, PDF, Excel, MHTML and
 standalone JSON are outside this interface.
 
@@ -296,7 +393,7 @@ per share. Its opening cash is 69,040 million rials, while its restated
 previous fiscal-year-end cash is 52,480 million rials. The current cash-flow
 bridge closes at the reported 181,717 million rials.
 
-## Feasibility and next stage
+## Coverage limits
 
 The feasibility decision was limited go. Families such as manufacturing,
 services, portfolios and financial statements use different templates and
@@ -305,9 +402,4 @@ representation and does not certify every family, template, or filing status.
 Corrections, audits and consolidated filings can be distinguished only where
 the source carries that metadata.
 
-Stage 2 should verify permitted filing discovery and retrieval with CODAL's
-operator or documented access terms. An independent retrieval layer can
-hand saved documents and retrieval provenance to the local parser. Unresolved
-questions include machine access terms, predictable sheet coverage and the
-availability of structured data across report families. Template-specific
-financial normalization requires its own validation against published reports.
+Automatic retrieval hands the downloaded HTML to the same parser. Predictable sheet coverage and new templates require verification against published reports.

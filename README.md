@@ -26,6 +26,24 @@ if history is not None:
 
 برای افزودن ستون‌های قیمت تعدیل‌شده، `adjust_prices=True` را وارد کنید. قیمت خام حفظ می‌شود و مبنا آخرین مشاهدهٔ برگشتی است. این تعدیل بر پایهٔ قیمت مرجع بورس است و سری بازده کل تأییدشده نیست؛ [روش و مثال انتخاب تاریخ مبنا](https://github.com/hemoboghosian/fima/blob/master/docs/tsetmc-adjustment.md).
 
+### گزارش‌های کدال با نام فارسی
+
+نماد، نام گزارش و ماه پایان دوره را وارد کنید. خروجی گزارش کدال یک
+DataFrame پانداس است.
+
+```python
+from fima import get_codal_data
+
+df = get_codal_data(
+    symbol="فولاد",
+    report_type="گزارش عملکرد ماهانه",
+    period="1405/06",
+)
+print(df[["ProductName", "PeriodBasis", "Metric", "Value", "Unit", "Scale"]].head())
+```
+
+[راهنمای صورت‌های مالی، نام گزارش‌ها و پوشش کدال](https://github.com/hemoboghosian/fima/blob/master/docs/codal.md)
+
 ## چه داده‌هایی در دسترس است؟
 
 | منبع | کاربرد و راهنما |
@@ -38,7 +56,7 @@ if history is not None:
 | IME | [معاملات فیزیکی، صادراتی، آتی، اختیار، گواهی سپرده و سلف](https://github.com/hemoboghosian/fima/blob/master/docs/ime.md) |
 | CBI | [نرخ‌های سیاستی، تورم و دو مجموعهٔ مستقل نرخ ارز](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md) |
 | KILID | [محدوده‌ها و میانهٔ قیمت پیشنهادی آگهی آپارتمان](https://github.com/hemoboghosian/fima/blob/master/docs/kilid.md)؛ قیمت آگهی با معاملهٔ قطعی تفاوت دارد |
-| کدال | [خواندن گزارش ذخیره‌شده و استخراج جدول‌ها](https://github.com/hemoboghosian/fima/blob/master/docs/codal.md) |
+| کدال | [دریافت گزارش و صورت‌های مالی با نام فارسی](https://github.com/hemoboghosian/fima/blob/master/docs/codal.md) |
 | IMF | [کشف شاخص و دریافت سری‌های سالانهٔ منتخب WEO](https://github.com/hemoboghosian/fima/blob/master/docs/imf.md)؛ شامل برآورد و پیش‌بینی نیز می‌شود |
 | TSEInstitutions | [فهرست نهادهای مالی](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md#financial-institution-directory) |
 

@@ -150,13 +150,13 @@ def _read_sheets(payload):
     return loaded
 
 
-def _read_coverage(page, loaded, requested):
-    if requested is not None and requested not in loaded:
-        raise ValueError(f"CODAL sheet {requested!r} is not loaded in this file")
+def _sheet_options(page):
     menu = page.find("select", id="ctl00_ddlTable")
     if menu is None:
         menu = page.find("select", id="ddlTable")
-    options = [] if menu is None else [
+    if menu is None:
+        return None
+    return [
         {
             "SheetId": option["value"],
             "Title": option.get_text().strip(),
@@ -165,12 +165,19 @@ def _read_coverage(page, loaded, requested):
         for option in menu.find_all("option")
         if option.get("value")
     ]
+
+
+def _read_coverage(page, loaded, requested):
+    if requested is not None and requested not in loaded:
+        raise ValueError(f"CODAL sheet {requested!r} is not loaded in this file")
+    menu = _sheet_options(page)
+    options = menu or []
     selected = [item["SheetId"] for item in options if item["IsSelected"]]
     if len(selected) > 1 or (selected and selected[0] not in loaded):
         raise ValueError("The selected CODAL sheet disagrees with the embedded sheet IDs")
     return {
         "LoadedSheetIds": list(loaded),
-        "SheetOptions": options if menu is not None else None,
+        "SheetOptions": menu,
         "UnloadedSheetIds": [item["SheetId"] for item in options if item["SheetId"] not in loaded],
         "SelectedSheetId": selected[0] if selected else None,
         "RequestedSheetId": requested,
@@ -220,11 +227,18 @@ def get_codal_report(path: str | PathLike[str], sheet_id: str | int | None = Non
     requested = None if sheet_id is None else _identifier(sheet_id, "sheet_id")
     local_path = Path(path).absolute()
     content = local_path.read_bytes()
+    return _parse_codal_html(content, _decode_codal_html(content), {"Path": str(local_path)}, requested)
+
+
+def _decode_codal_html(content):
     try:
         source_text = content.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ValueError("Expected a UTF-8 CODAL HTML document") from exc
-    page = BeautifulSoup(source_text, "lxml")
+    return BeautifulSoup(source_text, "lxml")
+
+
+def _parse_codal_html(content, page, location, requested=None):
     payload = _read_datasource(page)
     loaded = _read_sheets(payload)
     coverage = _read_coverage(page, loaded, requested)
@@ -234,7 +248,7 @@ def get_codal_report(path: str | PathLike[str], sheet_id: str | int | None = Non
         "Source": {
             "Provider": "CODAL",
             "Format": _FORMAT,
-            "Path": str(local_path),
+            **location,
             "ContentSha256": sha256(content).hexdigest(),
             "LetterSerial": letter_ref.get("value") if letter_ref is not None else None,
             "FormAction": form.get("action") if form is not None else None,
