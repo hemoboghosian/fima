@@ -62,7 +62,7 @@ def test_published_imports_and_signatures_preserved_with_only_approved_additions
     public = {n: v for n, v in vars(fima).items() if not n.startswith('_') and callable(v)}
     assert set(public) == set(BASELINE) | {
         'calculate_contract_metrics', 'calculate_expiration_payoff', 'get_codal_report', 'get_codal_tables',
-        'get_codal_monthly_activity',
+        'get_codal_monthly_activity', 'get_codal_financial_statements',
     }
     for name in BASELINE:
         function = public[name]
@@ -126,7 +126,7 @@ def forbidden(*a, **k):
     raise AssertionError("import made an HTTP request")
 requests.Session.request = forbidden
 import fima
-assert len([n for n,v in vars(fima).items() if not n.startswith("_") and callable(v)]) == 90
+assert len([n for n,v in vars(fima).items() if not n.startswith("_") and callable(v)]) == 91
 '''
     subprocess.run([sys.executable, '-B', '-c', code], check=True, capture_output=True, text=True)
 

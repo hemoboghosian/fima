@@ -1,4 +1,4 @@
-# CODAL offline report reader and monthly activity
+# CODAL offline reports
 
 Stage 1 reads a local copy of a CODAL filing page and returns the structured
 cells carried by that page. It keeps provider identities, native values, source
@@ -174,6 +174,97 @@ and [1225799](https://www.codal.ir/Reports/MonthlyActivity.aspx?LetterSerial=I5i
 The original and corrected production-and-sales grids have identical values.
 The source correction links and separate tracing numbers preserve the
 distinction. The adjustment columns in these filings contain blanks or zeros.
+
+## Normalize separate industrial financial statements
+
+`get_codal_financial_statements(report)` reads the supported statement sheets
+in a report from `get_codal_report`. It uses the requested sheet when supplied.
+Otherwise it processes supported loaded sheets in payload order. A listed
+sheet may require its own saved HTML file, even when it belongs to the same
+filing.
+
+```python
+from fima import get_codal_financial_statements, get_codal_report
+
+report = get_codal_report("income.html", sheet_id=1)
+statements = get_codal_financial_statements(report)
+current = statements.loc[
+    statements["PeriodBasis"].eq("Current"),
+    ["AccountLabel", "Value", "Unit", "Scale", "Address"],
+]
+```
+
+The verified filing templates are `FinancialStatement-OTC-Product-V5` and
+`FinancialStatement-Registered-Product-V5` for cumulative six-month statements,
+and `Financial Statement - Product - Other - Child Companies - V2` for
+12-month statements. All are separate production filings (CODAL report type
+`6`) with regular fiscal periods. The grids use the following sheet and table versions.
+
+| StatementType | Sheet | Sheet version | Table | Table version |
+| --- | --- | --- | --- | --- |
+| `BalanceSheet` | `0` | `1` | `899` | `5` |
+| `IncomeStatement` | `1` | `0` | `904` | `7` |
+| `CashFlow` | `9` | `1` | `906` | `4` |
+
+Each output row represents a visible value cell in account row and column
+order. Section headings are carried as metadata. The balance sheet's two
+unlabelled subtotals keep their empty labels. The annual income and cash-flow
+tables hide the duplicate comparison column. Hidden cells and narrative
+tables remain accessible through `get_codal_tables`.
+
+| Columns | Contents |
+| --- | --- |
+| `TracingNo`, `CompanyName`, `SubjectName`, `Symbol`, `FilingKind` | CODAL tracing number, page company, provider subject, page symbol (or display symbol), and original provider filing kind. A subsidiary's company label can differ from the symbol that announced the filing. |
+| `StatementType`, `Scope`, `AccountLabel`, `StatementSection` | Statement name from the table above, `Separate`, original account label, and nearest applicable source section heading or `None`. |
+| `ReportPeriodEndJalaliDate`, `ColumnEndJalaliDate`, `FiscalYearEndJalaliDate`, `AsOfJalaliDate` | Filing period end, the source column's measurement or reporting date, the source column's fiscal year end, and a measurement date for balance-sheet rows and cash-flow closing cash. Dates keep the source format `YYYY/MM/DD`. The cash-flow opening balance carries its column's reporting context. Its own exact opening date does not appear in the grid. |
+| `PeriodBasis`, `DurationMonths` | `Current`, `ComparativeInterim`, `PriorFiscalYear`, `PriorFiscalYearEnd`, `PriorFiscalYearOpening`, or `ReportedChange`. The duration is 6 or 12 for cumulative flows, noncash transactions and per-share results. Other observations have no duration. |
+| `ColumnHeading`, `ColumnAuditLabel`, `ColumnIsAudited`, `FilingIsAudited`, `IsRestated` | Original period and assurance headings, separate column and filing assurance booleans, and whether the period column is marked restated. A reported change has no assurance or restatement status. |
+| `Measurement`, `Currency`, `Unit`, `Scale` | Measurement of the account row: `Stock`, `Flow`, `OpeningCash`, `ClosingCash`, `NonCashTransactions`, `ReportedCapital`, `BasicEPS`, or `NetProfitPerShare`. The unit and scale describe the individual value cell: `IRR` with scale 1,000,000, `IRR/Share` with scale 1, or `Percent` with scale 1 and no currency. Reported percentage changes keep the source's percentage-point values and have no assigned measurement date. |
+| `Value`, `RawValue`, `ValuePresent` | Exact `Decimal` in reported units, original decoded value, and presence of the source `value` key. Blank text, null, an absent value key, and a reported `--` in the percentage column have `Value=None`. Reported zero is a Decimal zero. |
+| `ContentSha256`, `SheetId`, `TableId`, `RowSequence`, `ColumnSequence`, `Address`, `CellOrder` | Source byte hash, CODAL sheet and table codes, source coordinates, and zero-based source cell order. |
+
+All columns use pandas `object` dtype. The DataFrame's `attrs` preserve
+`Source`, `ProviderMetadata`, `PageMetadata` and `Coverage` from Stage 1,
+including revision links when present. A restated column and a corrected
+filing are separate concepts. The function keeps each filing's reported
+observations and leaves filing version selection to the caller.
+
+Within each dated column, selected reported totals are checked using exact
+arithmetic. The checks cover the balance sheet's asset and capital structure
+totals, gross through net income, cash-flow activity subtotals, net movement
+and the closing cash bridge including exchange-rate effects.
+`result.attrs["Reconciliations"]` gives `StatementType`, `Address`,
+`Operands` and `Status` for every check. A check with a blank operand or
+total is marked `Missing`. A complete reconciliation that fails raises
+`ValueError` with its cell addresses. Original cells are available through
+`get_codal_tables(report)`. Cross-filing and cross-period stitching,
+inferred dates, recomputation of reported values, and conversion to
+standalone quarters or TTM are outside this interface.
+
+An unrelated input raises `TypeError`. An unsupported filing, no supported
+loaded or requested sheet, or an unfamiliar layout on a statement sheet
+raises `ValueError`. Consolidated statements, other report durations and
+template versions, comprehensive income, equity changes, diluted EPS and
+dividends per share are outside the verified scope. Account labels and
+source coordinates are the public identifiers for observations.
+
+The financial audit matched 1,323 normalized observations to the original
+structured payloads in ten saved sheets. All 134 within-column
+reconciliations passed across the four filings below.
+
+| Filing | Coverage |
+| --- | --- |
+| 1106536, Asaluyeh MAPNA Power Generation | Audited six months ended `1402/06/31`, Esfand fiscal year end, all three sheets. [Balance sheet](https://codal.ir/Reports/Decision.aspx?LetterSerial=X2OX1hOJ2JKt9DK%2bTia50Q%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=0), [income statement](https://codal.ir/Reports/Decision.aspx?LetterSerial=X2OX1hOJ2JKt9DK%2bTia50Q%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=1), [cash flow](https://codal.ir/Reports/Decision.aspx?LetterSerial=X2OX1hOJ2JKt9DK%2bTia50Q%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=9). |
+| 1367760, Mashhad Packaging Industries | Unaudited six months ended `1404/03/31`, Azar fiscal year end, all three sheets and audited comparison columns. [CODAL filing](https://codal.ir/Reports/Decision.aspx?LetterSerial=RmK5xMmGyadZVk3PGHle7g%3d%3d&ct=0&ft=-1&let=6&rt=0). |
+| 1492894, Zayandeh Rud Fibers | Audited year ended `1404/09/30`, all three sheets. The default page is the auditor's report. Select a statement before saving. [CODAL filing](https://codal.ir/Reports/Decision.aspx?LetterSerial=FGzQQQaQQQfD4kzNX1dhFukJUWsQ%3d%3d&ct=0&ft=-1&let=6&rt=0&sheetId=1). |
+| 1352953, No Andishan Sanat Foolad | Audited year ended `1403/12/30`, income statement. [CODAL income statement](https://codal.ir/Reports/Decision.aspx?LetterSerial=UujVb26Yxee2Nd2eINSrUw%3d%3d&ct=0&ft=-1&let=6&rt=0&sheetId=1). |
+
+The sample covers restated columns. A linked original and corrected financial
+statement pair still needs independent verification. For example, the current
+period of 1106536 reports 274 rials of basic EPS and 275 rials of net profit
+per share. Its opening cash is 69,040 million rials, while its restated
+previous fiscal-year-end cash is 52,480 million rials. The current cash-flow
+bridge closes at the reported 181,717 million rials.
 
 ## Feasibility and next stage
 
