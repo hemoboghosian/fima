@@ -125,6 +125,28 @@ def test_multiple_loaded_sheets_keep_payload_order(tmp_path):
         get_codal_report(path, 7)
 
 
+def test_alternate_sheet_menu_preserves_coverage(tmp_path):
+    menu = (
+        '<select id="ddlTable" name="ctl00$ddlTable">'
+        '<option value="1" selected>Income statement</option>'
+        '<option value="0">Balance sheet</option>'
+        '<option value="9">Cash flow</option></select>'
+    )
+    payload = '{"sheets":[{"code":1,"tables":[{"code":904,"cells":[]}]}]}'
+    report = get_codal_report(save_payload(tmp_path, payload, menu), sheet_id=1)
+    assert report["Coverage"] == {
+        "LoadedSheetIds": ["1"],
+        "SheetOptions": [
+            {"SheetId": "1", "Title": "Income statement", "IsSelected": True},
+            {"SheetId": "0", "Title": "Balance sheet", "IsSelected": False},
+            {"SheetId": "9", "Title": "Cash flow", "IsSelected": False},
+        ],
+        "UnloadedSheetIds": ["0", "9"],
+        "SelectedSheetId": "1",
+        "RequestedSheetId": "1",
+    }
+
+
 @pytest.mark.parametrize(("expression", "message"), [
     ("null", "datasource object"),
     ('{"tables":[]}', "sheets array"),
@@ -158,8 +180,9 @@ def test_missing_embedded_data(tmp_path, contents):
         get_codal_report(path)
 
 
-def test_conflicting_sheet_selection(tmp_path):
-    menu = '<select id="ctl00_ddlTable"><option value="1" selected>Other</select>'
+@pytest.mark.parametrize("menu_id", ["ctl00_ddlTable", "ddlTable"])
+def test_conflicting_sheet_selection(tmp_path, menu_id):
+    menu = f'<select id="{menu_id}"><option value="1" selected>Other</select>'
     payload = '{"sheets":[{"code":0,"tables":[{"code":9,"cells":[]}]}]}'
     with pytest.raises(ValueError, match="selected CODAL sheet disagrees"):
         get_codal_report(save_payload(tmp_path, payload, menu))

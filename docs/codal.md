@@ -73,7 +73,10 @@ extracts tables from every embedded sheet.
 Coverage describes the saved file. An empty `UnloadedSheetIds` only means
 there are no known missing sheets in its menu. In filing 1106536, the file
 for sheet `0` listed eleven other sheets, including sheet `1`. Save additional
-sheets individually when needed and keep each file's provenance.
+sheets individually when needed and keep each file's provenance. The
+reader also recognizes the alternate sheet menu in [corrected filing
+1619870](https://www.codal.ir/Reports/Decision.aspx?LetterSerial=zRjmF4UpaQQQaQQQXPVuXgXg0zQQQaQQQQ%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=1).
+That income statement file embeds sheet `1` and lists nine other sheets.
 
 ### Table dictionaries and cell DataFrames
 

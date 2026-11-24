@@ -154,6 +154,8 @@ def _read_coverage(page, loaded, requested):
     if requested is not None and requested not in loaded:
         raise ValueError(f"CODAL sheet {requested!r} is not loaded in this file")
     menu = page.find("select", id="ctl00_ddlTable")
+    if menu is None:
+        menu = page.find("select", id="ddlTable")
     options = [] if menu is None else [
         {
             "SheetId": option["value"],
