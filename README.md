@@ -38,6 +38,7 @@ if history is not None:
 | IME | [معاملات فیزیکی، صادراتی، آتی، اختیار، گواهی سپرده و سلف](https://github.com/hemoboghosian/fima/blob/master/docs/ime.md) |
 | CBI | [نرخ‌های سیاستی، تورم و دو مجموعهٔ مستقل نرخ ارز](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md) |
 | KILID | [محدوده‌ها و میانهٔ قیمت پیشنهادی آگهی آپارتمان](https://github.com/hemoboghosian/fima/blob/master/docs/kilid.md)؛ قیمت آگهی با معاملهٔ قطعی تفاوت دارد |
+| کدال | [خواندن گزارش ذخیره‌شده و استخراج جدول‌ها](https://github.com/hemoboghosian/fima/blob/master/docs/codal.md) |
 | IMF | [کشف شاخص و دریافت سری‌های سالانهٔ منتخب WEO](https://github.com/hemoboghosian/fima/blob/master/docs/imf.md)؛ شامل برآورد و پیش‌بینی نیز می‌شود |
 | TSEInstitutions | [فهرست نهادهای مالی](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md#financial-institution-directory) |
 

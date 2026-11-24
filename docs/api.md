@@ -177,6 +177,15 @@
 | `get_imf_countries(include_aggregates=False)` | Discover exact source geographic IDs; they are not all ISO country codes. |
 | `get_imf_series(indicator, countries, start_year, end_year)` | Retrieve one WEO annual indicator for explicit geographies and years. |
 
+## `fima.codal_reports`
+
+[شیوهٔ ذخیره، ساختار خروجی و محدودیت‌ها](codal.md)
+
+| امضای تابع | کاربرد |
+| --- | --- |
+| `get_codal_report(path, sheet_id=None)` | Read structured CODAL HTML and preserve filing metadata, original bytes and sheet coverage. |
+| `get_codal_tables(report)` | Return source-ordered tables with cell DataFrames, source units and provenance. |
+
 ### واردسازی و سازگاری
 
 پارامترهای قدیمی با پیشوند `_` برای سازگاری در امضا باقی مانده‌اند؛ راهنمای هر تابع نقش آن‌ها را توضیح می‌دهد. در `Funds` فقط شش تابع عمومی در `dir()` و import با `*` نمایش داده می‌شوند، ولی دسترسی صریح به کمک‌تابع‌ها همچنان ممکن است. نام‌های `PIKAD_URL_PREFIXES` و `NIKA_MANUAL_CONFIGS` قرارداد تنظیمات عمومی نیستند.
