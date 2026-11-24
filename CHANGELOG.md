@@ -21,8 +21,9 @@
   Playwright Chromium. CAPTCHA completion is manual. HTTP 429 stops retrieval,
   and a valid `Retry-After` blocks further CODAL requests in the same process
   until the deadline.
-- Previous live tests verified automatic retrieval and browser-backed
-  retrieval on a request where CODAL did not present a CAPTCHA. Completing a
+- Previous live tests verified automatic retrieval, including a successful
+  call with `interactive=True` where CODAL did not present a CAPTCHA. Local
+  Chrome tests verified the browser handoff and continuation. Completing a
   real CAPTCHA and then retrieving the report remains unverified end to end.
   CODAL availability can vary.
 

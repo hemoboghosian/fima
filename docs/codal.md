@@ -103,11 +103,11 @@ report_type, period=None, *, max_pages=100, interactive=False)` returns
 filing metadata with separate category, letter-type and textual letter-code
 fields. Search keeps original and corrected notices, subsidiary reports under
 the exact publisher symbol, and both separate and consolidated reports where
-present. It walks the
-provider's reported pages and raises `CodalRequestError` if the page limit,
-changing counts, duplicate tracing numbers, HTTP errors, or human verification
-prevent full coverage. A completed query with no matching rows returns an empty
-DataFrame. Reporting-period filters apply to monthly and financial types. Search
+present. It walks the provider's reported pages and raises `CodalRequestError`
+if the page limit, changing counts, duplicate tracing numbers, HTTP errors, or
+human verification prevent full coverage. A completed query with no matching
+rows returns an empty DataFrame. Reporting-period filters apply to monthly
+and financial types. Search
 disclosures and meeting notices using the Persian name alone.
 
 `get_codal_data(..., raw=True)` returns source cells and sheet coverage when
