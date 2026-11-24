@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.19.0
+
+- Add `get_codal_data`, `search_codal_filings`, `fetch_codal_report`, and
+  `list_codal_report_types` for discovering and downloading supported CODAL
+  reports from Python. Use Persian report names such as «گزارش عملکرد ماهانه»,
+  «گزارش فعالیت ماهانه», «صورت‌های مالی», «صورت سود و زیان»,
+  «صورت وضعیت مالی», and «صورت جریان وجوه نقد». fima resolves CODAL category
+  and letter-type IDs and finds report URLs automatically.
+- Select filings by issuer and Jalali reporting period, with statement-sheet
+  selection for financial reports. Search retains original and corrected
+  filings and raises an error if pagination cannot complete. Automatic
+  retrieval validates the issuer, period, statement, separate scope, and
+  revision history before selecting a report. Supported normalized templates
+  preserve exact values, original units and scales, and source provenance
+  including SHA-256. See the [CODAL guide](docs/codal.md) for template coverage.
+- Pass `interactive=True` to let a person complete a supported CAPTCHA on
+  CODAL's own page in a visible browser. Install the optional
+  `fima[codal-browser]` extra for Playwright and use installed Google Chrome or
+  Playwright Chromium. CAPTCHA completion is manual. HTTP 429 stops retrieval,
+  and a valid `Retry-After` blocks further CODAL requests in the same process
+  until the deadline.
+- Previous live tests verified automatic retrieval and browser-backed
+  retrieval on a request where CODAL did not present a CAPTCHA. Completing a
+  real CAPTCHA and then retrieving the report remains unverified end to end.
+  CODAL availability can vary.
+
 ## 0.18.0
 
 - Add offline `get_codal_report` and `get_codal_tables` to read filing metadata

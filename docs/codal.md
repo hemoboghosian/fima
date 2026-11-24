@@ -61,6 +61,11 @@ Chromium اختیاری است.
 
 ```sh
 python -m pip install "fima[codal-browser]"
+```
+
+اگر Chrome نصب نیست، Chromium را نصب کنید.
+
+```sh
 python -m playwright install chromium
 ```
 
@@ -70,7 +75,12 @@ python -m playwright install chromium
 ```python
 from fima import get_codal_data
 
-df = get_codal_data("فولاد", "گزارش عملکرد ماهانه", period="1405/06", interactive=True)
+df = get_codal_data(
+    symbol="فولاد",
+    report_type="گزارش عملکرد ماهانه",
+    period="1405/06",
+    interactive=True,
+)
 ```
 
 اگر کدال نیاز به تأیید انسانی را اعلام کند، مرورگر صفحهٔ رسمی کدال را برای
@@ -89,10 +99,11 @@ DataFrame را با اطلاعات منبع برمی‌گرداند. برای ل
 
 `list_codal_report_types()` lists the current Persian names and IDs
 under CODAL's exchange-issuer publisher type. `search_codal_filings(symbol,
-report_type, period=None, *, max_pages=100)` returns filing metadata with
-separate category, letter-type and textual letter-code fields. Search keeps
-original and corrected notices, subsidiary reports published under the exact
-symbol, and both separate and consolidated reports where present. It walks the
+report_type, period=None, *, max_pages=100, interactive=False)` returns
+filing metadata with separate category, letter-type and textual letter-code
+fields. Search keeps original and corrected notices, subsidiary reports under
+the exact publisher symbol, and both separate and consolidated reports where
+present. It walks the
 provider's reported pages and raises `CodalRequestError` if the page limit,
 changing counts, duplicate tracing numbers, HTTP errors, or human verification
 prevent full coverage. A completed query with no matching rows returns an empty
