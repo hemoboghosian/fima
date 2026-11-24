@@ -111,31 +111,20 @@ separate letter code `ن-۳۰`. Issuer financial statements used category
 `1` and letter type `6`, including both annual and interim filings, with
 `ن-۱۰` as the observed letter code. fima reads the current taxonomy when
 called and reuses it for up to ten minutes. The public site uses these routes
-for anonymous lookups. Permission and quotas for sustained automated use of
-those browser endpoints remain unconfirmed.
+for anonymous lookups.
 [CODAL search page](https://www.codal.ir/ReportList.aspx?search)
 
-### Operator-approved API access
+### Public endpoint availability
 
-CODAL links to Rayan Bourse's Sedra data service. Its public pages describe
-application approval, issued credentials, subscriptions, and services for
-filing titles and contents. The Sedra guide documents 24-hour tokens and a
-ten-per-day authentication limit. The public material reviewed leaves the
-data endpoint quotas and permission for the browser routes unconfirmed.
-[Rayan Bourse Sedra service](https://www.rayanbourse.ir/fa/services/webservice/)
-[CODAL web-service guide](https://help.rbcapi.ir/)
+The verified workflow uses CODAL's public taxonomy, search, and report pages
+over HTTPS. CODAL served the tested filings anonymously. Availability can
+vary by request and over time. CODAL may rate-limit requests, require human
+verification, or change the endpoints or report formats. HTTP 429 and
+human-verification responses raise `CodalRequestError`.
+Published quotas and operator terms for sustained automated use remain unconfirmed.
 
-For sustained integration, the remaining decision is whether Rayan Bourse
-permits this library to use the anonymous browser routes under a specified
-quota or requires an approved Sedra subscription. Confirm endpoint access,
-per-client data request and concurrency limits, 429 handling, and the contract
-for issuer identification, reporting-period filters, revised filings and
-financial statement sheets. Rayan Bourse lists support at
-`info@rayanbourse.ir` and `+98 21 4172 1000`, extension 1.
-[Rayan Bourse support](https://www.rayanbourse.ir/fa/contact-us-fa/contact-rayanbourse/)
-
-The deterministic suite runs without contacting CODAL. When the provider
-permits access, run a single live manufacturing case with
+The deterministic suite runs without contacting CODAL. When the public
+endpoints are available, run a single live manufacturing case with
 `python -m pytest -x -m integration -k foolad_monthly_correction test/test_codal_integration.py`.
 Stop on a rate limit or human-verification response.
 
