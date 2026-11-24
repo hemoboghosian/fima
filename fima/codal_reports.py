@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 
 
-__all__ = ["get_codal_report", "get_codal_tables"]
+__all__ = ["get_codal_report", "get_codal_tables", "get_codal_monthly_activity"]
 
 _DATASOURCE = re.compile(r"(?m)^[ \t]*var[ \t]+datasource[ \t]*=\s*")
 _FORMAT = "CodalDatasourceHTML"
@@ -303,3 +303,267 @@ def get_codal_tables(report: dict) -> list[dict]:
         if requested is None or sheet["SheetId"] == requested
         for order, table in enumerate(sheet["Tables"])
     ]
+
+
+_MONTHLY_SHEET_VERSIONS = {
+    "Monthly Activity Product - V3": ("3", 5),
+    "Monthly Activity Product - V4": ("4", 3),
+}
+_MONTHLY_METRICS = {
+    "تعداد تولید": ("ProductionQuantity", None, 1),
+    "تعداد فروش": ("SalesQuantity", None, 1),
+    "نرخ فروش (ریال)": ("SalesRate", "IRR", 1),
+    "مبلغ فروش (میلیون ریال)": ("SalesAmount", "IRR", 1_000_000),
+}
+_MONTHLY_PERIODS = (
+    (3, "PreviousYTD", "از ابتدای سال مالی تا تاریخ {date}", tuple(_MONTHLY_METRICS)),
+    (7, "Adjustment", "اصلاحات", ("تعداد تولید", "تعداد فروش", "مبلغ فروش (میلیون ریال)")),
+    (10, "AdjustedYTD", "از ابتدای سال مالی تا تاریخ {date} (اصلاح شده)", tuple(_MONTHLY_METRICS)),
+    (14, "CurrentMonth", "دوره یک ماهه منتهی به {date}", tuple(_MONTHLY_METRICS)),
+    (18, "CurrentYTD", "از ابتدای سال مالی تا تاریخ {date}", tuple(_MONTHLY_METRICS)),
+    (22, "PriorYearYTD", "از ابتدای سال مالی تا تاریخ {date}", tuple(_MONTHLY_METRICS)),
+)
+_MONTHLY_SECTIONS = (
+    ("DomesticSales", "Domestic", "فروش داخلی:", "جمع فروش داخلی"),
+    ("ExportSales", "Export", "فروش صادراتی:", "جمع فروش صادراتی"),
+    ("Services", None, "درآمد ارائه خدمات:", "جمع درآمد ارائه خدمات"),
+    ("SalesReturns", None, "برگشت از فروش:", "جمع برگشت از فروش"),
+)
+_JALALI_DATE = re.compile(r"[0-9]{4}/(?:0[1-9]|1[0-2])/(?:0[1-9]|[12][0-9]|3[01])")
+_REPORTED_DECIMAL = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?")
+_PERSIAN_LETTERS = str.maketrans("يك", "یک")
+
+
+def _monthly_error(detail):
+    return ValueError(f"Unsupported or ambiguous CODAL manufacturing report: {detail}")
+
+
+def _heading(value):
+    return " ".join(value.translate(_PERSIAN_LETTERS).split()) if isinstance(value, str) else ""
+
+
+def _monthly_date(value):
+    if not isinstance(value, str) or not _JALALI_DATE.fullmatch(value):
+        raise _monthly_error(f"expected a Jalali date, got {value!r}")
+    return value
+
+
+def _monthly_grid(cells, first_body_row):
+    grid = {}
+    for cell in cells.itertuples(index=False):
+        row, column = key = cell.RowSequence, cell.ColumnSequence
+        if (key in grid or not 1 <= column <= 26 or cell.IsVisible is not True
+                or cell.Address != f"{chr(64 + column)}{row}"):
+            raise _monthly_error(f"invalid, hidden or duplicate cell at {key}")
+        grid[key] = cell
+
+    header_columns = {1, 3, 7, 10, 14, 18, 22, 26}
+    expected = {(1, column) for column in header_columns}
+    expected.update((2, column) for column in range(1, 26))
+    if {(row, column) for row, column in grid if row <= 2} != expected:
+        raise _monthly_error("unexpected header coordinates")
+    body_rows = sorted({row for row, _ in grid if row > 2})
+    if body_rows != list(range(first_body_row, first_body_row + len(body_rows))):
+        raise _monthly_error("unexpected production and sales row coordinates")
+    rows = []
+    for row in body_rows:
+        body = [grid.get((row, column)) for column in range(1, 27)]
+        if any(cell is None or cell.CellGroup != "Body" or (cell.RowSpan, cell.ColumnSpan) != (1, 1)
+               for cell in body):
+            raise _monthly_error(f"incomplete or merged body row {row}")
+        rows.append(body)
+    if len(grid) != len(expected) + 26 * len(rows):
+        raise _monthly_error("unexpected body columns")
+    return grid, rows
+
+
+def _check_monthly_heading(cell, label, height=1, width=1):
+    if (cell.CellGroup, cell.RowSpan, cell.ColumnSpan) != ("Header", height, width) or (
+        _heading(cell.Value) != label
+    ):
+        raise _monthly_error(f"unexpected heading or span at {cell.Address}")
+
+
+def _monthly_columns(grid, report_date):
+    _check_monthly_heading(grid[1, 1], "شرح", width=2)
+    _check_monthly_heading(grid[1, 26], "وضعیت محصول-واحد", height=2)
+    _check_monthly_heading(grid[2, 1], "نام محصول")
+    _check_monthly_heading(grid[2, 2], "واحد")
+    columns = {}
+    dates = {}
+    for start, basis, template, headings in _MONTHLY_PERIODS:
+        cell = grid[1, start]
+        date = None
+        if "{date}" in template:
+            date = _monthly_date(cell.ProviderMetadata.get("periodEndToDate"))
+        _check_monthly_heading(cell, template.format(date=date), width=len(headings))
+        dates[basis] = date
+        for column, heading in enumerate(headings, start):
+            _check_monthly_heading(grid[2, column], heading)
+            columns[column] = (basis, date, *_MONTHLY_METRICS[heading])
+
+    year, month = map(int, report_date.split("/")[:2])
+    previous_year, previous_month = (year, month - 1) if month > 1 else (year - 1, 12)
+    if (
+        dates["CurrentMonth"] != report_date
+        or dates["CurrentYTD"] != report_date
+        or dates["PreviousYTD"] != dates["AdjustedYTD"]
+        or dates["PreviousYTD"][:7] != f"{previous_year:04d}/{previous_month:02d}"
+        or dates["PriorYearYTD"][:7] != f"{year - 1:04d}/{month:02d}"
+    ):
+        raise _monthly_error("period headings disagree with the filing period")
+    return columns
+
+
+def _monthly_rows(rows):
+    fixed = [
+        (index, _heading(row[0].Value)) for index, row in enumerate(rows)
+        if row[0].ProviderMetadata.get("rowTypeName") == "FixedRow"
+    ]
+    labels = [label for _, _, start, end in _MONTHLY_SECTIONS for label in (start, end)]
+    if [label for _, label in fixed] != [*labels, "تخفیفات", "جمع"] or (
+        fixed[0][0] != 0 or fixed[-1][0] != len(rows) - 1 or fixed[-2][0] != len(rows) - 2
+    ):
+        raise _monthly_error("unexpected production and sales section rows")
+
+    for position, (section, market, _, _) in enumerate(_MONTHLY_SECTIONS):
+        start, end = fixed[2 * position][0], fixed[2 * position + 1][0]
+        if position and start != fixed[2 * position - 1][0] + 1:
+            raise _monthly_error("data between production and sales sections")
+        if any(cell.Value not in (None, "") for cell in rows[start][1:]):
+            raise _monthly_error(f"values on section heading {rows[start][0].Address}")
+        for row in rows[start + 1:end]:
+            label, unit, status = row[0].Value, row[1].Value, row[-1].Value
+            kind = row[0].ProviderMetadata.get("rowTypeName")
+            if kind == "NewRow" and (label, unit, status) == ("", "", ""):
+                if any(cell.Value not in (None, "", "0") for cell in row[2:-1]):
+                    raise _monthly_error(f"observations without a product at {row[0].Address}")
+                continue
+            if kind != "CustomRow" or not _heading(label) or not _heading(unit):
+                raise _monthly_error(f"unidentified detail row at {row[0].Address}")
+            if status is not None and not isinstance(status, str):
+                raise _monthly_error(f"invalid product status at {row[-1].Address}")
+            yield row, section, market, "Detail"
+        yield rows[end], section, market, "Subtotal"
+
+    if fixed[-2][0] != fixed[-3][0] + 1:
+        raise _monthly_error("data between the last subtotal and discounts")
+    yield rows[-2], "Discounts", None, "Discount"
+    yield rows[-1], "Total", None, "Total"
+
+
+def _monthly_value(cell):
+    value = cell.Value
+    if value is None or value == "":
+        return None
+    if type(value) is int or isinstance(value, Decimal):
+        return Decimal(value)
+    if isinstance(value, str) and _REPORTED_DECIMAL.fullmatch(value):
+        return Decimal(value)
+    raise _monthly_error(f"unrecognized financial value at {cell.Address}: {value!r}")
+
+
+def get_codal_monthly_activity(report: dict) -> pd.DataFrame:
+    """Normalize the verified production and sales grid in a saved CODAL filing.
+
+    Parameters
+    ----------
+    report : dict
+        A Monthly Activity Product V3 or V4 report from get_codal_report.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per reported metric cell for each named detail and total row,
+        in source grid order. Values are exact Decimal or None, with original
+        values, scales, period bases and coordinates. Filing metadata and source
+        identity are also available in DataFrame.attrs.
+
+    Raises
+    ------
+    TypeError
+        report is not a CODAL report from get_codal_report.
+    ValueError
+        The report or grid is unsupported, incomplete or ambiguous.
+    """
+    tables = get_codal_tables(report)
+    provider = report["ProviderMetadata"]
+    page = report["PageMetadata"]
+    title = provider.get("title_En")
+    layout = _MONTHLY_SHEET_VERSIONS.get(title) if isinstance(title, str) else None
+    candidates = [table for table in tables if table["TableId"] == "1197"]
+    if (not layout or provider.get("type") != 58 or provider.get("period") != 1
+            or provider.get("isConsolidated") is not False or len(candidates) != 1):
+        raise _monthly_error("expected a standalone one-month V3 or V4 filing with table 1197")
+    sheet_version, first_body_row = layout
+    table = candidates[0]
+    if (table["SheetId"], table["Version"], table["TitleEn"]) != (
+        "1000000", "4", "Production and sales"
+    ):
+        raise _monthly_error("expected production and sales table 1197 v4 on sheet 1000000")
+    sheet = next(sheet for sheet in report["Sheets"] if sheet["SheetId"] == table["SheetId"])
+    sheet_metadata = sheet["ProviderMetadata"]
+    if (sheet_metadata.get("aliasName"), sheet_metadata.get("versionNo")) != (
+        "MonthlyActivity", sheet_version
+    ):
+        raise _monthly_error("unexpected monthly activity sheet version")
+
+    tracing_no = provider.get("tracingNo")
+    if type(tracing_no) is not int or tracing_no <= 0:
+        raise _monthly_error("missing or invalid filing tracing number")
+    report_date = _monthly_date(provider.get("periodEndToDate"))
+    fiscal_end = _monthly_date(provider.get("yearEndToDate"))
+    if page.get("PeriodEndDate", report_date) != report_date or (
+        page.get("FiscalYearEndDate", fiscal_end) != fiscal_end
+    ):
+        raise _monthly_error("page dates disagree with the filing metadata")
+    grid, rows = _monthly_grid(table["Cells"], first_body_row)
+    columns = _monthly_columns(grid, report_date)
+
+    filing = {
+        "TracingNo": tracing_no,
+        "CompanyName": page.get("CompanyName"),
+        "SubjectName": provider.get("subject"),
+        "Symbol": page.get("Symbol") or page.get("DisplaySymbol") or None,
+        "FilingKind": provider.get("kind"),
+        "ReportPeriodEndJalaliDate": report_date,
+        "ContentSha256": report["Source"]["ContentSha256"],
+        "SheetId": table["SheetId"],
+        "TableId": table["TableId"],
+    }
+    records = []
+    prior_fiscal_end = None
+    for row, section, market, row_kind in _monthly_rows(rows):
+        detail = row_kind == "Detail"
+        label, product_unit, product_status = row[0].Value, row[1].Value, row[-1].Value
+        if not detail and (product_unit not in (None, "") or product_status not in (None, "")):
+            raise _monthly_error(f"unexpected product fields on total or discount {row[0].Address}")
+        for cell in row[2:-1]:
+            basis, date, metric, currency, scale = columns[cell.ColumnSequence]
+            meta = cell.ProviderMetadata
+            cell_date = meta.get("periodEndToDate") or None
+            cell_fiscal_end = meta.get("yearEndToDate") or None
+            if basis == "PriorYearYTD":
+                if prior_fiscal_end is None:
+                    prior_fiscal_end = _monthly_date(cell_fiscal_end)
+                expected_fiscal_end = prior_fiscal_end
+            else:
+                expected_fiscal_end = fiscal_end if date else None
+            if cell_date != date or cell_fiscal_end != expected_fiscal_end:
+                raise _monthly_error(f"inconsistent period metadata at {cell.Address}")
+            unit = currency or (product_unit if detail else None)
+            records.append({
+                **filing,
+                "PeriodBasis": basis, "PeriodEndJalaliDate": date, "FiscalYearEndJalaliDate": cell_fiscal_end,
+                "ActivitySection": section, "MarketSegment": market, "RowKind": row_kind,
+                "RowLabel": label, "ProductName": label if detail else None,
+                "ProductUnit": product_unit if detail else None, "ProductStatus": product_status if detail else None,
+                "Metric": metric, "Value": _monthly_value(cell), "Unit": unit, "Scale": scale if unit else None,
+                "RawValue": cell.Value, "ValuePresent": cell.ValuePresent,
+                "RowSequence": cell.RowSequence, "ColumnSequence": cell.ColumnSequence, "Address": cell.Address,
+                "CellOrder": cell.CellOrder,
+            })
+
+    result = pd.DataFrame(records, dtype=object)
+    result.attrs = {key: deepcopy(report[key]) for key in ("Source", "ProviderMetadata", "PageMetadata", "Coverage")}
+    return result
