@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.1
+
+- A standard `pip install fima` now installs Playwright. The
+  `fima[codal-browser]` extra remains available for compatibility. For manual
+  CAPTCHA completion, fima prefers installed Google Chrome and falls back to
+  Playwright-managed Chromium. If neither browser is available, install Chrome
+  or run `python -m playwright install chromium` in the same Python environment.
+  See the [CODAL guide](docs/codal.md) for browser setup.
+- Reuse validated CODAL report taxonomy for up to ten minutes from the fetch,
+  including across fresh Python processes. This reduces unnecessary taxonomy
+  requests when resolving Persian report names and keeps category IDs,
+  letter-type IDs, and textual filing codes distinct.
+- HTTP 429 errors explain CODAL's rate limit and show `Retry-After` when
+  provided. Retrieval stops immediately, and a valid `Retry-After` blocks new
+  CODAL requests in the same process until the deadline. Browser verification
+  cannot bypass this rate limit. Availability depends on CODAL, and completing
+  a real CAPTCHA followed by live retrieval remains unverified.
+
 ## 0.19.0
 
 - Add `get_codal_data`, `search_codal_filings`, `fetch_codal_report`, and
