@@ -1,11 +1,14 @@
 """Discover and retrieve public CODAL filings by Persian report name."""
 
 from collections.abc import Mapping
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from copy import deepcopy
 from datetime import timezone
 from email.utils import parsedate_to_datetime
+import json
+from pathlib import Path
 import re
+from tempfile import NamedTemporaryFile
 from threading import Lock
 from time import monotonic, time
 from unicodedata import normalize
@@ -117,7 +120,9 @@ _STATEMENT_NAMES = _aliases(_STATEMENT_ALIASES)
 
 def _rate_limit_error(retry_after):
     wait = f" (Retry-After: {retry_after})" if retry_after else ""
-    return CodalRequestError(f"CODAL rate-limited the request (HTTP 429){wait}")
+    return CodalRequestError(
+        f"CODAL temporarily rate-limited the request (HTTP 429){wait}. Avoid retrying immediately."
+    )
 
 
 def _retry_delay(retry_after):
@@ -288,20 +293,68 @@ def _taxonomy(payload):
             for (category, kind), (category_name, type_name) in records.items()]
 
 
+def _taxonomy_path():
+    return Path.home() / ".cache" / "fima" / "codal-taxonomy-v1.json"
+
+
+def _read_taxonomy_snapshot(path):
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+        fetched_at = snapshot["fetched_at"]
+        now = time()
+        if type(fetched_at) not in (int, float) or not now - _TAXONOMY_TTL < fetched_at <= now:
+            return None
+        deadline = monotonic() + (_TAXONOMY_TTL - (now - fetched_at))
+        return deadline, tuple(_taxonomy(snapshot["payload"]))
+    except (OSError, ValueError, TypeError, KeyError, RecursionError):
+        return None
+
+
+def _write_taxonomy_snapshot(path, fetched_at, payload):
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, suffix=".tmp", delete=False,
+        ) as file:
+            temporary = Path(file.name)
+            json.dump({"fetched_at": fetched_at, "payload": payload}, file)
+        temporary.replace(path)
+    except (OSError, RecursionError):
+        pass  # Ignore disk and serialization failures for the optional snapshot.
+    finally:
+        if temporary is not None:
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)
+
+
 def _issuer_taxonomy(session):
     global _taxonomy_cache
     with _taxonomy_lock:
         if _taxonomy_cache and monotonic() < _taxonomy_cache[0]:
             return _taxonomy_cache[1]
-        records = tuple(_taxonomy(_get(session, _TAXONOMY)))
+        try:
+            path = _taxonomy_path()
+        except RuntimeError:  # A home directory may be unavailable.
+            path = None
+        snapshot = _read_taxonomy_snapshot(path) if path is not None else None
+        if snapshot is not None and monotonic() < snapshot[0]:
+            _taxonomy_cache = snapshot
+            return snapshot[1]
+
+        payload = _get(session, _TAXONOMY)
+        records = tuple(_taxonomy(payload))
         _taxonomy_cache = (monotonic() + _TAXONOMY_TTL, records)
+        if path is not None:
+            _write_taxonomy_snapshot(path, time(), payload)
         return records
 
 
 def list_codal_report_types() -> pd.DataFrame:
     """Return current category IDs, category names, letter-type IDs and Persian names for issuers.
 
-    The DataFrame has one row per category and letter-type pair.
+    The DataFrame has one row per category and letter-type pair. A validated
+    provider response can be reused for up to ten minutes across processes.
     The CODAL filing's textual LetterCode is a separate field in search results.
     Raises CodalRequestError if the public taxonomy is unavailable or malformed.
     """

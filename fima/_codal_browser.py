@@ -26,10 +26,7 @@ _SEARCH_INPUT = '.modal[ng-show="showCaptchaModal"] input[ng-model="captchaInput
 _NAVIGATION_MS = 25_000
 _CHALLENGE_SECONDS = 12
 _VERIFICATION_SECONDS = 240
-_INSTALL = (
-    'Install the browser extra with pip install "fima[codal-browser]". '
-    "Use an installed Google Chrome or run python -m playwright install chromium."
-)
+_INSTALL = "Install Google Chrome or run python -m playwright install chromium."
 _PROMPT = (
     "کد امنیتی را در صفحهٔ کدال وارد و تأیید کنید. "
     "پس از تأیید کدال، دریافت گزارش ادامه می‌یابد. برای لغو، پنجرهٔ مرورگر را ببندید."
@@ -98,14 +95,21 @@ def open_browser():
     try:
         from playwright.sync_api import Error, sync_playwright
     except ImportError as exc:
-        raise CodalRequestError(f"CODAL browser support is unavailable. {_INSTALL}") from exc
+        raise CodalRequestError(
+            "CODAL browser support is unavailable. Run python -m pip install --upgrade fima "
+            "in the Python environment you are using."
+        ) from exc
 
     with ExitStack() as resources:
         try:
             playwright = resources.enter_context(sync_playwright())
             chromium = playwright.chromium
-            options = {} if Path(chromium.executable_path).is_file() else {"channel": "chrome"}
-            browser = chromium.launch(headless=False, timeout=_NAVIGATION_MS, **options)
+            try:
+                browser = chromium.launch(channel="chrome", headless=False, timeout=_NAVIGATION_MS)
+            except Error:
+                if not Path(chromium.executable_path).is_file():
+                    raise
+                browser = chromium.launch(headless=False, timeout=_NAVIGATION_MS)
             resources.callback(_close, browser.close, Error)
             context = browser.new_context(accept_downloads=False)
             resources.callback(_close, context.close, Error)

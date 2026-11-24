@@ -38,9 +38,16 @@ df = get_codal_data(
     symbol="فولاد",
     report_type="گزارش عملکرد ماهانه",
     period="1405/06",
+    interactive=True,
 )
 print(df[["ProductName", "PeriodBasis", "Metric", "Value", "Unit", "Scale"]].head())
 ```
+
+با نصب عادی fima، وابستگی Playwright هم نصب می‌شود. اگر کدال تأیید انسانی
+بخواهد، `interactive=True` صفحهٔ کدال را در Google Chrome نصب‌شده باز می‌کند.
+اگر Chrome ندارید، یک‌بار `python -m playwright install chromium` را اجرا کنید.
+خطای HTTP 429 به‌معنی محدودیت موقت دسترسی از طرف کدال است. درخواست را بلافاصله
+تکرار نکنید و اگر `Retry-After` اعلام شد، تا پایان مهلت صبر کنید.
 
 [راهنمای صورت‌های مالی، نام گزارش‌ها و پوشش کدال](https://github.com/hemoboghosian/fima/blob/master/docs/codal.md)
 
