@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.18.0
+
+- Add offline `get_codal_report` and `get_codal_tables` to read filing metadata
+  and extract tables from saved structured CODAL HTML with an embedded
+  datasource. Sheet coverage distinguishes loaded sheets from sheets that
+  still need their own saved files.
+- Add `get_codal_monthly_activity` for the production-and-sales grid in
+  one-month manufacturing Monthly Activity Product V3 and V4 filings. Add
+  `get_codal_financial_statements` for balance sheets, income statements and
+  cash flows from verified six- and twelve-month separate industrial filings.
+  Both preserve reported values, units and scales.
+- See [the CODAL guide](docs/codal.md) for supported templates and save
+  instructions. The maintainer verified browser HTML Only and Complete HTML
+  saves for filing 1106536, income statement sheet 1, with 92 normalized
+  observations from each format. Automated CODAL access is unavailable in this
+  release and remains tracked in [#177](https://github.com/hemoboghosian/fima/issues/177).
+
 ## 0.17.1
 
 - Preserve financial schemas across pandas 2 and 3: object-typed option
