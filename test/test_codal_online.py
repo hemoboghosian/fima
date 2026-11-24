@@ -52,6 +52,8 @@ def provider(monkeypatch):
         elif path.startswith("/Reports/"):
             query = parse_qs(urlsplit(url).query)
             key = (query["LetterSerial"][0], query.get("sheetId", [None])[0])
+            if (path, *key) in routes:
+                key = (path, *key)
         item = routes[key]
         if isinstance(item, Exception):
             raise item
@@ -71,6 +73,7 @@ def provider(monkeypatch):
 
     monkeypatch.setattr(requests.Session, "get", get)
     monkeypatch.setattr(codal, "_taxonomy_cache", None)
+    monkeypatch.setattr(codal, "_rate_limit", None)
     routes["/api/search/v1/categories"] = categories
     return routes, calls
 
@@ -311,3 +314,164 @@ def test_captcha_and_wrong_letter_type_are_detected(provider):
     routes[3, 58, 1] = _results(_letter(12, "a", type_id=8))
     with pytest.raises(CodalRequestError, match="different letter type"):
         search_codal_filings("نمونه", "گزارش ماهانه")
+
+
+def test_monthly_request_budget_includes_redirects_and_all_history(provider, monthly_payload, monkeypatch):
+    routes, calls = provider
+    newest = _letter(12, "b", corrected=True)
+    oldest = _letter(11, "a")
+    routes[3, 58, 1] = _results(newest, total=9, pages=9)
+    for page_number in range(2, 9):
+        unrelated = _letter(100 + page_number, "unused", date="1404/06/31")
+        routes[3, 58, page_number] = _results(unrelated, total=9, pages=9)
+    routes[3, 58, 9] = _results(oldest, total=9, pages=9)
+    for serial in ("a", "b"):
+        routes["/Reports/Decision.aspx", serial, None] = (
+            302, {"Location": f"/Reports/MonthlyActivity.aspx?LetterSerial={serial}"}, {},
+        )
+    routes["/Reports/MonthlyActivity.aspx", "a", None] = _html(
+        dict(monthly_payload, tracingNo=11, kind=0), "a", extra=_revision("New", "b", 12),
+    )
+    routes["/Reports/MonthlyActivity.aspx", "b", None] = _html(
+        dict(monthly_payload, tracingNo=12), "b", extra=_revision("Prev", "a", 11),
+    )
+
+    def check(searches):
+        assert [params["PageNumber"] for _, params in searches] == list(range(1, 10))
+        assert all(set(params) == {"PageNumber", "Symbol", "Category", "LetterType"}
+                   for _, params in searches)
+
+    for first_search in (1, 0):
+        calls.clear()
+        result = get_codal_data("نمونه", "گزارش عملکرد ماهانه", "1404/07")
+        assert result.attrs["RevisionTracingNos"] == [11, 12]
+        assert result.attrs["Filing"]["TracingNo"] == 12
+        assert len(calls) == first_search + 12
+        check(calls[first_search:-3])
+        assert [urlsplit(url).path for url, _ in calls[-3:]] == [
+            "/Reports/Decision.aspx", "/Reports/MonthlyActivity.aspx", "/Reports/MonthlyActivity.aspx",
+        ]
+        assert "LetterSerial=a" in calls[-1][0]
+
+    calls.clear()
+    rows = search_codal_filings("نمونه", "گزارش ماهانه", CURRENT)
+    check(calls)
+    assert rows.TracingNo.tolist() == [12, 11]
+
+    calls.clear()
+    blocked = routes["/Reports/MonthlyActivity.aspx", "a", None]
+    routes["/Reports/MonthlyActivity.aspx", "a", None] = b'<html><h1 id="captchaTitle">Verify</h1></html>'
+    with pytest.raises(CodalRequestError, match="human verification"):
+        get_codal_data("نمونه", "گزارش ماهانه", CURRENT)
+    assert len(calls) == 12
+    routes["/Reports/MonthlyActivity.aspx", "a", None] = blocked
+
+    calls.clear()
+    monkeypatch.setattr(codal, "_monthly_predecessor_url", lambda *args: None)
+    baseline = get_codal_data("نمونه", "گزارش ماهانه", CURRENT)
+    assert len(calls) == 13
+    assert baseline.equals(result)
+    assert baseline.attrs == result.attrs
+
+
+@pytest.mark.parametrize("usable_predecessor", [True, False])
+def test_only_returned_revision_needs_requested_statement(provider, usable_predecessor):
+    routes, calls = provider
+    corrected = statement_payload()
+    corrected.update(tracingNo=12, kind=1)
+    corrected["sheets"][0]["title_Fa"] = "صورت سود و زیان"
+    date = corrected["periodEndToDate"]
+    original = statement_payload(sheets=("0",))
+    original.update(tracingNo=11, kind=0)
+    original["sheets"][0]["title_Fa"] = "صورت وضعیت مالی"
+    older_income = dict(corrected, kind=0, tracingNo=11)
+    rows = (_letter(12, "b", date=date, corrected=True, months=6, type_id=6),
+            _letter(11, "a", date=date, months=6, type_id=6))
+    routes[1, 6, 1] = _results(*rows)
+    menu = ('<select id="ddlTable"><option value="0" selected="selected">صورت وضعیت مالی</option>'
+            '<option value="1">صورت سود و زیان</option></select>')
+    selected = '<select id="ddlTable"><option value="1" selected="selected">صورت سود و زیان</option></select>'
+    routes["b", None] = menu.encode()
+    routes["b", "1"] = _html(corrected, "b", extra=selected + _revision("Prev", "a", 11))
+    routes["a", None] = (
+        _html(original, "a", extra=menu + _revision("New", "b", 12))
+        if usable_predecessor else menu.encode()
+    )
+    if not usable_predecessor:
+        routes["a", "1"] = _html(older_income, "a", extra=selected + _revision("New", "b", 12))
+
+    result = get_codal_data("نمونه", "صورت سود و زیان", date)
+    assert result.attrs["RevisionTracingNos"] == [11, 12]
+    assert result.attrs["Coverage"]["RequestedSheetId"] == "1"
+    assert result.loc[result.Address.eq("B4"), "Value"].item() == Decimal("12.125")
+    assert len(calls) == (5 if usable_predecessor else 6)
+    if usable_predecessor:
+        routes["a", None] = _html(original, "a", extra=menu + _revision("New", "b", 12),
+                                  symbol="ناشر دیگر")
+        with pytest.raises(ValueError, match="symbol disagrees"):
+            get_codal_data("نمونه", "صورت سود و زیان", date)
+
+
+def test_definitive_ambiguity_uses_only_first_page_but_search_stays_complete(provider):
+    routes, calls = provider
+    one = _letter(11, "a", months=6, type_id=6)
+    two = _letter(12, "b", months=6, type_id=6)
+    two["Title"] = two["Title"].replace("نشده", "شده")
+    late = _letter(13, "c", months=6, type_id=6, corrected=True)
+    routes[1, 6, 1] = _results(one, two, total=3, pages=35)
+    with pytest.raises(ValueError, match="audit statuses"):
+        get_codal_data("نمونه", "صورت‌های مالی", CURRENT)
+    assert len(calls) == 2
+
+    routes[1, 6, 1] = _results(one, two, total=3, pages=2)
+    routes[1, 6, 2] = _results(late, total=3, pages=2)
+    assert search_codal_filings("نمونه", "صورت‌های مالی", CURRENT).TracingNo.tolist() == [13, 12, 11]
+
+
+@pytest.mark.parametrize("func", [get_codal_data, search_codal_filings])
+def test_invalid_search_inputs_use_no_requests(provider, func):
+    _, calls = provider
+    with pytest.raises(ValueError, match="symbol"):
+        func(" ", "گزارش ماهانه")
+    with pytest.raises(ValueError, match="max_pages"):
+        func("نمونه", "گزارش ماهانه", max_pages=0)
+    assert not calls
+
+
+@pytest.mark.parametrize("retry_after", ["60", "Tue, 14 Nov 2023 22:14:20 GMT"])
+def test_retry_after_is_respected_across_calls_without_sleeping(provider, monkeypatch, retry_after):
+    routes, calls = provider
+    tick = [10]
+    monkeypatch.setattr(codal, "monotonic", lambda: tick[0])
+    monkeypatch.setattr(codal, "time", lambda: 1_700_000_000)
+    routes[3, 58, 1] = _results(_letter(11, "a"))
+    row = search_codal_filings("نمونه", "گزارش ماهانه").iloc[0]
+    routes[3, 58, 1] = _results(_letter(11, "a"), total=3, pages=3)
+    routes[3, 58, 2] = (429, {"Retry-After": retry_after}, {})
+    routes["a", None] = b'<html><h1 id="captchaTitle">Verify</h1></html>'
+    calls.clear()
+    with pytest.raises(CodalRequestError) as error:
+        get_codal_data("نمونه", "گزارش ماهانه")
+    assert retry_after in str(error.value)
+    assert [params["PageNumber"] for _, params in calls] == [1, 2]
+
+    tick[0] = 69
+    with pytest.raises(CodalRequestError, match="429"):
+        fetch_codal_report(row)
+    with pytest.raises(CodalRequestError, match="429"):
+        search_codal_filings("نمونه", "گزارش ماهانه")
+    assert len(calls) == 2
+
+    tick[0] = 70
+    with pytest.raises(CodalRequestError, match="human verification"):
+        fetch_codal_report(row)
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize("headers", [{}, {"Retry-After": "invalid"}])
+def test_rate_limit_without_usable_retry_after_stops_the_operation(provider, headers):
+    routes, calls = provider
+    routes[3, 58, 1] = (429, headers, {})
+    with pytest.raises(CodalRequestError, match="rate-limited"):
+        get_codal_data("نمونه", "گزارش ماهانه")
+    assert len(calls) == 2

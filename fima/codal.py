@@ -2,9 +2,11 @@
 
 from collections.abc import Mapping
 from copy import deepcopy
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 import re
 from threading import Lock
-from time import monotonic
+from time import monotonic, time
 from unicodedata import normalize
 from urllib.parse import parse_qs, urljoin, urlsplit, urlunsplit
 
@@ -34,6 +36,8 @@ _REPORT_HOSTS = {"www.codal.ir", "codal.ir"}
 _TAXONOMY_TTL = 600
 _taxonomy_cache = None
 _taxonomy_lock = Lock()
+_rate_limit = None
+_rate_limit_lock = Lock()
 _TRANSLATION = str.maketrans("يكى۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "یکی01234567890123456789")
 _PERSIAN_MONTHS = (
     "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
@@ -99,6 +103,39 @@ _REPORT_NAMES = _aliases(_REPORT_ALIASES)
 _STATEMENT_NAMES = _aliases(_STATEMENT_ALIASES)
 
 
+def _rate_limit_error(retry_after):
+    wait = f" (Retry-After: {retry_after})" if retry_after else ""
+    return CodalRequestError(f"CODAL rate-limited the request (HTTP 429){wait}")
+
+
+def _retry_delay(retry_after):
+    if re.fullmatch(r"[0-9]+", retry_after):
+        return float(retry_after)
+    try:
+        date = parsedate_to_datetime(retry_after)
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=timezone.utc)
+        return max(0, date.timestamp() - time())
+    except (ValueError, OverflowError, OSError):
+        return 0
+
+
+def _remember_rate_limit(retry_after):
+    global _rate_limit
+    delay = _retry_delay(retry_after) if retry_after else 0
+    if delay > 0:
+        with _rate_limit_lock:
+            deadline = monotonic() + delay
+            if _rate_limit is None or deadline > _rate_limit[0]:
+                _rate_limit = (deadline, retry_after)
+
+
+def _check_rate_limit():
+    with _rate_limit_lock:
+        if _rate_limit is not None and monotonic() < _rate_limit[0]:
+            raise _rate_limit_error(_rate_limit[1])
+
+
 def _get(session, url, *, params=None, report=False):
     hosts = _REPORT_HOSTS if report else {_SEARCH_HOST}
     content_type = "text/html" if report else "application/json"
@@ -106,6 +143,7 @@ def _get(session, url, *, params=None, report=False):
         parts = urlsplit(url)
         if parts.scheme != "https" or parts.netloc.lower() not in hosts:
             raise CodalRequestError("CODAL returned a URL outside the expected HTTPS hosts")
+        _check_rate_limit()
         try:
             response = session.get(
                 url, params=params, timeout=(10, 25), allow_redirects=False,
@@ -119,8 +157,8 @@ def _get(session, url, *, params=None, report=False):
             continue
         if response.status_code == 429:
             retry_after = response.headers.get("Retry-After")
-            wait = f" (Retry-After: {retry_after})" if retry_after else ""
-            raise CodalRequestError(f"CODAL rate-limited the request (HTTP 429){wait}")
+            _remember_rate_limit(retry_after)
+            raise _rate_limit_error(retry_after)
         if response.status_code != 200:
             raise CodalRequestError(f"CODAL returned HTTP {response.status_code} from {parts.netloc}")
         if response.headers.get("Content-Type", "").split(";")[0].strip().lower() != content_type:
@@ -319,15 +357,18 @@ def _pages(session, symbol, choice, max_pages):
             return
 
 
-def _search_filings(session, symbol, resolved, period, max_pages):
-    name, family, _, choices = resolved
+def _search_symbol(symbol, max_pages):
     if not isinstance(symbol, str) or not _key(symbol):
         raise ValueError("symbol must be a non-empty stock symbol")
     if type(max_pages) is not int or max_pages < 1:
         raise ValueError("max_pages must be a positive integer")
+    return _text(symbol)
+
+
+def _search_rows(session, symbol, resolved, period, max_pages):
+    name, family, _, choices = resolved
     if period and family == "announcement":
         raise ValueError("This report type has no supported reporting-period date. Search without period.")
-    symbol = _text(symbol)
     records = {}
     for choice in choices:
         for letter in _pages(session, symbol, choice, max_pages):
@@ -341,9 +382,12 @@ def _search_filings(session, symbol, resolved, period, max_pages):
             if name == "صورت‌های مالی میان‌دوره‌ای" and row["DurationMonths"] not in range(1, 12):
                 continue
             tracing = row["TracingNo"]
-            if records.setdefault(tracing, row) != row:
-                raise CodalRequestError(f"CODAL returned conflicting search metadata for filing {tracing}")
-    return sorted(records.values(), key=lambda row: (row["PublishDateTime"], row["TracingNo"]), reverse=True)
+            if tracing in records:
+                if records[tracing] != row:
+                    raise CodalRequestError(f"CODAL returned conflicting search metadata for filing {tracing}")
+            else:
+                records[tracing] = row
+                yield row
 
 
 def search_codal_filings(
@@ -359,10 +403,13 @@ def search_codal_filings(
     CodalRequestError.
     """
     period = _period(period)
+    symbol = _search_symbol(symbol, max_pages)
     with requests.Session() as session:
-        rows = _search_filings(session, symbol, _resolve(session, report_type), period, max_pages)
+        rows = sorted(
+            _search_rows(session, symbol, _resolve(session, report_type), period, max_pages),
+            key=lambda row: (row["PublishDateTime"], row["TracingNo"]), reverse=True,
+        )
     return pd.DataFrame(rows, columns=_SEARCH_COLUMNS, dtype=object)
-
 
 
 
@@ -431,22 +478,40 @@ def _validate_report(report, filing):
         raise ValueError(f"Downloaded report letter serial disagrees with its source URL for filing {tracing}")
 
 
-def _fetch_report(session, filing, statement):
+def _downloaded_report(response, page, filing, requested):
+    source = {"Url": response.url, "SearchUrl": filing["Url"]}
+    return _parse_codal_html(response.content, page, source, requested)
+
+
+def _fetch_report(session, filing, statement, *, revision_only=False, source_url=None):
     if not filing["HasHtml"] or not filing["Url"]:
         raise ValueError(f"CODAL filing {filing['TracingNo']} has no public HTML report")
-    response, page = _report_page(session, filing["Url"])
+    response, page = _report_page(session, source_url or filing["Url"])
     requested = None
-    if statement:
-        menu = _sheet_options(page)
-        if menu is not None:
-            sheet_ids = [row["SheetId"] for row in menu if _sheet_matches(row["Title"], statement)]
-            if len(sheet_ids) != 1 or not re.fullmatch(r"[0-9]+", sheet_ids[0]):
-                raise ValueError(f"CODAL filing {filing['TracingNo']} has no unique sheet for {statement!r}")
-            requested = sheet_ids[0]
-            if not any(row["SheetId"] == requested and row["IsSelected"] for row in menu):
-                response, page = _report_page(session, _sheet_url(response.url, requested))
-    source = {"Url": response.url, "SearchUrl": filing["Url"]}
-    report = _parse_codal_html(response.content, page, source, requested)
+    report = None
+    menu = _sheet_options(page) if statement else None
+    if revision_only and menu:
+        selected = [row for row in menu if row["IsSelected"]]
+        if len(selected) == 1:
+            name = _STATEMENT_NAMES.get(_key(selected[0]["Title"]))
+            sheet_id = selected[0]["SheetId"]
+            if name and name != statement and re.fullmatch(r"[0-9]+", sheet_id):
+                try:
+                    report = _downloaded_report(response, page, filing, sheet_id)
+                except ValueError:
+                    # The landing page may lack a usable structured statement.
+                    pass
+                else:
+                    statement, requested = name, sheet_id
+    if menu is not None and report is None:
+        sheet_ids = [row["SheetId"] for row in menu if _sheet_matches(row["Title"], statement)]
+        if len(sheet_ids) != 1 or not re.fullmatch(r"[0-9]+", sheet_ids[0]):
+            raise ValueError(f"CODAL filing {filing['TracingNo']} has no unique sheet for {statement!r}")
+        requested = sheet_ids[0]
+        if not any(row["SheetId"] == requested and row["IsSelected"] for row in menu):
+            response, page = _report_page(session, _sheet_url(response.url, requested))
+    if report is None:
+        report = _downloaded_report(response, page, filing, requested)
     _validate_report(report, filing)
     if statement:
         matching = [sheet["SheetId"] for sheet in report["Sheets"]
@@ -475,17 +540,22 @@ def fetch_codal_report(filing: Mapping | pd.Series, *, statement: str | None = N
         return _fetch_report(session, filing, statement)
 
 
-def _revision_target(link, reports):
+def _revision_reference(link):
     url = link.get("Href")
     serial = _query_value(url, "LetterSerial") if url else None
     trace = re.findall(r"\(\s*([0-9]+)\s*\)", _text(link["Text"]))
-    if len(trace) == 1:
-        report = reports.get(int(trace[0]))
-        if serial and report and serial in {
-            _query_value(report["Source"]["SearchUrl"], "LetterSerial"),
-            _query_value(report["Source"]["Url"], "LetterSerial"),
-        }:
-            return int(trace[0])
+    return (int(trace[0]) if len(trace) == 1 else None), serial
+
+
+def _revision_target(link, reports, source_url):
+    trace, serial = _revision_reference(link)
+    report = reports.get(trace)
+    target = urlsplit(urljoin(source_url, link.get("Href") or ""))
+    if target.scheme == "https" and target.netloc.lower() in _REPORT_HOSTS and serial and report and serial in {
+        _query_value(report["Source"]["SearchUrl"], "LetterSerial"),
+        _query_value(report["Source"]["Url"], "LetterSerial"),
+    }:
+        return trace
     raise ValueError("CODAL revision points outside the matching filings or has a conflicting identity")
 
 
@@ -495,16 +565,17 @@ def _select_revision(reports):
     forward = []
     for tracing, report in by_id.items():
         links = report["PageMetadata"].get("RevisionLinks", [])
+        source_url = report["Source"]["Url"]
         for link in links:
             element = link["ElementId"]
             if element.endswith("hlPrevVersion"):
-                earlier = _revision_target(link, by_id)
+                earlier = _revision_target(link, by_id, source_url)
                 earlier_time = by_id[earlier]["Filing"]["PublishDateTime"]
                 if tracing in previous or earlier_time >= report["Filing"]["PublishDateTime"]:
                     raise ValueError("CODAL provided conflicting previous filing revisions")
                 previous[tracing] = earlier
             elif element.endswith("hlNewVersion"):
-                forward.append((tracing, _revision_target(link, by_id)))
+                forward.append((tracing, _revision_target(link, by_id, source_url)))
         if bool(tracing in previous) != report["Filing"]["IsCorrected"]:
             raise ValueError(f"CODAL filing {tracing} has no consistent correction link")
     latest = by_id.keys() - previous.values()
@@ -520,6 +591,66 @@ def _select_revision(reports):
                     raise ValueError("CODAL provided conflicting newer filing revisions")
             return by_id[chain[0]], list(reversed(chain))
     raise ValueError("Multiple incompatible CODAL filings matched. Inspect search_codal_filings().")
+
+
+def _monthly_predecessor_url(report, filing):
+    """Use a filing's public previous-version link when it identifies the search row."""
+    links = [link for link in report["PageMetadata"].get("RevisionLinks", [])
+             if link["ElementId"].endswith("hlPrevVersion")]
+    serial = _query_value(filing["Url"], "LetterSerial") if filing["Url"] else None
+    if len(links) != 1 or not serial or _revision_reference(links[0]) != (filing["TracingNo"], serial):
+        return None
+    source = report["Source"]["Url"]
+    url = urljoin(source, links[0]["Href"])
+    origin = urlsplit(source)
+    parts = urlsplit(url)
+    if (parts.scheme == "https" and parts.netloc == origin.netloc
+            and parts.path.lower() == origin.path.lower() == "/reports/monthlyactivity.aspx"
+            and parts.query.lower().startswith("letterserial=") and "&" not in parts.query):
+        return url
+    return None
+
+
+def _fetch_revisions(session, filings, statement, family):
+    # A complete linear chain has one original and a strictly increasing publication time.
+    if (sum(not row["IsCorrected"] for row in filings) != 1
+            or len({row["PublishDateTime"] for row in filings}) != len(filings)):
+        raise ValueError("Multiple incompatible CODAL filings matched. Inspect search_codal_filings().")
+    ordered = sorted(filings, key=lambda row: row["PublishDateTime"], reverse=True)
+    reports = []
+    for row in ordered:
+        url = _monthly_predecessor_url(reports[-1], row) if reports and family == "monthly" else None
+        reports.append(_fetch_report(session, row, statement, revision_only=bool(reports), source_url=url))
+    return _select_revision(reports)
+
+
+def _period_identity(row):
+    return row["ReportingPeriodEnd"], row["DurationMonths"], row["IsAudited"]
+
+
+def _candidate_filings(rows, family, period, audited, duration_months):
+    filings = []
+    for row in rows:
+        if (not row["IsIssuerReport"] or row["IsConsolidated"]
+                or (family == "monthly" and row["DurationMonths"] != 1)
+                or (audited is not None and row["IsAudited"] is not audited)
+                or (duration_months is not None and row["DurationMonths"] != duration_months)):
+            continue
+        if period and filings and _period_identity(row) != _period_identity(filings[0]):
+            # Later pages cannot remove an ambiguity within an explicitly requested period.
+            _ambiguous_period()
+        filings.append(row)
+    if filings and period is None:
+        newest = max(row["ReportingPeriodEnd"] for row in filings)
+        filings = [row for row in filings if row["ReportingPeriodEnd"] == newest]
+        if len({_period_identity(row) for row in filings}) > 1:
+            _ambiguous_period()
+    return filings
+
+
+def _ambiguous_period():
+    raise ValueError("Multiple CODAL periods, durations or audit statuses matched. "
+                     "Specify an exact period, duration_months or audited.")
 
 
 def _raw_cells(report):
@@ -553,6 +684,7 @@ def get_codal_data(
     for network, access, and incomplete-search failures.
     """
     period = _period(period)
+    symbol = _search_symbol(symbol, max_pages)
     statement = _statement_name(statement)
     if audited is not None and type(audited) is not bool:
         raise ValueError("audited must be True, False or None")
@@ -569,26 +701,18 @@ def get_codal_data(
             raise ValueError("statement, audited and duration_months apply to financial statements")
         if family == "announcement" and not raw:
             raise ValueError("This CODAL report type requires raw=True or search_codal_filings()")
-        filings = _search_filings(session, symbol, resolved, period, max_pages)
+        rows = _search_rows(session, symbol, resolved, period, max_pages)
         if family == "announcement":
-            if len(filings) != 1:
+            filing = next(rows, None)
+            if filing is None or next(rows, None) is not None:
                 raise ValueError("Use search_codal_filings() and fetch_codal_report() to choose one notice")
-            report = _fetch_report(session, filings[0], None)
-            revisions = [filings[0]["TracingNo"]]
+            report = _fetch_report(session, filing, None)
+            revisions = [filing["TracingNo"]]
         else:
-            filings = [row for row in filings if row["IsIssuerReport"] and not row["IsConsolidated"]
-                       and (family != "monthly" or row["DurationMonths"] == 1)
-                       and (audited is None or row["IsAudited"] is audited)
-                       and (duration_months is None or row["DurationMonths"] == duration_months)]
+            filings = _candidate_filings(rows, family, period, audited, duration_months)
             if not filings:
                 raise ValueError(f"No matching separate CODAL report for {symbol!r} and period {period!r}")
-            if period is None:
-                period = max(row["ReportingPeriodEnd"] for row in filings)
-                filings = [row for row in filings if row["ReportingPeriodEnd"] == period]
-            if len({(row["ReportingPeriodEnd"], row["DurationMonths"], row["IsAudited"]) for row in filings}) > 1:
-                raise ValueError("Multiple CODAL periods, durations or audit statuses matched. "
-                                 "Specify an exact period, duration_months or audited.")
-            report, revisions = _select_revision([_fetch_report(session, row, statement) for row in filings])
+            report, revisions = _fetch_revisions(session, filings, statement, family)
     if raw:
         frame = _raw_cells(report)
     elif family == "monthly":

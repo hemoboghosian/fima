@@ -77,8 +77,30 @@ HTML bytes, SHA-256, source URL and provider metadata. Pass its result to
 HTML grids, and files lacking the structured datasource are outside this reader's
 coverage. An unavailable statement or unsupported normalization raises
 `ValueError`. `from fima.codal import CodalRequestError` provides the exception
-for transport, access, and incomplete search failures. HTTP 429 stops the search
-and includes CODAL's Retry-After value when provided.
+for transport, access, and incomplete search failures. HTTP 429 stops the
+operation and reports the `Retry-After` value when provided. A valid wait
+in seconds or an HTTP date also stops new CODAL requests in the same Python
+process until the deadline. The client leaves resumption to the caller and
+treats human verification as an access error.
+
+### Request count and complete results
+
+Successful searches exhaust the advertised pages. CODAL's browser UI exposes
+date and subject controls, and their saved frontend contract does
+not establish an exhaustive reporting-period filter. Keeping reporting-period
+matching local preserves older filings and late corrections. An explicitly
+requested period that is already ambiguous can fail before reading the remaining
+pages. Complete metadata search still reads all pages.
+
+The recorded فولاد monthly query advertised nine search pages. In a deterministic
+replay with a redirect per search-result report URL, the corrected filing and
+its predecessor went from four report GETs to three. That is 14 to 13 total
+GETs with a cold taxonomy cache, or 13 to 12 with a warm cache. Actual counts
+depend on page totals and redirects. For a financial correction, the older
+filing's already loaded statement can establish its identity and revision links.
+The requested statement is always validated on the returned filing. The client
+uses the existing sheet-selection path when the older default page has no usable
+statement.
 
 The public CODAL search page uses `/api/search/v1/categories` and
 `/api/search/v2/q`. On November 24, 2026, its taxonomy contained 11 report
@@ -88,12 +110,34 @@ monthly activity to category `3` and letter type `58`. Filings carry the
 separate letter code `ن-۳۰`. Issuer financial statements used category
 `1` and letter type `6`, including both annual and interim filings, with
 `ن-۱۰` as the observed letter code. fima reads the current taxonomy when
-called and reuses it for up to ten minutes. The public site uses these routes for anonymous lookups. CODAL's
-published automated-client terms and rate limits remain unconfirmed.
+called and reuses it for up to ten minutes. The public site uses these routes
+for anonymous lookups. Permission and quotas for sustained automated use of
+those browser endpoints remain unconfirmed.
 [CODAL search page](https://www.codal.ir/ReportList.aspx?search)
 
-Run the live examples with `python -m pytest -m integration test/test_codal_integration.py`.
-The deterministic suite runs without contacting CODAL.
+### Operator-approved API access
+
+CODAL links to Rayan Bourse's Sedra data service. Its public pages describe
+application approval, issued credentials, subscriptions, and services for
+filing titles and contents. The Sedra guide documents 24-hour tokens and a
+ten-per-day authentication limit. The public material reviewed leaves the
+data endpoint quotas and permission for the browser routes unconfirmed.
+[Rayan Bourse Sedra service](https://www.rayanbourse.ir/fa/services/webservice/)
+[CODAL web-service guide](https://help.rbcapi.ir/)
+
+For sustained integration, the remaining decision is whether Rayan Bourse
+permits this library to use the anonymous browser routes under a specified
+quota or requires an approved Sedra subscription. Confirm endpoint access,
+per-client data request and concurrency limits, 429 handling, and the contract
+for issuer identification, reporting-period filters, revised filings and
+financial statement sheets. Rayan Bourse lists support at
+`info@rayanbourse.ir` and `+98 21 4172 1000`, extension 1.
+[Rayan Bourse support](https://www.rayanbourse.ir/fa/contact-us-fa/contact-rayanbourse/)
+
+The deterministic suite runs without contacting CODAL. When the provider
+permits access, run a single live manufacturing case with
+`python -m pytest -x -m integration -k foolad_monthly_correction test/test_codal_integration.py`.
+Stop on a rate limit or human-verification response.
 
 ## Read saved files
 
