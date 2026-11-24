@@ -32,3 +32,4 @@ from .IMF import (get_imf_datasets, get_imf_indicators,
                   get_imf_countries, get_imf_series)
 from .codal_reports import (get_codal_report, get_codal_tables, get_codal_monthly_activity,
                             get_codal_financial_statements)
+from .codal import fetch_codal_report, get_codal_data, list_codal_report_types, search_codal_filings

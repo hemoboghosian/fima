@@ -177,6 +177,17 @@
 | `get_imf_countries(include_aggregates=False)` | Discover exact source geographic IDs; they are not all ISO country codes. |
 | `get_imf_series(indicator, countries, start_year, end_year)` | Retrieve one WEO annual indicator for explicit geographies and years. |
 
+## `fima.codal`
+
+[راهنمای دریافت خودکار گزارش با نام فارسی](codal.md)
+
+| API | کاربرد |
+| --- | --- |
+| `get_codal_data(symbol, report_type, period=None, *, statement=None, audited=None, duration_months=None, raw=False, max_pages=100)` | دریافت یک گزارش کدال با نام فارسی و بازگرداندن DataFrame. |
+| `search_codal_filings(symbol, report_type, period=None, *, max_pages=100)` | جست‌وجوی گزارش‌های ناشر و نسخه‌های اصلاح‌شده. |
+| `fetch_codal_report(filing, *, statement=None)` | دریافت HTML ساخت‌یافته و برگهٔ صورت مالی برای یک ردیف جست‌وجو. |
+| `list_codal_report_types()` | فهرست نام‌ها و شناسه‌های دسته و نوع گزارش ناشران از کدال. |
+
 ## `fima.codal_reports`
 
 [شیوهٔ ذخیره، ساختار خروجی و محدودیت‌ها](codal.md)
