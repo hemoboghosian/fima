@@ -11,6 +11,34 @@ inline `var datasource = …;` JavaScript declaration whose value is JSON.
 The declaration ends its script and contains `sheets`, with `tables` and `cells`
 arrays. fima reads the data without running scripts or loading page resources.
 
+### Save from a browser
+
+1. Open a supported CODAL filing in your browser and select the financial
+   statement sheet you need.
+2. Use the browser's **Save As** command, choose **HTML Only** or **Complete
+   HTML**, and save the page.
+3. Pass the saved HTML file to `get_codal_report`, then use the CODAL function
+   for that report type. For the income statement, use
+   `get_codal_financial_statements`.
+
+```python
+from fima import get_codal_report, get_codal_financial_statements
+
+report = get_codal_report("income_only.html", sheet_id=1)
+df = get_codal_financial_statements(report)
+print(len(df))
+```
+
+The maintainer tested both formats on [filing 1106536, income statement sheet
+`1`](https://codal.ir/Reports/Decision.aspx?LetterSerial=X2OX1hOJ2JKt9DK%2bTia50Q%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=1).
+Both `income_only.html` and `income_complete.html` preserved the embedded
+`datasource`, loaded sheet `1`, and produced 92 normalized observations.
+Browser saves must retain the embedded `datasource`. Normalization supports
+the verified templates described below. Browser-save verification covers
+this filing and sheet.
+
+### Download the HTML response
+
 1. Open the announcement on CODAL and select the sheet you need when a menu is
    present. Copy the public filing or sheet URL from the browser.
 2. Where the URL permits a direct anonymous download, save the HTML response
@@ -26,9 +54,8 @@ of filing 1106536 (an audited interim financial statement). All four saved
 responses retained the structured data. An independent JSON read matched all
 3,055 output cells across 13 tables, including the signed string `'-2402795'`
 in income-statement cell `B5`. CODAL served the balance sheet and
-income statement in separate responses under the same filing identity. The
-browser's Save As modes were not verified. A copy from the browser is usable
-only if it retains the embedded declaration. Sources: [CODAL monthly filing
+income statement in separate responses under the same filing identity. See
+[CODAL monthly filing
 1494376](https://codal.ir/Reports/Decision.aspx?LetterSerial=dz8uAPkDiymNiKygk9FSoA%3d%3d&rt=0&let=58&ct=0&ft=-1),
 [monthly filing 1492711](https://www.codal.ir/Reports/Decision.aspx?LetterSerial=jpQQQaQQQqfZKLzOnAkQQQaQQQAA1yexDg%3d%3d&rt=0&let=58&ct=0&ft=-1),
 [balance sheet](https://codal.ir/Reports/Decision.aspx?LetterSerial=X2OX1hOJ2JKt9DK%2bTia50Q%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=0),
