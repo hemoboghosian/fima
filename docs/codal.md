@@ -53,6 +53,38 @@ print(income[["AccountLabel", "PeriodBasis", "Value", "Unit", "Scale"]].head())
 `df.attrs["RevisionTracingNos"]` و مشخصات گزارش و منبع در `df.attrs`
 قرار دارند.
 
+### تأیید انسانی در مرورگر
+
+دریافت عادی با HTTP انجام می‌شود. برای فعال کردن تأیید انسانی، یک‌بار
+وابستگی اختیاری را نصب کنید. اگر Google Chrome از قبل نصب است، نصب
+Chromium اختیاری است.
+
+```sh
+python -m pip install "fima[codal-browser]"
+python -m playwright install chromium
+```
+
+اگر fima را از مخزن اجرا می‌کنید، از پوشهٔ مخزن
+`python -m pip install ".[codal-browser]"` را برای نصب بسته اجرا کنید.
+
+```python
+from fima import get_codal_data
+
+df = get_codal_data("فولاد", "گزارش عملکرد ماهانه", period="1405/06", interactive=True)
+```
+
+اگر کدال نیاز به تأیید انسانی را اعلام کند، مرورگر صفحهٔ رسمی کدال را برای
+همان جست‌وجو یا گزارش باز می‌کند. کد را در فرم خود کدال وارد و تأیید کنید.
+fima پس از تأیید، دریافت را در همان نشست مرورگر ادامه می‌دهد و همان
+DataFrame را با اطلاعات منبع برمی‌گرداند. برای لغو، پنجره را ببندید.
+برای تکمیل تأیید تا چهار دقیقه فرصت دارید.
+
+`search_codal_filings` و `fetch_codal_report` نیز `interactive=True` را
+می‌پذیرند و پیش‌فرض هر سه تابع `False` است. اگر فرم قابل استفاده نمایش
+داده نشود یا کدال پس از تأیید دسترسی به درخواست بعدی را رد کند،
+`CodalRequestError` دریافت می‌کنید. پاسخ HTTP 429 دریافت را فوراً متوقف
+می‌کند و مهلت اعلام‌شده در `Retry-After` رعایت می‌شود.
+
 ### Search results, raw cells, and source limits
 
 `list_codal_report_types()` lists the current Persian names and IDs
@@ -80,8 +112,8 @@ coverage. An unavailable statement or unsupported normalization raises
 for transport, access, and incomplete search failures. HTTP 429 stops the
 operation and reports the `Retry-After` value when provided. A valid wait
 in seconds or an HTTP date also stops new CODAL requests in the same Python
-process until the deadline. The client leaves resumption to the caller and
-treats human verification as an access error.
+process until the deadline. With the default `interactive=False`, human
+verification raises `CodalRequestError`.
 
 ### Request count and complete results
 
@@ -119,8 +151,13 @@ for anonymous lookups.
 The verified workflow uses CODAL's public taxonomy, search, and report pages
 over HTTPS. CODAL served the tested filings anonymously. Availability can
 vary by request and over time. CODAL may rate-limit requests, require human
-verification, or change the endpoints or report formats. HTTP 429 and
-human-verification responses raise `CodalRequestError`.
+verification, or change the endpoints or report formats. The public search
+page submits its own CAPTCHA and signals successful verification inside its
+browser application. That application can also display a CAPTCHA after HTTP 429.
+fima stops on HTTP 429, including during an interactive call. A search verification
+flag can open the public search page, and continuation requires the page to show
+a usable challenge and CODAL to accept the request in the browser session.
+[CODAL search page](https://www.codal.ir/ReportList.aspx?search)
 Published quotas and operator terms for sustained automated use remain unconfirmed.
 
 The deterministic suite runs without contacting CODAL. When the public
@@ -191,9 +228,8 @@ income statement in separate responses under the same filing identity. See
 [balance sheet](https://codal.ir/Reports/Decision.aspx?LetterSerial=X2OX1hOJ2JKt9DK%2bTia50Q%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=0),
 [income statement](https://codal.ir/Reports/Decision.aspx?LetterSerial=X2OX1hOJ2JKt9DK%2bTia50Q%3d%3d&rt=0&let=6&ct=0&ft=-1&sheetId=1).
 
-If CODAL requires human verification, use its normal browser workflow and save
-a copy only through permitted site and browser features. fima accepts local
-files through the offline reader. CAPTCHA pages, legacy HTML grids without
+The offline reader accepts copies of authorized filings saved using CODAL's
+browser workflow. CAPTCHA pages, legacy HTML grids without
 the structured payload, auditor-only pages without it, PDF, Excel, MHTML and
 standalone JSON are outside this interface.
 

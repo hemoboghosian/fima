@@ -1,5 +1,6 @@
 """Contracts for CODAL's public search and HTML retrieval, without network access."""
 
+from contextlib import contextmanager
 from copy import deepcopy
 from decimal import Decimal
 from hashlib import sha256
@@ -475,3 +476,148 @@ def test_rate_limit_without_usable_retry_after_stops_the_operation(provider, hea
     with pytest.raises(CodalRequestError, match="rate-limited"):
         get_codal_data("نمونه", "گزارش ماهانه")
     assert len(calls) == 2
+
+
+@pytest.fixture
+def browser_transport(monkeypatch):
+    from fima import _codal_browser
+
+    class Browser:
+        def __init__(self):
+            self.events = []
+            self.responses = []
+
+        def verify(self, url, *, search, params):
+            self.events.append(("verify", url, search, params))
+
+        def get(self, url, params, report):
+            self.events.append(("get", url, params, report))
+            item = self.responses.pop(0)
+            status, headers, content = item if isinstance(item, tuple) else (200, {}, item)
+            is_html = isinstance(content, bytes)
+            return _codal_browser._Response(
+                url, status, {"Content-Type": "text/html" if is_html else "application/json", **headers},
+                content if is_html else json.dumps(content).encode(),
+            )
+
+    session = Browser()
+
+    @contextmanager
+    def open_browser():
+        session.events.append(("open",))
+        try:
+            yield session
+        finally:
+            session.events.append(("close",))
+
+    monkeypatch.setattr(_codal_browser, "open_browser", open_browser)
+    return session
+
+
+_CHALLENGE = b'<form id="challenge-form"><input name="code"><button>Verify</button></form>'
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_interactive_search_success_uses_only_http(provider, browser_transport, interactive):
+    routes, calls = provider
+    routes[3, 58, 1] = _results(_letter(11, "a"))
+    result = search_codal_filings("نمونه", "گزارش ماهانه", interactive=interactive)
+    assert result.TracingNo.tolist() == [11]
+    assert len(calls) == 2
+    assert browser_transport.events == []
+
+
+@pytest.mark.parametrize("status", [200, 403])
+def test_interactive_report_preserves_original_bytes_and_sha(provider, browser_transport, monthly_payload, status):
+    routes, calls = provider
+    routes[3, 58, 1] = _results(_letter(11, "a"))
+    routes["a", None] = (status, {}, _CHALLENGE)
+    filing = search_codal_filings("نمونه", "گزارش ماهانه").iloc[0]
+    with pytest.raises(CodalRequestError, match="human verification"):
+        fetch_codal_report(filing)
+    assert browser_transport.events == []
+    source = b'\xef\xbb\xbf' + _html(dict(monthly_payload, tracingNo=11, kind=0), "a") + b'\r\n'
+    browser_transport.responses.append(source)
+
+    report = fetch_codal_report(filing, interactive=True)
+    assert report["Content"] == source
+    assert report["Source"]["ContentSha256"] == sha256(source).hexdigest()
+    assert browser_transport.events == [
+        ("open",),
+        ("verify", filing.Url, False, None),
+        ("get", filing.Url, None, True),
+        ("close",),
+    ]
+    assert len(calls) == 4
+
+
+def test_search_continues_the_interrupted_page_and_revisions_in_browser(provider, browser_transport, monthly_payload):
+    routes, calls = provider
+    one, two = _letter(11, "a"), _letter(12, "b", corrected=True)
+    routes[3, 58, 1] = _results(two, total=2, pages=2)
+    routes[3, 58, 2] = {"IsAttacker": True}
+    corrected = _html(dict(monthly_payload, tracingNo=12, kind=1), "b",
+                      extra=_revision("Prev", "a", 11))
+    original = _html(dict(monthly_payload, tracingNo=11, kind=0), "a",
+                     extra=_revision("New", "b", 12))
+    browser_transport.responses.extend([_results(one, total=2, pages=2), corrected, original])
+
+    result = get_codal_data("نمونه", "گزارش ماهانه", CURRENT, interactive=True)
+    assert result.attrs["RevisionTracingNos"] == [11, 12]
+    assert set(result.TracingNo) == {12}
+    assert set(result.ContentSha256) == {sha256(corrected).hexdigest()}
+    assert result.loc[result.Address.eq("Q4"), "Value"].item() == Decimal("75")
+    assert len(calls) == 3
+    events = browser_transport.events
+    assert [event[0] for event in events] == ["open", "verify", "get", "get", "get", "close"]
+    assert events[1] == ("verify", codal._SEARCH, True, calls[2][1])
+    assert events[2] == ("get", codal._SEARCH, calls[2][1], False)
+    assert [parse_qs(urlsplit(event[1]).query)["LetterSerial"] for event in events[3:-1]] == [["b"], ["a"]]
+
+
+@pytest.mark.parametrize(("body", "message"), [
+    ((403, {}, {}), "HTTP 403"),
+    ((429, {"Retry-After": "60"}, {}), "HTTP 429"),
+    (b"<html>Unexpected page</html>", "application/json"),
+    (requests.ConnectionError("offline"), "request .* failed"),
+])
+def test_interactive_search_does_not_open_browser_for_other_failures(provider, browser_transport, body, message):
+    routes, calls = provider
+    routes[3, 58, 1] = body
+    with pytest.raises(CodalRequestError, match=message):
+        search_codal_filings("نمونه", "گزارش ماهانه", interactive=True)
+    assert len(calls) == 2
+    assert browser_transport.events == []
+
+
+@pytest.mark.parametrize(("body", "message"), [
+    ((403, {}, b"<html>Forbidden</html>"), "HTTP 403"),
+    ((429, {}, _CHALLENGE), "HTTP 429"),
+    (b'<h1 id="captchaTitle">Verify</h1>', "human verification"),
+])
+def test_interactive_report_requires_a_form_and_respects_rate_limits(provider, browser_transport, body, message):
+    routes, _ = provider
+    routes[3, 58, 1] = _results(_letter(11, "a"))
+    routes["a", None] = body
+    with pytest.raises(CodalRequestError, match=message):
+        get_codal_data("نمونه", "گزارش ماهانه", interactive=True)
+    assert browser_transport.events == []
+
+
+@pytest.mark.parametrize(("body", "message"), [
+    ({"IsAttacker": True}, "still requires human verification"),
+    ((403, {}, {}), "HTTP 403"),
+    ((429, {"Retry-After": "60"}, {}), "HTTP 429.*Retry-After: 60"),
+])
+def test_browser_failure_ends_operation_without_http_retry(provider, browser_transport, body, message):
+    routes, calls = provider
+    routes[3, 58, 1] = {"IsAttacker": True}
+    browser_transport.responses.append(body)
+    with pytest.raises(CodalRequestError, match=message):
+        search_codal_filings("نمونه", "گزارش ماهانه", interactive=True)
+    assert len(calls) == 2
+    assert [event[0] for event in browser_transport.events] == ["open", "verify", "get", "close"]
+    if isinstance(body, tuple) and body[0] == 429:
+        with pytest.raises(CodalRequestError, match="HTTP 429"):
+            search_codal_filings("نمونه", "گزارش ماهانه")
+        assert len(calls) == 2

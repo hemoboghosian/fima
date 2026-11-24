@@ -1,6 +1,7 @@
 """Discover and retrieve public CODAL filings by Persian report name."""
 
 from collections.abc import Mapping
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from datetime import timezone
 from email.utils import parsedate_to_datetime
@@ -33,6 +34,10 @@ _TAXONOMY = f"https://{_SEARCH_HOST}/api/search/v1/categories"
 _SEARCH = f"https://{_SEARCH_HOST}/api/search/v2/q"
 _REPORT_ROOT = "https://www.codal.ir"
 _REPORT_HOSTS = {"www.codal.ir", "codal.ir"}
+_CAPTCHA_CONTROLS = (
+    "#captchaImage, .g-recaptcha, #challenge-form input:not([type=hidden]), #challenge-form button"
+)
+_CAPTCHA_MARKUP = re.compile(rb"captchaTitle|captchaImage|g-recaptcha|challenge-form", re.IGNORECASE)
 _TAXONOMY_TTL = 600
 _taxonomy_cache = None
 _taxonomy_lock = Lock()
@@ -83,6 +88,13 @@ _SEARCH_COLUMNS = (
 
 class CodalRequestError(OSError):
     """CODAL could not provide a complete, usable HTTP response."""
+
+
+class _HumanVerification(CodalRequestError):
+    def __init__(self, message, *, url=None, search=False):
+        super().__init__(message)
+        self.url = url
+        self.search = search
 
 
 def _text(value):
@@ -136,13 +148,59 @@ def _check_rate_limit():
             raise _rate_limit_error(_rate_limit[1])
 
 
-def _get(session, url, *, params=None, report=False):
+def _codal_host(url, hosts):
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc.lower() not in hosts:
+        raise CodalRequestError("CODAL returned a URL outside the expected HTTPS hosts")
+    return parts.netloc
+
+
+def _check_status(status, retry_after, host):
+    if status == 429:
+        _remember_rate_limit(retry_after)
+        raise _rate_limit_error(retry_after)
+    if status != 200:
+        raise CodalRequestError(f"CODAL returned HTTP {status} from {host}")
+
+
+def _checked_response(response, report, search):
+    host = _codal_host(response.url, _REPORT_HOSTS if report else {_SEARCH_HOST})
+    status = response.status_code
+    retry_after = response.headers.get("Retry-After")
+    content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    if (report and status in (200, 403) and content_type == "text/html"
+            and _CAPTCHA_MARKUP.search(response.content)):
+        try:
+            page = _decode_codal_html(response.content)
+        except ValueError:
+            if status == 200:
+                raise
+        else:
+            if page.select_one(_CAPTCHA_CONTROLS):
+                raise _HumanVerification("CODAL report requires human verification", url=response.url)
+            if status == 200 and page.select_one("#captchaTitle, #challenge-form"):
+                raise _HumanVerification("CODAL report requires human verification")
+    _check_status(status, retry_after, host)
+    expected = "text/html" if report else "application/json"
+    if content_type != expected:
+        raise CodalRequestError(f"CODAL did not return {expected} from {host}")
+    if report:
+        return response
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise CodalRequestError("CODAL returned malformed JSON") from exc
+    if search and isinstance(data, dict) and data.get("IsAttacker") is True:
+        raise _HumanVerification("CODAL search requires human verification", url=response.url, search=True)
+    return data
+
+
+def _http_get(session, url, params, report):
     hosts = _REPORT_HOSTS if report else {_SEARCH_HOST}
     content_type = "text/html" if report else "application/json"
+    search = url == _SEARCH
     for _ in range(5):
-        parts = urlsplit(url)
-        if parts.scheme != "https" or parts.netloc.lower() not in hosts:
-            raise CodalRequestError("CODAL returned a URL outside the expected HTTPS hosts")
+        host = _codal_host(url, hosts)
         _check_rate_limit()
         try:
             response = session.get(
@@ -150,28 +208,54 @@ def _get(session, url, *, params=None, report=False):
                 headers={"Accept": content_type, "User-Agent": "fima"},
             )
         except requests.RequestException as exc:
-            raise CodalRequestError(f"CODAL request to {parts.netloc} failed: {exc}") from exc
+            raise CodalRequestError(f"CODAL request to {host} failed: {exc}") from exc
         if response.is_redirect:
             url = urljoin(response.url, response.headers["Location"])
             params = None
             continue
-        if response.status_code == 429:
-            retry_after = response.headers.get("Retry-After")
-            _remember_rate_limit(retry_after)
-            raise _rate_limit_error(retry_after)
-        if response.status_code != 200:
-            raise CodalRequestError(f"CODAL returned HTTP {response.status_code} from {parts.netloc}")
-        if response.headers.get("Content-Type", "").split(";")[0].strip().lower() != content_type:
-            raise CodalRequestError(f"CODAL did not return {content_type} from {parts.netloc}")
-        return response
+        return _checked_response(response, report, search)
     raise CodalRequestError("CODAL exceeded the redirect limit")
 
 
-def _json(session, url, params=None):
-    try:
-        return _get(session, url, params=params).json()
-    except ValueError as exc:
-        raise CodalRequestError("CODAL returned malformed JSON") from exc
+class _InteractiveSession:
+    def __init__(self, http, resources):
+        self.http = http
+        self.resources = resources
+        self.browser = None
+
+    def get(self, url, params, report):
+        if self.browser is None:
+            try:
+                return _http_get(self.http, url, params, report)
+            except _HumanVerification as challenge:
+                if challenge.url is None:
+                    raise
+                _check_rate_limit()
+                from ._codal_browser import open_browser
+
+                self.browser = self.resources.enter_context(open_browser())
+                self.browser.verify(challenge.url, search=challenge.search, params=params)
+        _check_rate_limit()
+        try:
+            response = self.browser.get(url, params, report)
+            return _checked_response(response, report, url == _SEARCH)
+        except _HumanVerification as exc:
+            raise CodalRequestError("CODAL still requires human verification in the browser session") from exc
+
+
+@contextmanager
+def _codal_session(interactive):
+    if type(interactive) is not bool:
+        raise ValueError("interactive must be True or False")
+    with ExitStack() as resources:
+        http = resources.enter_context(requests.Session())
+        yield _InteractiveSession(http, resources) if interactive else http
+
+
+def _get(session, url, *, params=None, report=False):
+    if isinstance(session, _InteractiveSession):
+        return session.get(url, params, report)
+    return _http_get(session, url, params, report)
 
 
 def _taxonomy(payload):
@@ -209,7 +293,7 @@ def _issuer_taxonomy(session):
     with _taxonomy_lock:
         if _taxonomy_cache and monotonic() < _taxonomy_cache[0]:
             return _taxonomy_cache[1]
-        records = tuple(_taxonomy(_json(session, _TAXONOMY)))
+        records = tuple(_taxonomy(_get(session, _TAXONOMY)))
         _taxonomy_cache = (monotonic() + _TAXONOMY_TTL, records)
         return records
 
@@ -331,9 +415,7 @@ def _pages(session, symbol, choice, max_pages):
     counts = None
     seen = set()
     for number in range(1, max_pages + 1):
-        data = _json(session, _SEARCH, {**params, "PageNumber": number})
-        if isinstance(data, dict) and data.get("IsAttacker") is True:
-            raise CodalRequestError("CODAL search requires human verification")
+        data = _get(session, _SEARCH, params={**params, "PageNumber": number})
         try:
             pages, total, letters = data["Page"], data["Total"], data["Letters"]
             if (type(pages) is not int or type(total) is not int or not isinstance(letters, list)
@@ -392,6 +474,7 @@ def _search_rows(session, symbol, resolved, period, max_pages):
 
 def search_codal_filings(
     symbol: str, report_type: str, period: str | None = None, *, max_pages: int = 100,
+    interactive: bool = False,
 ) -> pd.DataFrame:
     """Find CODAL filings by stock symbol and Persian report_type.
 
@@ -399,12 +482,13 @@ def search_codal_filings(
     filings. Search keeps originals, corrections, subsidiaries, and both
     scopes under the exact publisher symbol. max_pages bounds each taxonomy
     query. An empty frame means the completed search found no matching rows.
-    Invalid inputs raise ValueError. Failed or incomplete requests raise
-    CodalRequestError.
+    interactive=True allows human verification on CODAL in visible Chromium
+    when the provider presents a supported challenge. Invalid inputs raise
+    ValueError. Failed or incomplete requests raise CodalRequestError.
     """
     period = _period(period)
     symbol = _search_symbol(symbol, max_pages)
-    with requests.Session() as session:
+    with _codal_session(interactive) as session:
         rows = sorted(
             _search_rows(session, symbol, _resolve(session, report_type), period, max_pages),
             key=lambda row: (row["PublishDateTime"], row["TracingNo"]), reverse=True,
@@ -426,10 +510,7 @@ def _report_page(session, url):
     if not re.fullmatch(r"/Reports/[a-z]+\.aspx", urlsplit(url).path, re.IGNORECASE):
         raise ValueError("CODAL filing does not link to a supported public HTML report")
     response = _get(session, url, report=True)
-    page = _decode_codal_html(response.content)
-    if page.select_one("#captchaTitle, #captchaImage, .g-recaptcha, #challenge-form"):
-        raise CodalRequestError("CODAL report requires human verification")
-    return response, page
+    return response, _decode_codal_html(response.content)
 
 
 def _sheet_matches(title, statement):
@@ -525,18 +606,21 @@ def _fetch_report(session, filing, statement, *, revision_only=False, source_url
     return report
 
 
-def fetch_codal_report(filing: Mapping | pd.Series, *, statement: str | None = None) -> dict:
+def fetch_codal_report(
+    filing: Mapping | pd.Series, *, statement: str | None = None, interactive: bool = False,
+) -> dict:
     """Download a row from search_codal_filings, optionally selecting a Persian statement name.
 
     Returns a report compatible with get_codal_tables, with the original HTML
-    bytes, SHA-256, filing metadata, and loaded sheet coverage. Raises
-    ValueError for an unavailable sheet, unsupported HTML, or wrong filing
+    bytes, SHA-256, filing metadata, and loaded sheet coverage. interactive=True
+    allows a human to complete a supported CODAL challenge in visible Chromium.
+    Raises ValueError for an unavailable sheet, unsupported HTML, or wrong filing
     identity, and CodalRequestError for access or transport failures.
     """
     if not isinstance(filing, (Mapping, pd.Series)) or any(key not in filing for key in _SEARCH_COLUMNS):
         raise TypeError("filing must be a row from search_codal_filings")
     statement = _statement_name(statement)
-    with requests.Session() as session:
+    with _codal_session(interactive) as session:
         return _fetch_report(session, filing, statement)
 
 
@@ -666,6 +750,7 @@ def get_codal_data(
     symbol: str, report_type: str, period: str | None = None, *,
     statement: str | None = None, audited: bool | None = None,
     duration_months: int | None = None, raw: bool = False, max_pages: int = 100,
+    interactive: bool = False,
 ) -> pd.DataFrame:
     """Retrieve one CODAL report as a DataFrame using a symbol and Persian report name.
 
@@ -677,6 +762,8 @@ def get_codal_data(
     raw=True returns source cells instead of normalized observations.
     max_pages bounds each taxonomy query. The automatic workflow selects the
     issuer's own separate report and follows verified correction links.
+    interactive=True opens visible Chromium when CODAL requires supported
+    human verification and continues in the same browser session.
     The returned frame carries source and filing metadata in its attrs.
 
     Raises ValueError for unknown names, missing or incompatible filings,
@@ -690,7 +777,7 @@ def get_codal_data(
         raise ValueError("audited must be True, False or None")
     if duration_months is not None and (type(duration_months) is not int or not 1 <= duration_months <= 12):
         raise ValueError("duration_months must be from 1 to 12")
-    with requests.Session() as session:
+    with _codal_session(interactive) as session:
         resolved = _resolve(session, report_type)
         _, family, implied, _ = resolved
         if implied and statement and implied != statement:
