@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fa">
+<head><meta charset="utf-8"><script src="https://example.invalid/runtime.js"></script></head>
+<body>
+<h1 id="ctl00_h1MasterTitle">گزارش نمونه (اصلاحیه)</h1>
+<form id="aspnetForm" action="./InterimStatement.aspx?LetterSerial=sample%3D%3D&amp;SheetId=0">
+<span id="ctl00_txbCompanyName"><b>شرکت نمونه</b></span>
+<span id="ctl00_txbSymbol">نمونه</span>
+<span id="ctl00_lblDisplaySymbol"></span>
+<span id="ctl00_lblISIC">001234</span>
+<span id="ctl00_lblPeriodEndToDate"><bdo>1404/06/31</bdo></span>
+<input id="ctl00_hdfVersion" type="hidden" value="1">
+<input id="ctl00_cphBody_ucDynamicFinancialStatement_hdfLetterRef" type="hidden" value="sample==">
+<select id="ctl00_ddlTable" name="ctl00$ddlTable">
+  <option value="1">صورت سود و زیان
+  <option value="0" selected>صورت وضعیت مالی
+  <option value="9">صورت جریان های نقدی
+</select>
+<a id="ctl00_cphBody_ucNavigateToNextPrevLetter_hlNewVersion" href="?LetterSerial=other">نسخه جدیدتر</a>
+<p id="ctl00_pPriceNote">ارقام به میلیون ریال</p>
+</form>
+<script type="text/javascript">
+var other = [";"];
+var datasource = {
+  "title_En": "Financial Statement V5", "type": 6, "period": 6, "subject": "شرکت موضوع گزارش",
+  "tracingNo": 123456, "periodEndToDate": "1404/06/31", "publishDateTime": "1404/08/30 07:00:00",
+  "isConsolidated": false, "isAudited": true,
+  "sheets": [{
+    "code": 0, "sequence": 4, "title_Fa": "صورت وضعیت مالی", "versionNo": "0",
+    "sheetComponents": {"101": ["نمونه"]},
+    "tables": [{
+      "code": 21, "sheetCode": 0, "metaTableId": 901, "sequence": 3, "versionNo": "7",
+      "title_Fa": "وضعیت مالی", "title_En": "Balance Sheet", "description": "مبالغ به میلیون ریال",
+      "cells": [
+        {"rowSequence": 2, "columnSequence": 1, "address": "A2", "rowCode": 0, "columnCode": 7, "rowSpan": 2, "colSpan": 3, "value": "شرح; {ریال}", "isVisible": true, "cellGroupName": "Header", "metaTableId": 901},
+        {"rowSequence": 1, "columnSequence": 6, "value": -0.100000000000000000001, "isVisible": false, "cellGroupName": "Body", "periodEndToDate": "1404/06/31", "financialConcept": "sample"},
+        {"rowSequence": 1, "columnSequence": 6, "value": 900719925474099312345, "metaTableCode": 21},
+        {"rowSequence": 1, "columnSequence": 7, "value": 0},
+        {"rowSequence": 1, "columnSequence": 8},
+        {"rowSequence": 1, "columnSequence": 9, "value": null},
+        {"rowSequence": 1, "columnSequence": 10, "value": ""},
+        {"rowSequence": 1, "columnSequence": 11, "value": "(۱٬۲۳۴)"},
+        {"rowSequence": 1, "columnSequence": 12, "value": -0}
+      ]
+    }, {
+      "code": 19, "sheetCode": 0, "sequence": 0, "title_Fa": "تعداد سهام", "description": "واحد: سهم",
+      "cells": [{"rowSequence": 2, "columnSequence": 1, "value": "0010"}]
+    }]
+  }]
+};
+</script>
+</body>
+</html>

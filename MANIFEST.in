@@ -11,6 +11,7 @@ include docs/ifb-audit.md
 include docs/ime.md
 include docs/ime-audit.md
 include docs/kilid.md
+include docs/codal.md
 include docs/imf.md
 
 prune unreleased

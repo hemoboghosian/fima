@@ -60,7 +60,9 @@ def substitute(monkeypatch, name, result):
 
 def test_published_imports_and_signatures_preserved_with_only_approved_additions():
     public = {n: v for n, v in vars(fima).items() if not n.startswith('_') and callable(v)}
-    assert set(public) == set(BASELINE) | {'calculate_contract_metrics', 'calculate_expiration_payoff'}
+    assert set(public) == set(BASELINE) | {
+        'calculate_contract_metrics', 'calculate_expiration_payoff', 'get_codal_report', 'get_codal_tables',
+    }
     for name in BASELINE:
         function = public[name]
         expected = BASELINE[name]
@@ -123,7 +125,7 @@ def forbidden(*a, **k):
     raise AssertionError("import made an HTTP request")
 requests.Session.request = forbidden
 import fima
-assert len([n for n,v in vars(fima).items() if not n.startswith("_") and callable(v)]) == 87
+assert len([n for n,v in vars(fima).items() if not n.startswith("_") and callable(v)]) == 89
 '''
     subprocess.run([sys.executable, '-B', '-c', code], check=True, capture_output=True, text=True)
 

@@ -30,3 +30,4 @@ from .KILID import (get_kilid_areas, get_kilid_house_price_history,
                     get_kilid_house_price_snapshot, get_kilid_area_comparison)
 from .IMF import (get_imf_datasets, get_imf_indicators,
                   get_imf_countries, get_imf_series)
+from .codal_reports import get_codal_report, get_codal_tables
