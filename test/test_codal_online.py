@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
+from pandas.testing import assert_frame_equal
 
 from fima import (
     fetch_codal_report, get_codal_data, get_codal_tables,
@@ -78,6 +79,14 @@ def provider(monkeypatch, tmp_path):
     monkeypatch.setattr(codal, "_rate_limit", None)
     routes["/api/search/v1/categories"] = categories
     return routes, calls
+
+
+@pytest.fixture
+def taxonomy_clock(monkeypatch):
+    clock = [1000]
+    monkeypatch.setattr(codal, "time", lambda: clock[0])
+    monkeypatch.setattr(codal, "monotonic", lambda: clock[0] - 900)
+    return clock
 
 
 def _letter(tracing, serial, *, date=CURRENT, corrected=False, months=1, title=None,
@@ -169,6 +178,88 @@ def test_taxonomy_cache_refreshes_conservatively(provider, monkeypatch):
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize("cache", ["memory", "snapshot"])
+@pytest.mark.parametrize("expires_at", [1600, 1601])
+def test_taxonomy_expires_from_fetch_with_slow_validation(
+    provider, monkeypatch, taxonomy_clock, cache, expires_at,
+):
+    routes, calls = provider
+    validate = codal._taxonomy
+
+    def slow_validation(payload):
+        taxonomy_clock[0] += 5
+        return validate(payload)
+
+    monkeypatch.setattr(codal, "_taxonomy", slow_validation)
+    first = list_codal_report_types()
+    assert taxonomy_clock[0] == 1005
+    assert calls == [(codal._TAXONOMY, None)]
+    monkeypatch.setattr(codal, "_taxonomy", validate)
+
+    taxonomy_clock[0] = 1599
+    assert_frame_equal(list_codal_report_types(), first)
+    assert len(calls) == 1
+
+    if cache == "snapshot":
+        # Simulate a separate interpreter with no cached records and its own monotonic origin.
+        monkeypatch.setattr(codal, "_taxonomy_cache", None)
+        monkeypatch.setattr(codal, "monotonic", lambda: taxonomy_clock[0] + 2000)
+    routes["/api/search/v1/categories"].append(_category(9, "مقوله جدید", (101, "گزارش جدید")))
+    taxonomy_clock[0] = expires_at
+    assert 101 in list_codal_report_types().LetterTypeId.tolist()
+    assert calls == [(codal._TAXONOMY, None)] * 2
+
+
+def test_slow_snapshot_serialization_does_not_extend_expiry(provider, monkeypatch, taxonomy_clock):
+    _, calls = provider
+    dump = json.dump
+
+    def slow_dump(snapshot, file):
+        taxonomy_clock[0] += 5
+        return dump(snapshot, file)
+
+    monkeypatch.setattr(codal.json, "dump", slow_dump)
+    first = list_codal_report_types()
+    assert taxonomy_clock[0] == 1005
+    monkeypatch.setattr(codal, "_taxonomy_cache", None)
+
+    taxonomy_clock[0] = 1599
+    assert_frame_equal(list_codal_report_types(), first)
+    assert calls == [(codal._TAXONOMY, None)]
+    taxonomy_clock[0] = 1600
+    assert_frame_equal(list_codal_report_types(), first)
+    assert calls == [(codal._TAXONOMY, None)] * 2
+
+
+@pytest.mark.parametrize("delay_during", ["clock sampling", "validation"])
+def test_snapshot_expiring_during_load_requires_refresh(
+    provider, monkeypatch, taxonomy_clock, delay_during,
+):
+    _, calls = provider
+    list_codal_report_types()
+    monkeypatch.setattr(codal, "_taxonomy_cache", None)
+
+    if delay_during == "clock sampling":
+        def delayed_wall_clock():
+            now = taxonomy_clock[0]
+            taxonomy_clock[0] += 1
+            return now
+
+        monkeypatch.setattr(codal, "time", delayed_wall_clock)
+    else:
+        validate = codal._taxonomy
+
+        def slow_validation(payload):
+            taxonomy_clock[0] += 1
+            return validate(payload)
+
+        monkeypatch.setattr(codal, "_taxonomy", slow_validation)
+
+    taxonomy_clock[0] = 1599
+    list_codal_report_types()
+    assert calls == [(codal._TAXONOMY, None)] * 2
+
+
 def test_snapshot_age_is_preserved_and_provider_changes_are_discovered(provider, monkeypatch):
     routes, calls = provider
     clock = [1000]
@@ -192,7 +283,9 @@ def test_snapshot_age_is_preserved_and_provider_changes_are_discovered(provider,
     assert 101 in list_codal_report_types().LetterTypeId.tolist()
 
 
-@pytest.mark.parametrize("snapshot", ["invalid JSON", "invalid taxonomy", "future", "unwritable"])
+@pytest.mark.parametrize("snapshot", [
+    "invalid JSON", "invalid taxonomy", "future", "expired", "legacy timestamp", "unwritable",
+])
 def test_unusable_snapshot_falls_back_to_validated_provider_taxonomy(provider, monkeypatch, snapshot):
     routes, calls = provider
     monkeypatch.setattr(codal, "time", lambda: 1000)
@@ -203,25 +296,54 @@ def test_unusable_snapshot_falls_back_to_validated_provider_taxonomy(provider, m
     elif snapshot == "invalid JSON":
         path.write_bytes(bytes([255]))
     else:
+        timestamp_key = "fetched_at" if snapshot == "legacy timestamp" else "fetch_started_at"
+        invalid_payload = [_category(3, "Monthly", (True, "Report"))]
         path.write_text(json.dumps({
-            "fetched_at": 1001 if snapshot == "future" else 1000,
-            "payload": payload if snapshot == "future" else [_category(3, "Monthly", (True, "Report"))],
+            timestamp_key: {"future": 1001, "expired": 400}.get(snapshot, 1000),
+            "payload": invalid_payload if snapshot == "invalid taxonomy" else payload,
         }), encoding="utf-8")
 
     assert 58 in list_codal_report_types().LetterTypeId.tolist()
     assert calls == [(codal._TAXONOMY, None)]
     assert not list(path.parent.glob("*.tmp"))
     if snapshot != "unwritable":
-        assert json.loads(path.read_text(encoding="utf-8")) == {"fetched_at": 1000, "payload": payload}
+        assert json.loads(path.read_text(encoding="utf-8")) == {"fetch_started_at": 1000, "payload": payload}
 
 
-def test_rate_limited_taxonomy_is_never_cached_or_sent_to_browser(provider, browser_transport):
+def test_malformed_provider_taxonomy_is_never_cached(provider):
     routes, calls = provider
+    routes["/api/search/v1/categories"] = {"unexpected": "shape"}
+    for _ in range(2):
+        with pytest.raises(CodalRequestError, match="Unexpected CODAL"):
+            list_codal_report_types()
+    assert calls == [(codal._TAXONOMY, None)] * 2
+    assert codal._taxonomy_cache is None
+    assert not codal._taxonomy_path().exists()
+
+
+@pytest.mark.parametrize("expired_snapshot", [False, True])
+def test_rate_limited_taxonomy_is_never_cached_or_sent_to_browser(
+    provider, browser_transport, monkeypatch, taxonomy_clock, expired_snapshot,
+):
+    routes, calls = provider
+    path = codal._taxonomy_path()
+    if expired_snapshot:
+        list_codal_report_types()
+        stale = path.read_bytes()
+        monkeypatch.setattr(codal, "_taxonomy_cache", None)
+        taxonomy_clock[0] = 1600
+        calls.clear()
     routes["/api/search/v1/categories"] = (429, {"Retry-After": "60"}, {})
     with pytest.raises(CodalRequestError, match=r"HTTP 429.*Retry-After: 60.*Avoid retrying immediately"):
         search_codal_filings("نمونه", "گزارش ماهانه", interactive=True)
+    taxonomy_clock[0] += 59
+    with pytest.raises(CodalRequestError, match=r"HTTP 429.*Retry-After: 60"):
+        search_codal_filings("نمونه", "گزارش ماهانه", interactive=True)
     assert calls == [(codal._TAXONOMY, None)]
-    assert not codal._taxonomy_path().exists()
+    if expired_snapshot:
+        assert path.read_bytes() == stale
+    else:
+        assert not path.exists()
     assert codal._taxonomy_cache is None
     assert not browser_transport.events
 
@@ -262,8 +384,10 @@ def test_pagination_keeps_corrections_filters_false_issuer_and_is_complete(provi
     assert search_codal_filings("نمونه", "گزارش ماهانه").empty
 
 
-def test_monthly_download_validates_revisions_and_normalizes_real_grid_contract(provider, monthly_payload):
-    routes, _ = provider
+def test_monthly_download_validates_revisions_and_normalizes_real_grid_contract(
+    provider, monthly_payload, taxonomy_clock,
+):
+    routes, calls = provider
     one, two = _letter(11, "a"), _letter(12, "b", corrected=True)
     routes[3, 58, 1] = _results(two, one)
     original = dict(monthly_payload, tracingNo=11, kind=0)
@@ -274,8 +398,19 @@ def test_monthly_download_validates_revisions_and_normalizes_real_grid_contract(
     assert len(result) == 230
     assert result.attrs["RevisionTracingNos"] == [11, 12]
     assert result.attrs["Filing"]["LetterCode"] == "ن-۳۰"
+    assert result.attrs["Filing"]["IsCorrected"] is True
     assert set(result.TracingNo) == {12}
+    assert set(result.Symbol) == {"نمونه"}
+    assert set(result.ReportPeriodEndJalaliDate) == {CURRENT}
     assert set(result.ContentSha256) == {sha256(routes["b", None]).hexdigest()}
+
+    calls.clear()
+    taxonomy_clock[0] = 1600
+    refreshed = get_codal_data("نمونه", "گزارش عملکرد ماهانه", "۱۴۰۴/۰۷")
+    assert calls[0] == (codal._TAXONOMY, None)
+    assert_frame_equal(refreshed, result, check_exact=True)
+    assert refreshed.attrs == result.attrs
+
     ambiguous = _letter(13, "c")
     unrelated = dict(monthly_payload, tracingNo=13, kind=0)
     routes["c", None] = _html(unrelated, "c")
