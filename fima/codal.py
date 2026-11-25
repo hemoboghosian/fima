@@ -300,17 +300,20 @@ def _taxonomy_path():
 def _read_taxonomy_snapshot(path):
     try:
         snapshot = json.loads(path.read_text(encoding="utf-8"))
-        fetched_at = snapshot["fetched_at"]
+        # Older snapshots recorded the end of validation, so their fetch time is unknown.
+        fetch_started_at = snapshot["fetch_started_at"]
+        now_monotonic = monotonic()
         now = time()
-        if type(fetched_at) not in (int, float) or not now - _TAXONOMY_TTL < fetched_at <= now:
+        if (type(fetch_started_at) not in (int, float)
+                or not now - _TAXONOMY_TTL < fetch_started_at <= now):
             return None
-        deadline = monotonic() + (_TAXONOMY_TTL - (now - fetched_at))
+        deadline = now_monotonic + (_TAXONOMY_TTL - (now - fetch_started_at))
         return deadline, tuple(_taxonomy(snapshot["payload"]))
     except (OSError, ValueError, TypeError, KeyError, RecursionError):
         return None
 
 
-def _write_taxonomy_snapshot(path, fetched_at, payload):
+def _write_taxonomy_snapshot(path, fetch_started_at, payload):
     temporary = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -318,7 +321,7 @@ def _write_taxonomy_snapshot(path, fetched_at, payload):
             mode="w", encoding="utf-8", dir=path.parent, suffix=".tmp", delete=False,
         ) as file:
             temporary = Path(file.name)
-            json.dump({"fetched_at": fetched_at, "payload": payload}, file)
+            json.dump({"fetch_started_at": fetch_started_at, "payload": payload}, file)
         temporary.replace(path)
     except (OSError, RecursionError):
         pass  # Ignore disk and serialization failures for the optional snapshot.
@@ -342,11 +345,13 @@ def _issuer_taxonomy(session):
             _taxonomy_cache = snapshot
             return snapshot[1]
 
+        deadline = monotonic() + _TAXONOMY_TTL
+        fetch_started_at = time()
         payload = _get(session, _TAXONOMY)
         records = tuple(_taxonomy(payload))
-        _taxonomy_cache = (monotonic() + _TAXONOMY_TTL, records)
+        _taxonomy_cache = (deadline, records)
         if path is not None:
-            _write_taxonomy_snapshot(path, time(), payload)
+            _write_taxonomy_snapshot(path, fetch_started_at, payload)
         return records
 
 
