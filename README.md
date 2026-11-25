@@ -65,6 +65,7 @@ print(df[["ProductName", "PeriodBasis", "Metric", "Value", "Unit", "Scale"]].hea
 | KILID | [محدوده‌ها و میانهٔ قیمت پیشنهادی آگهی آپارتمان](https://github.com/hemoboghosian/fima/blob/master/docs/kilid.md)؛ قیمت آگهی با معاملهٔ قطعی تفاوت دارد |
 | کدال | [دریافت گزارش و صورت‌های مالی با نام فارسی](https://github.com/hemoboghosian/fima/blob/master/docs/codal.md) |
 | Damodaran | [صرف ریسک کشور، بتای صنعت و هزینه سرمایه](https://github.com/hemoboghosian/fima/blob/master/docs/damodaran.md) در نسخه‌های تأییدشده |
+| World Bank | [کشف شاخص‌ها و دریافت سری‌های سالانهٔ شاخص‌های توسعهٔ جهانی (WDI)](https://github.com/hemoboghosian/fima/blob/master/docs/world-bank.md) |
 | IMF | [کشف شاخص و دریافت سری‌های سالانهٔ منتخب WEO](https://github.com/hemoboghosian/fima/blob/master/docs/imf.md)؛ شامل برآورد و پیش‌بینی نیز می‌شود |
 | TSEInstitutions | [فهرست نهادهای مالی](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md#financial-institution-directory) |
 
