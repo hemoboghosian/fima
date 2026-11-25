@@ -102,6 +102,15 @@ remains `Unknown` because country-specific actual/estimate/projection boundaries
 are unavailable. Client-side geographic/year filtering is explicit. See the
 [IMF guide](imf.md) for schemas, completeness limits and statistical-data terms.
 
+Damodaran snapshots use `Edition="YYYY-MM"`, the publisher's `SourceUpdateDate`,
+and a UTC `RetrievedAt`. All `Percent` columns use percentage points. Beta
+and `HiLoRisk` are dimensionless. The cost of capital basis is `Currency="USD"`.
+`IndustryClassification` identifies a source edition and geography, and
+`RowType` distinguishes industries from market aggregates. Country names
+are source labels, and `CdsBenchmark` identifies the reference sovereign
+for net CDS spreads. See the [Damodaran guide](damodaran.md) for schemas
+and observation-date limitations.
+
 ## Ordering, missing results and model rates
 
 There is no universal ordering/failure policy across older adapters. TSETMC raw

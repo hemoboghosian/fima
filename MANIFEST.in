@@ -13,6 +13,7 @@ include docs/ime-audit.md
 include docs/kilid.md
 include docs/codal.md
 include docs/imf.md
+include docs/damodaran.md
 
 prune unreleased
 prune test
