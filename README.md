@@ -1,6 +1,6 @@
 # fima
 
-با این کتابخانهٔ پایتون می‌توانید داده‌های بازارهای مالی ایران را برای تحلیل و پژوهش دریافت کنید؛ از تاریخچهٔ سهام و اطلاعات صندوق‌ها تا قیمت طلا و ارز، اختیار معامله، بورس کالا، سری‌های بانک مرکزی، مسکن و شاخص‌های اقتصادی IMF.
+با این کتابخانهٔ پایتون می‌توانید داده‌های بازارهای مالی ایران و برخی داده‌های جهانی را برای تحلیل و پژوهش دریافت کنید، از تاریخچهٔ سهام و اطلاعات صندوق‌ها تا قیمت طلا و ارز، اختیار معامله، بورس کالا، سری‌های بانک مرکزی، مسکن، شاخص‌های اقتصادی IMF و داده‌های ارزش‌گذاری داموداران.
 
 ## نصب
 
@@ -64,6 +64,7 @@ print(df[["ProductName", "PeriodBasis", "Metric", "Value", "Unit", "Scale"]].hea
 | CBI | [نرخ‌های سیاستی، تورم و دو مجموعهٔ مستقل نرخ ارز](https://github.com/hemoboghosian/fima/blob/master/docs/cbi.md) |
 | KILID | [محدوده‌ها و میانهٔ قیمت پیشنهادی آگهی آپارتمان](https://github.com/hemoboghosian/fima/blob/master/docs/kilid.md)؛ قیمت آگهی با معاملهٔ قطعی تفاوت دارد |
 | کدال | [دریافت گزارش و صورت‌های مالی با نام فارسی](https://github.com/hemoboghosian/fima/blob/master/docs/codal.md) |
+| Damodaran | [صرف ریسک کشور، بتای صنعت و هزینه سرمایه](https://github.com/hemoboghosian/fima/blob/master/docs/damodaran.md) در نسخه‌های تأییدشده |
 | IMF | [کشف شاخص و دریافت سری‌های سالانهٔ منتخب WEO](https://github.com/hemoboghosian/fima/blob/master/docs/imf.md)؛ شامل برآورد و پیش‌بینی نیز می‌شود |
 | TSEInstitutions | [فهرست نهادهای مالی](https://github.com/hemoboghosian/fima/blob/master/docs/markets.md#financial-institution-directory) |
 

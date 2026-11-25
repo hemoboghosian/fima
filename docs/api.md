@@ -2,7 +2,7 @@
 
 [شروع کار](../README.md) | [قرارداد داده‌ها](data-conventions.md)
 
-تمام ۹۱ تابع زیر از `fima` و ماژول عمومی مربوط قابل واردسازی‌اند. امضاها ترتیب، آرگومان‌های الزامی، پیش‌فرض‌ها و مرز `*` برای آرگومان‌های صرفاً نام‌دار را نشان می‌دهند؛ نوع‌ها و توضیحات کامل در `help(fima.function)` و راهنمای هر منبع آمده‌اند. از import صریح استفاده کنید.
+توابع زیر از `fima` و ماژول عمومی مربوط قابل واردسازی‌اند. امضاها ترتیب، آرگومان‌های الزامی، پیش‌فرض‌ها و مرز `*` برای آرگومان‌های صرفاً نام‌دار را نشان می‌دهند؛ نوع‌ها و توضیحات کامل در `help(fima.function)` و راهنمای هر منبع آمده‌اند. از import صریح استفاده کنید.
 
 برای انتخاب شناسه، ابتدا ابزار کشف همان منبع را بخوانید. شناسه‌های پویا `Literal` نیستند؛ انتخاب‌های کوچکِ واقعاً محدود در annotation مشخص شده‌اند. این نوع‌ها کنترل جدیدی در زمان اجرا اعمال نمی‌کنند. نمایش پیشنهادها به ویرایشگر و تنظیمات آن وابسته است.
 
@@ -176,6 +176,15 @@
 | `get_imf_indicators(dataset=None, search=None)` | Discover supported annual WEO indicators, definitions and native units. |
 | `get_imf_countries(include_aggregates=False)` | Discover exact source geographic IDs; they are not all ISO country codes. |
 | `get_imf_series(indicator, countries, start_year, end_year)` | Retrieve one WEO annual indicator for explicit geographies and years. |
+
+## `fima.DAMODARAN`
+
+[راهنمای داده‌های ارزش‌گذاری، نسخه‌ها و واحدها](damodaran.md)
+
+| امضای تابع | کاربرد |
+| --- | --- |
+| `get_damodaran_datasets(dataset=None, *, include_history=False, refresh=False)` | Discover supported country risk, industry beta and cost of capital workbook editions. |
+| `get_damodaran_data(dataset, *, region=None, edition=None, refresh=False)` | Retrieve one published Damodaran snapshot with units and provenance. |
 
 ## `fima.codal`
 
