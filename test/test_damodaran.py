@@ -404,6 +404,28 @@ def test_http_failures_are_scoped_and_do_not_retry_permanent_failures(provider, 
     assert not dam._artifacts
 
 
+def test_requests_does_not_read_the_body_of_an_untrusted_redirect(monkeypatch):
+    class RedirectBody:
+        def stream(self, *args, **kwargs):
+            pytest.fail("The redirect body must not be read")
+
+        def close(self):
+            pass
+
+    def send(adapter, request, **kwargs):
+        assert request.url == JULY and kwargs["stream"]
+        response = requests.Response()
+        response.status_code = 302
+        response.headers["Location"] = "https://other.invalid/ctryprem.xlsx"
+        response.url = request.url
+        response.raw = RedirectBody()
+        return response
+
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", send)
+    with dam._Session() as session, pytest.raises(dam._SourceError, match="Unsafe source URL"):
+        dam._download(session, JULY, "xlsx")
+
+
 def test_size_limit_without_content_length(provider, monkeypatch):
     routes, _ = provider
     get_damodaran_datasets()

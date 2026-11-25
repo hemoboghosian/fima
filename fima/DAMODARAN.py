@@ -112,6 +112,13 @@ class _SourceError(ValueError):
     """An invalid provider response or unsupported layout."""
 
 
+class _Session(requests.Session):
+    def get_redirect_target(self, response):
+        # Requests otherwise reads the body to prepare a redirect even with
+        # allow_redirects=False. The downloader checks Location before each hop.
+        return None
+
+
 @dataclass(frozen=True)
 class _Download:
     url: str
@@ -166,7 +173,7 @@ def _official_url(url, file_format=None):
     parts = urlsplit(url)
     if (not url.startswith(_HOME) or parts.netloc != "pages.stern.nyu.edu"
             or parts.query or parts.fragment):
-        raise _SourceError("Unsafe source URL; expected the official NYU Stern HTTPS origin")
+        raise _SourceError("Unsafe source URL outside the official NYU Stern HTTPS origin")
     if file_format is None:
         if url not in (_CURRENT, _ARCHIVE):
             raise _SourceError(f"Unexpected catalog URL {url!r}")
@@ -197,7 +204,7 @@ def _retry_delay(response):
         except (ValueError, TypeError, OverflowError) as exc:
             raise _SourceError(f"HTTP {response.status_code} with invalid Retry-After") from exc
     if delay > 5:
-        raise _SourceError(f"HTTP {response.status_code}; source requests a longer retry delay")
+        raise _SourceError(f"HTTP {response.status_code} with a longer retry delay than supported")
     return delay
 
 
@@ -440,7 +447,7 @@ def get_damodaran_datasets(
     datasets = (_dataset(dataset),) if dataset is not None else _FAMILIES
     _flag(include_history, "include_history")
     _flag(refresh, "refresh")
-    with requests.Session() as session:
+    with _Session() as session:
         current = _catalog(session, _CURRENT, refresh)
         archived = _catalog(session, _ARCHIVE, refresh) if include_history else {}
     rows = []
@@ -950,7 +957,7 @@ def get_damodaran_data(
         if edition not in family.editions:
             raise ValueError(f"Unverified edition {edition} for {key}. Choose from {', '.join(family.editions)}.")
 
-    with requests.Session() as session:
+    with _Session() as session:
         if edition == "2025-01":
             archive = _catalog(session, _ARCHIVE, refresh)
             entry = archive[key].get((canonical_region, edition))
