@@ -64,6 +64,7 @@ def test_published_imports_and_signatures_preserved_with_only_approved_additions
         'calculate_contract_metrics', 'calculate_expiration_payoff', 'get_codal_report', 'get_codal_tables',
         'get_codal_monthly_activity', 'get_codal_financial_statements',
         'get_damodaran_datasets', 'get_damodaran_data',
+        'get_world_bank_sources', 'get_world_bank_countries', 'get_world_bank_indicators', 'get_world_bank_series',
         'get_codal_data', 'search_codal_filings', 'fetch_codal_report', 'list_codal_report_types',
     }
     for name in BASELINE:

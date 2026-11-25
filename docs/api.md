@@ -186,6 +186,17 @@
 | `get_damodaran_datasets(dataset=None, *, include_history=False, refresh=False)` | Discover supported country risk, industry beta and cost of capital workbook editions. |
 | `get_damodaran_data(dataset, *, region=None, edition=None, refresh=False)` | Retrieve one published Damodaran snapshot with units and provenance. |
 
+## `fima.WORLD_BANK`
+
+| API | Description |
+| --- | --- |
+| `get_world_bank_sources()` | Discover the supported World Development Indicators source (`2`). |
+| `get_world_bank_countries(include_aggregates=False, *, search=None, source="WDI")` | Find WDI economies, territories and optional aggregates by code or name. |
+| `get_world_bank_indicators(search=None, *, source="WDI")` | Search the WDI catalog and retrieve indicator definitions, publishers and topics. |
+| `get_world_bank_series(indicator, countries, start_year, end_year, *, source="WDI")` | Retrieve one annual WDI indicator by exact code for up to 20 geographies. |
+
+See the [World Bank guide](world-bank.md) for typed signatures, schemas, examples and provenance.
+
 ## `fima.codal`
 
 [راهنمای دریافت خودکار گزارش با نام فارسی](codal.md)

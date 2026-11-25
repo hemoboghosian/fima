@@ -31,6 +31,8 @@ from .KILID import (get_kilid_areas, get_kilid_house_price_history,
 from .DAMODARAN import get_damodaran_datasets, get_damodaran_data
 from .IMF import (get_imf_datasets, get_imf_indicators,
                   get_imf_countries, get_imf_series)
+from .WORLD_BANK import (get_world_bank_sources, get_world_bank_countries,
+                         get_world_bank_indicators, get_world_bank_series)
 from .codal_reports import (get_codal_report, get_codal_tables, get_codal_monthly_activity,
                             get_codal_financial_statements)
 from .codal import fetch_codal_report, get_codal_data, list_codal_report_types, search_codal_filings

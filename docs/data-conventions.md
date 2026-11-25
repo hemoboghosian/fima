@@ -111,6 +111,15 @@ are source labels, and `CdsBenchmark` identifies the reference sovereign
 for net CDS spreads. See the [Damodaran guide](damodaran.md) for schemas
 and observation-date limitations.
 
+World Bank WDI (`SourceId="2"`) preserves exact provider geography and indicator
+codes, native annual `Period` strings (`YYYY`), and financial definitions. A
+percentage value of `12.5` stays `12.5`. Units are missing when the available
+evidence cannot establish one. JSON nulls stay visible as `NaN` rows and
+omitted years appear in `Coverage`. The provider update date and UTC retrieval
+time are separate from the observation period. Reconciled page totals verify
+transfer, and `Coverage` describes available history. See the
+[World Bank guide](world-bank.md) for schemas, revisions and attribution.
+
 ## Ordering, missing results and model rates
 
 There is no universal ordering/failure policy across older adapters. TSETMC raw
