@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.21.0
+
+### New in WORLD_BANK
+
+- Use `get_world_bank_sources`, `get_world_bank_countries`, and
+  `get_world_bank_indicators` to discover the supported World Development
+  Indicators (WDI) source, find economies and aggregates, and search indicator
+  codes and definitions. `get_world_bank_series` retrieves annual history for
+  one indicator across up to 20 geographies. fima calls the official World
+  Bank API and reconciles paginated results automatically. An API key and
+  manual downloads are unnecessary.
+- Retrieval validates source, indicator, geography, and year scope. It
+  preserves native financial values, including percentages in percentage
+  points, and reports units when supported by provider evidence. Results
+  include indicator definitions, observation status and footnotes when
+  supplied, and coverage that distinguishes returned nulls from omitted
+  years. The World Bank source update date and UTC retrieval time are
+  recorded separately.
+- Coverage is limited to annual observations from WDI (source 2). Other World
+  Bank databases are unsupported. Results reflect the current snapshot, which
+  can revise historical observations. Historical publication vintages are
+  outside the API's scope. Coverage varies by indicator and geography, and
+  units may be missing when provider metadata is uncertain or inconsistent.
+  Retrieval depends on the World Bank API's availability. See the
+  [World Bank guide](docs/world-bank.md).
+
 ## 0.20.0
 
 ### New in DAMODARAN
