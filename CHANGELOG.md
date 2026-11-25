@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.20.0
+
+### New in DAMODARAN
+
+- Use `get_damodaran_datasets` to discover official NYU Stern workbooks and
+  `get_damodaran_data` to download country risk premiums, industry betas, and
+  industry cost of capital. Industry data covers Global and US markets.
+  Discovery includes selected archived editions. A standard installation
+  includes `xlrd` for XLS and `openpyxl` for XLSX.
+- Retrieval validates the source layout, edition, and revision. It preserves
+  published values, financial units, missing values, and edition-specific
+  industry classifications. Publisher revision dates and download times are
+  recorded separately.
+- Coverage is limited to three verified dataset families and selected editions.
+  Company-level commercial data and automatic historical industry crosswalks
+  are outside the API's scope. New workbook layouts require verification, and
+  availability depends on NYU Stern. See the [Damodaran guide](docs/damodaran.md).
+
 ## 0.19.1
 
 - A standard `pip install fima` now installs Playwright. The
