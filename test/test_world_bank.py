@@ -217,22 +217,24 @@ def test_annual_values_and_coverage(wire):
 
 
 @pytest.mark.parametrize(("name", "signature", "schema"), [
-    ("sources", "() -> pandas.core.frame.DataFrame",
+    ("sources", "()",
      "SourceId SourceCode Source SourceUpdateDate DataAvailable:boolean MetadataAvailable:boolean SourceURL"),
     ("countries", "(include_aggregates: bool = False, *, search: str | None = None, "
-     "source: Literal['WDI'] = 'WDI') -> pandas.core.frame.DataFrame",
+     "source: Literal['WDI'] = 'WDI')",
      "Country CountryName CountryCode2 GeographyType Region IncomeLevel LendingType SourceId"),
-    ("indicators", "(search: str | None = None, *, source: Literal['WDI'] = 'WDI') -> pandas.core.frame.DataFrame",
+    ("indicators", "(search: str | None = None, *, source: Literal['WDI'] = 'WDI')",
      "Indicator IndicatorName Description SourceId Source SourceOrganization Unit TopicIds:object Topics:object"),
     ("series", "(indicator: str, countries: str | list[str] | tuple[str, ...], start_year: int, "
-     "end_year: int, *, source: Literal['WDI'] = 'WDI') -> pandas.core.frame.DataFrame",
+     "end_year: int, *, source: Literal['WDI'] = 'WDI')",
      "Country CountryName GeographyType Indicator IndicatorName SourceId Source Period Frequency "
      "Value:float64 Unit ObservationStatus Footnote Decimals:Int64"),
 ])
 def test_schema_and_public_signature(wire, name, signature, schema):
     function = getattr(wb, f"get_world_bank_{name}")
     assert getattr(fima, function.__name__) is function
-    assert str(inspect.signature(function)) == signature
+    public_signature = inspect.signature(function)
+    assert public_signature.return_annotation is pd.DataFrame
+    assert str(public_signature.replace(return_annotation=inspect.Signature.empty)) == signature
     columns = [field.split(":", 1) for field in schema.split()]
     populated = function(CPI, ["IRN", "USA"], 2023, 2025) if name == "series" else function()
     frames = [populated]
