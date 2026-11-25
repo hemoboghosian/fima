@@ -60,7 +60,7 @@ def test_source_geography_and_indicator_discovery(captured):
 @pytest.mark.parametrize("code, geos, unit, definition_fragment", [
     ("NY.GDP.MKTP.CD", ["IRN", "USA", "BRA"], "current US$", "gross domestic product"),
     ("FP.CPI.TOTL.ZG", ["IRN", "USA", "HIC"], "%", "consumer price index"),
-    ("FP.CPI.TOTL", ["IRN", "USA"], "index (2010 = 100)", "consumer price index"),
+    ("FP.CPI.TOTL", ["IRN", "USA"], "index (2010 = 100)", "prices of consumption goods and services"),
     ("PA.NUS.FCRF", ["IRN", "BRA"], "LCU per US$", "official exchange rate"),
     ("FS.AST.PRVT.GD.ZS", ["IRN", "BRA"], "%", "private sector"),
     ("BX.KLT.DINV.WD.GD.ZS", ["IRN", "BRA"], "%", "divided by gdp"),
@@ -83,7 +83,12 @@ def test_series_matches_the_official_responses(captured, code, geos, unit, defin
     official_indicator = captured[f"source/2/indicator/{code}"][0][1][0]
     assert official_indicator["source"]["id"] == "2"
     assert frame.attrs["IndicatorMetadata"]["Description"] == official_indicator["sourceNote"]
-    assert definition_fragment in frame.attrs["IndicatorMetadata"]["LongDefinition"].casefold()
+    metadata_pages = captured[f"sources/2/series/{code}/metadata"]
+    definitions = [item["value"] for page in metadata_pages
+                   for item in page["source"][0]["concept"][0]["variable"][0]["metatype"]
+                   if item["id"] == "Longdefinition"]
+    assert definitions == [frame.attrs["IndicatorMetadata"]["LongDefinition"]]
+    assert definition_fragment in definitions[0].casefold()
     assert frame.Unit.unique().tolist() == [unit]
     for row in frame.itertuples(index=False):
         source = records[row.Country, row.Period]
